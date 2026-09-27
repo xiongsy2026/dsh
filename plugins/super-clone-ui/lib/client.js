@@ -234,6 +234,15 @@ body {
       { id: "account-2", label: "账号2" },
     ];
 
+    // ---- 技能下拉框 ----
+    // 客户选一个 skill 就走那个 skill 的工作流；
+    // 默认不选 = 不挂任何 skill，纯对话。
+    // 列表来源：c:\dsh\.dsh\skills\<name>\SKILL.md 的 name 字段
+    const SKILLS = [
+      { id: "omni", label: "Omni 出片", prompt: "/omni " },
+      // 后续真账号接入后，从 .dsh/skills 目录扫描自动生成
+    ];
+
     function insertComposerText(text) {
       try {
         const ta = document.querySelector('textarea[data-dsh], textarea[role="textbox"], textarea');
@@ -378,25 +387,57 @@ body {
       return null;
     }
 
+    let __wsAcctMounting = false;
     function mountNativeAccountSwitcher() {
+      if (__wsAcctMounting) return;
       const host = findNativeModeTrigger();
       if (!host) return;
       if (host.dataset.wsAcctReplaced === "1") return;
       const parent = host.parentElement;
       if (!parent) return;
+      // 只在当前 parent 内没有 ws-acct 节点时才挂载，不删除任何已挂节点
       if (parent.querySelector('[data-ws-acct="1"]')) return;
-      // 隐藏原生按钮，原位挂账号切换器
-      host.style.setProperty("display", "none", "important");
-      host.dataset.wsAcctReplaced = "1";
-      parent.insertBefore(buildNativeAccountSwitcher(), host);
+      __wsAcctMounting = true;
+      try {
+        host.style.setProperty("display", "none", "important");
+        host.dataset.wsAcctReplaced = "1";
+        parent.insertBefore(buildNativeAccountSwitcher(), host);
+      } catch (e) {
+      } finally {
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(function () { __wsAcctMounting = false; });
+        } else {
+          setTimeout(function () { __wsAcctMounting = false; }, 50);
+        }
+      }
     }
 
     function injectNativeAccountSwitcher() {
       if (typeof document === "undefined" || !document.body) return;
       try { mountNativeAccountSwitcher(); } catch (e) {}
-      const mo = new MutationObserver(function () {
-        try { mountNativeAccountSwitcher(); } catch (e) {}
-      });
+      // 节流：300ms 内只跑一次
+      let scheduled = false;
+      let lastRun = 0;
+      function onMutations() {
+        if (scheduled) return;
+        const now = Date.now();
+        if (now - lastRun < 300) return;
+        scheduled = true;
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(function () {
+            scheduled = false;
+            lastRun = Date.now();
+            try { mountNativeAccountSwitcher(); } catch (e) {}
+          });
+        } else {
+          setTimeout(function () {
+            scheduled = false;
+            lastRun = Date.now();
+            try { mountNativeAccountSwitcher(); } catch (e) {}
+          }, 50);
+        }
+      }
+      const mo = new MutationObserver(onMutations);
       mo.observe(document.body, { childList: true, subtree: true });
       if (!__wsOutsideBound) {
         __wsOutsideBound = true;
@@ -409,6 +450,405 @@ body {
               const b = w.querySelector('.ws-acct-btn');
               if (b) b.classList.remove("ws-open");
             }
+          });
+        });
+      }
+    }
+
+    // ---- 技能下拉框（composer 工具栏） ----
+    // 不用原生 <select>（其下拉菜单是浏览器 user-agent 渲染，无法深色化）。
+    // 用自定义 div 下拉，样式克隆 DSH "完全权限"按钮和它的下拉菜单：
+    //   - 触发器：胶囊形按钮，克隆 templateBtn 的 className
+    //   - 菜单：克隆 templateBtn 关联的下拉 pop（aria-controls 或 nextElementSibling）的 className
+    //   - 菜单项：克隆 template pop 里第一个 menuitem 的 className
+    // 默认显示"技能"占位（不预选）；选一个 skill 走对应工作流。
+    let __wsSkillOutsideBound = false;
+    function buildNativeSkillPicker(templateBtn) {
+      // 找原权限下拉的 pop 节点（作为菜单样式模板）
+      let templatePop = null;
+      const ctrlId = templateBtn ? templateBtn.getAttribute("aria-controls") : null;
+      if (ctrlId) templatePop = document.getElementById(ctrlId);
+      if (!templatePop && templateBtn) {
+        let n = templateBtn.nextElementSibling;
+        while (n) {
+          if (n.nodeType === 1 && (n.getAttribute("role") === "menu" || n.getAttribute("role") === "listbox" || n.tagName === "DIV")) {
+            templatePop = n; break;
+          }
+          n = n.nextElementSibling;
+        }
+      }
+      // 模板菜单项
+      let templateItem = null;
+      if (templatePop) {
+        templateItem = templatePop.querySelector('[role="menuitem"], [role="option"], button, li, a');
+      }
+
+      // ----- 触发器按钮：克隆 templateBtn 的 className（外观），内部自建文字 + 三角 -----
+      // 不 cloneNode(true) — 保留 React state 引用会触发原权限下拉。
+      // 只复制 className 让外观（背景/边框/圆角/字号）与原生按钮一致。
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("data-ws-skill-trigger", "1");
+      btn.setAttribute("aria-expanded", "false");
+      btn.setAttribute("aria-haspopup", "true");
+      const hasBtnTpl = !!(templateBtn && templateBtn.className);
+      if (hasBtnTpl) btn.className = templateBtn.className;
+      // 布局属性始终保留；外观（圆角/底色/边框/内边距/字号/字色）只在没有
+      // 模板 className 时才用兜底值——内联样式会无条件覆盖 className，
+      // 曾导致克隆的权限胶囊（radius 24px）被改成 8px 深色矩形。
+      btn.style.display = "inline-flex";
+      btn.style.alignItems = "center";
+      btn.style.gap = "6px";
+      btn.style.cursor = "pointer";
+      btn.style.outline = "none";
+      if (!hasBtnTpl) {
+        btn.style.padding = "6px 12px";
+        btn.style.borderRadius = "8px";
+        btn.style.fontFamily = "inherit";
+        btn.style.fontSize = "13px";
+        btn.style.fontWeight = "500";
+        btn.style.color = "#f5f5f5";
+        btn.style.background = "#1d1d1d";
+        btn.style.border = "1px solid rgba(255,255,255,.12)";
+      }
+
+      // 文字 span（独立节点，便于后续替换）
+      const btnText = document.createElement("span");
+      btnText.setAttribute("data-ws-skill-text", "1");
+      btnText.textContent = "技能";
+      btn.appendChild(btnText);
+
+      // 下拉箭头（CSS border 三角）
+      const btnCaret = document.createElement("span");
+      btnCaret.setAttribute("data-ws-skill-caret", "1");
+      btnCaret.style.display = "inline-block";
+      btnCaret.style.width = "0";
+      btnCaret.style.height = "0";
+      btnCaret.style.borderLeft = "4px solid transparent";
+      btnCaret.style.borderRight = "4px solid transparent";
+      btnCaret.style.borderTop = "5px solid currentColor";
+      btnCaret.style.opacity = "0.6";
+      btnCaret.style.marginLeft = "2px";
+      btn.appendChild(btnCaret);
+
+      function setBtnText(text) {
+        btnText.textContent = text;
+      }
+
+      // ----- 菜单 pop：克隆 templatePop 的样式 -----
+      const pop = templatePop ? templatePop.cloneNode(false) : document.createElement("div");
+      pop.setAttribute("data-ws-skill-pop", "1");
+      pop.style.display = "none";
+      // 清空内容
+      while (pop.firstChild) pop.removeChild(pop.firstChild);
+      // 如果没有模板，用兜底深色样式
+      if (!templatePop) {
+        pop.style.position = "absolute";
+        pop.style.top = "calc(100% + 6px)";
+        pop.style.left = "0";
+        pop.style.minWidth = "180px";
+        pop.style.background = "#181818";
+        pop.style.border = "1px solid rgba(255,255,255,.14)";
+        pop.style.borderRadius = "10px";
+        pop.style.padding = "6px";
+        pop.style.boxShadow = "0 12px 32px rgba(0,0,0,.55)";
+        pop.style.zIndex = "9999";
+        pop.style.display = "none";
+        pop.style.flexDirection = "column";
+        pop.style.gap = "2px";
+      }
+
+      // wrap：相对定位，承载按钮和 pop
+      const wrap = document.createElement("div");
+      wrap.setAttribute("data-ws-skill", "1");
+      wrap.style.display = "inline-flex";
+      wrap.style.alignItems = "center";
+      wrap.style.position = "relative";
+
+      let currentSkillId = null;
+      let open = false;
+
+      // 构建菜单项
+      function buildItem(skill, isActive, onClick) {
+        let r;
+        if (templateItem) {
+          r = templateItem.cloneNode(false);
+          if (templateItem.className) r.className = templateItem.className;
+          if (templateItem.getAttribute("role")) r.setAttribute("role", templateItem.getAttribute("role"));
+        } else {
+          r = document.createElement("button");
+          r.type = "button";
+          r.setAttribute("role", "menuitem");
+          // 兜底深色样式
+          r.style.appearance = "none";
+          r.style.outline = "none";
+          r.style.cursor = "pointer";
+          r.style.display = "flex";
+          r.style.alignItems = "center";
+          r.style.gap = "8px";
+          r.style.padding = "7px 10px";
+          r.style.borderRadius = "6px";
+          r.style.border = "none";
+          r.style.fontFamily = "inherit";
+          r.style.fontSize = "13px";
+          r.style.fontWeight = "500";
+          r.style.color = "#d9d9d9";
+          r.style.background = "transparent";
+          r.style.textAlign = "left";
+          r.style.width = "100%";
+        }
+        r.setAttribute("data-ws-skill-row", skill.id);
+        if (isActive) r.setAttribute("data-ws-active", "1");
+        // 清空内容
+        while (r.firstChild) r.removeChild(r.firstChild);
+        const n = document.createElement("span");
+        n.textContent = skill.label;
+        r.appendChild(n);
+        r.addEventListener("click", onClick);
+        return r;
+      }
+
+      const skillRows = SKILLS.map(function (s) {
+        const r = buildItem(s, currentSkillId === s.id, function (e) {
+          e.stopPropagation();
+          currentSkillId = s.id;
+          try { window.__WEEKSIR_SKILL__ = s.id; } catch (e2) {}
+          setBtnText(s.label);
+          renderRows();
+          setOpen(false);
+          insertComposerText(s.prompt);
+        });
+        pop.appendChild(r);
+        return r;
+      });
+
+      function renderRows() {
+        skillRows.forEach(function (r) {
+          if (r.getAttribute("data-ws-skill-row") === currentSkillId) {
+            r.setAttribute("data-ws-active", "1");
+          } else {
+            r.removeAttribute("data-ws-active");
+          }
+        });
+      }
+      function setOpen(v) {
+        open = v;
+        pop.style.display = open ? "flex" : "none";
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      // 重绑 btn click（cloneNode 不复制事件，避免触发原生权限下拉）
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        setOpen(!open);
+      });
+      btn.addEventListener("mousedown", function (e) { e.stopPropagation(); }, true);
+      btn.addEventListener("pointerdown", function (e) { e.stopPropagation(); }, true);
+
+      wrap.appendChild(btn);
+      wrap.appendChild(pop);
+      renderRows();
+      setBtnText("技能");
+      try { window.__WEEKSIR_SKILL__ = null; } catch (e) {}
+      return wrap;
+    }
+
+    // 找 composer 工具栏容器（包含附件、权限、技能、发送等按钮的父容器）。
+    // 策略：先试通用 selector；退路找发送按钮或附件按钮的父容器。
+    function findComposerToolbar() {
+      const selectors = [
+        'form [role="toolbar"]',
+        '[data-composer-toolbar]',
+        '[data-input-toolbar]',
+        '[data-composer-actions]',
+        '[data-input-actions]',
+      ];
+      for (let i = 0; i < selectors.length; i++) {
+        const el = document.querySelector(selectors[i]);
+        if (el && el.children.length >= 2) return el;
+      }
+      // 退路：找发送按钮 / 附件按钮作为锚点，向上找"同时包含附件和发送"
+      // 的工具栏行（新 UI = uV2eYG_row）。不能只返回锚点的直接父容器：
+      // 发送按钮的父容器是右侧 trailing（只含发送），会把技能挂成蓝色圆圈。
+      const sendBtn = document.querySelector(
+        'button[type="submit"], button[aria-label*="send" i], button[aria-label*="发送"]'
+      );
+      const attachSelectors = [
+        'button[aria-label*="attach" i]',
+        'button[aria-label*="附件"]',
+        'button[aria-label*="上传" i]',
+        'button[aria-label*="upload" i]',
+      ];
+      let attachBtn = null;
+      for (let i = 0; i < attachSelectors.length; i++) {
+        const el = document.querySelector(attachSelectors[i]);
+        if (el) { attachBtn = el; break; }
+      }
+      const anchor = sendBtn || attachBtn;
+      if (anchor) {
+        let c = anchor;
+        for (let up = 0; up < 6 && c; up++) {
+          c = c.parentElement;
+          if (!c) break;
+          const hasAttach = !!c.querySelector(
+            'button[aria-label*="attach" i], button[aria-label*="附件"]'
+          );
+          const hasSend = !!c.querySelector(
+            'button[type="submit"], button[aria-label*="send" i], button[aria-label*="发送"]'
+          );
+          if (hasAttach && hasSend) return c; // 工具栏行
+        }
+        if (anchor.parentElement) return anchor.parentElement;
+      }
+      return null;
+    }
+
+    // 找工具栏里任意一个"胶囊按钮"作为样式模板。
+    // 优先顺序：权限按钮（任何文字）→ 发送按钮之外的任意 button → 第一个 button
+    // 注意：技能下拉是独立的，不依赖权限按钮的存在；权限按钮只是用作样式模板的优先候选。
+    function findStyleTemplateBtn(toolbar) {
+      if (!toolbar) return null;
+      // 候选 1：权限 preset 按钮（文字含 完全权限/工作区内修改/仅可查看 之一）
+      const labels = ["完全权限", "工作区内修改", "仅可查看"];
+      const btns = toolbar.querySelectorAll('button, [role="button"], [role="combobox"]');
+      for (let i = 0; i < btns.length; i++) {
+        const t = (btns[i].textContent || "").trim();
+        for (let j = 0; j < labels.length; j++) {
+          if (t.indexOf(labels[j]) !== -1) return btns[i];
+        }
+      }
+      // 候选 2：任意非发送的 button（带文字的，避免图标按钮）
+      for (let i = 0; i < btns.length; i++) {
+        const t = (btns[i].textContent || "").trim();
+        if (t.length > 0 && t.length < 20 && btns[i].type !== "submit") return btns[i];
+      }
+      // 候选 3：第一个 button（实在不行）
+      if (btns.length > 0) return btns[0];
+      return null;
+    }
+
+    // 返回 { host, refNode, templateBtn }：
+    //   host = 工具栏容器
+    //   refNode = 技能按钮应 insertBefore 的参考节点（null → appendChild 末尾）
+    //   templateBtn = 样式模板按钮（null 时退回 builder 内置样式）
+    // 策略：技能下拉独立挂载；若权限按钮存在，紧贴它右边；否则工具栏末尾。
+    function findComposerActionsHost() {
+      const toolbar = findComposerToolbar();
+      if (!toolbar) return { host: null, refNode: null, templateBtn: null };
+      // 优先：找权限按钮，紧贴它右边
+      const labels = ["完全权限", "工作区内修改", "仅可查看"];
+      const btns = toolbar.querySelectorAll('button, [role="button"], [role="combobox"]');
+      let permBtn = null;
+      for (let i = 0; i < btns.length; i++) {
+        const t = (btns[i].textContent || "").trim();
+        for (let j = 0; j < labels.length; j++) {
+          if (t.indexOf(labels[j]) !== -1) { permBtn = btns[i]; break; }
+        }
+        if (permBtn) break;
+      }
+      const templateBtn = permBtn || findStyleTemplateBtn(toolbar);
+      function nextElementSibling(el) {
+        let n = el;
+        while ((n = n.nextSibling)) {
+          if (n.nodeType === 1) return n;
+        }
+        return null;
+      }
+      if (permBtn) {
+        const next = nextElementSibling(permBtn);
+        // host = 权限按钮的父容器：让技能下拉紧跟权限按钮（同一行），
+        // 而不是 appendChild 到整条工具栏末尾（会落到右侧 trailing 区）。
+        const host = permBtn.parentElement || toolbar;
+        return { host: host, refNode: next, templateBtn: templateBtn };
+      }
+      // 无权限按钮：挂到工具栏末尾（发送按钮之前）
+      const sendBtn = toolbar.querySelector(
+        'button[type="submit"], button[aria-label*="send" i], button[aria-label*="发送"]'
+      );
+      if (sendBtn) return { host: toolbar, refNode: sendBtn, templateBtn: templateBtn };
+      return { host: toolbar, refNode: null, templateBtn: templateBtn };
+    }
+
+    let __wsSkillMounting = false;
+    function mountNativeSkillPicker() {
+      if (__wsSkillMounting) return;
+      let loc = findComposerActionsHost();
+      // 找不到 host 时，退路 1：尝试任意 form 内的 composer actions 容器
+      if (!loc.host) {
+        const fallbackHost = document.querySelector(
+          'form [class*="toolbar"], form [class*="actions"], form [class*="row"], form button[type="submit"]'
+        );
+        if (fallbackHost) {
+          // 找到发送按钮或工具栏行，作为 host
+          const host = (fallbackBtn => {
+            // 如果是 button，取它的父容器
+            if (fallbackBtn.tagName === "BUTTON") return fallbackBtn.parentElement || fallbackBtn;
+            return fallbackBtn;
+          })(fallbackHost);
+          loc = { host: host, refNode: null, templateBtn: findStyleTemplateBtn(host) || fallbackHost };
+        }
+      }
+      // 仍找不到 host → 放弃
+      if (!loc.host) return;
+      // 如果当前 host 已有 ws-skill 节点，不重复挂载
+      if (loc.host.querySelector('[data-ws-skill="1"]')) return;
+      // 模板按钮找不到时，传 null（builder 会用兜底样式）
+      const templateBtn = loc.templateBtn || null;
+      __wsSkillMounting = true;
+      try {
+        const node = buildNativeSkillPicker(loc.templateBtn);
+        if (loc.refNode) {
+          loc.host.insertBefore(node, loc.refNode);
+        } else {
+          loc.host.appendChild(node);
+        }
+      } catch (e) {
+      } finally {
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(function () { __wsSkillMounting = false; });
+        } else {
+          setTimeout(function () { __wsSkillMounting = false; }, 50);
+        }
+      }
+    }
+
+    function injectNativeSkillPicker() {
+      if (typeof document === "undefined" || !document.body) return;
+      try { mountNativeSkillPicker(); } catch (e) {}
+      // 节流：300ms 内只跑一次，避免高频 observer 触发卡死页面
+      let scheduled = false;
+      let lastRun = 0;
+      function onMutations() {
+        if (scheduled) return;
+        const now = Date.now();
+        if (now - lastRun < 300) return; // 300ms 节流
+        scheduled = true;
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(function () {
+            scheduled = false;
+            lastRun = Date.now();
+            try { mountNativeSkillPicker(); } catch (e) {}
+          });
+        } else {
+          setTimeout(function () {
+            scheduled = false;
+            lastRun = Date.now();
+            try { mountNativeSkillPicker(); } catch (e) {}
+          }, 50);
+        }
+      }
+      const mo = new MutationObserver(onMutations);
+      mo.observe(document.body, { childList: true, subtree: true });
+      // outside-click 关闭自定义下拉（自定义 div 下拉需要它）
+      if (!__wsSkillOutsideBound) {
+        __wsSkillOutsideBound = true;
+        document.addEventListener("click", function (e) {
+          document.querySelectorAll('[data-ws-skill="1"]').forEach(function (w) {
+            if (w.contains(e.target)) return;
+            const pop = w.querySelector('[data-ws-skill-pop="1"]');
+            if (pop) pop.style.display = "none";
+            const b = w.querySelector('[data-ws-skill-trigger="1"]');
+            if (b) b.setAttribute("aria-expanded", "false");
           });
         });
       }
@@ -482,22 +922,17 @@ body {
     function hideCmdOnce() {
       const host = findSlashMenuHost();
       if (!host) return;
-      const nodes = host.querySelectorAll("div, span, button, li, [role='menuitem'], [role='option']");
-      nodes.forEach(function (n) {
+      // Only ever touch menu-item level nodes ([role=option]/[role=menuitem]/li).
+      // Never run the text-match against containers: a container whose text
+      // contains "model"/"feedback" (e.g. the listbox viewport) would otherwise
+      // be hidden, collapsing the whole menu. (Regression from 818f0ee on the
+      // current DSH menu DOM: overlay/menu/viewport got data-ws-cmd-hidden.)
+      const items = host.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"], li');
+      items.forEach(function (n) {
         if (!cmdLabelHit(n.textContent)) return;
-        let target = n.closest('[role="menuitem"], [role="option"], [role="menuitemradio"], li, button, a');
-        if (!target) {
-          target = n;
-          while (
-            target && /^(SPAN|I|B|EM|STRONG|A|SMALL|CODE)$/.test(target.tagName) &&
-            target.parentElement && target.parentElement !== host
-          ) {
-            target = target.parentElement;
-          }
-        }
-        if (!target || target === host || target.dataset.wsCmdHidden) return;
-        target.dataset.wsCmdHidden = "1";
-        target.style.setProperty("display", "none", "important");
+        if (n.dataset.wsCmdHidden) return;
+        n.dataset.wsCmdHidden = "1";
+        n.style.setProperty("display", "none", "important");
       });
     }
 
@@ -509,6 +944,7 @@ body {
       });
       mo.observe(document.body, { childList: true, subtree: true });
     }
+
 
     function apply(ctx) {
       injectCss();
@@ -525,6 +961,7 @@ body {
         )
       );
       injectNativeAccountSwitcher();
+      injectNativeSkillPicker();
     }
 
     exports.apply = apply;
