@@ -443,10 +443,78 @@ body {
       mo.observe(document.body, { childList: true, subtree: true });
     }
 
+    // ---- hide model & feedback from the slash command menu ----
+    // The "/" menu is rendered dynamically; match by visible text inside the
+    // command-menu container only, so core code is never touched.
+    const CMD_HOST_HINT = "压缩以上对话内容";
+    const CMD_HIDE_LABELS = [
+      "选择本会话使用的模型",
+      "发送关于当前会话的反馈",
+      "select the model",
+      "select model",
+      "send feedback",
+    ];
+
+    function findSlashMenuHost() {
+      if (!document.body) return null;
+      // deepest element containing the compact hint = inside the command menu
+      let best = null;
+      const nodes = document.querySelectorAll("div, ul, [role='menu'], [role='listbox']");
+      nodes.forEach(function (el) {
+        const t = (el.textContent || "").trim();
+        if (t.indexOf(CMD_HOST_HINT) !== -1) {
+          if (!best || t.length < (best.textContent || "").length) best = el;
+        }
+      });
+      if (!best) return null;
+      return best.closest('[role="menu"], [role="listbox"], ul') || best;
+    }
+
+    function cmdLabelHit(txt) {
+      const t = (txt || "").toLowerCase().trim();
+      for (let i = 0; i < CMD_HIDE_LABELS.length; i++) {
+        if (t.indexOf(CMD_HIDE_LABELS[i].toLowerCase()) !== -1) return true;
+      }
+      if (/^model\b/.test(t) || /^feedback\b/.test(t)) return true;
+      return false;
+    }
+
+    function hideCmdOnce() {
+      const host = findSlashMenuHost();
+      if (!host) return;
+      const nodes = host.querySelectorAll("div, span, button, li, [role='menuitem'], [role='option']");
+      nodes.forEach(function (n) {
+        if (!cmdLabelHit(n.textContent)) return;
+        let target = n.closest('[role="menuitem"], [role="option"], [role="menuitemradio"], li, button, a');
+        if (!target) {
+          target = n;
+          while (
+            target && /^(SPAN|I|B|EM|STRONG|A|SMALL|CODE)$/.test(target.tagName) &&
+            target.parentElement && target.parentElement !== host
+          ) {
+            target = target.parentElement;
+          }
+        }
+        if (!target || target === host || target.dataset.wsCmdHidden) return;
+        target.dataset.wsCmdHidden = "1";
+        target.style.setProperty("display", "none", "important");
+      });
+    }
+
+    function hideSystemCommands() {
+      if (typeof document === "undefined" || !document.body) return;
+      try { hideCmdOnce(); } catch (e) {}
+      const mo = new MutationObserver(function () {
+        try { hideCmdOnce(); } catch (e) {}
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    }
+
     function apply(ctx) {
       injectCss();
       injectHeroTabs();
       hidePptButtons();
+      hideSystemCommands();
       ctx.slots.inject("sidebar.brand.mark", () =>
         ctx.slots.inject("sidebar.brand.name", () =>
           ctx.slots.inject("conversation.hero.brand.mark", function* () {
