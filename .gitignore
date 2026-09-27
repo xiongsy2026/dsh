@@ -1,0 +1,7 @@
+_setup/
+*.exe
+productions/*/outputs/
+.DS_Store
+
+# 临时抽帧产物（帧图、wav、调试脚本）
+.tmp_frames/
