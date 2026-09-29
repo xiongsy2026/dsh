@@ -169,6 +169,37 @@ body {
       });
     }
 
+    // 右栏 Stage 简版任务条：在右栏 tab 栏（含「文件」）上方插一条，显示 Stage 状态。
+    function mountStageBar() {
+      function build() {
+        if (document.getElementById("ws-stage-bar")) return true;
+        const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+        const fileTab = tabs.find(function (t) { return /文件/.test(t.textContent || ""); });
+        if (!fileTab) return false;
+        const bar = fileTab.closest('[role="tablist"]') || fileTab.parentElement;
+        if (!bar || !bar.parentElement) return false;
+        const el = document.createElement("div");
+        el.id = "ws-stage-bar";
+        el.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 10px;font:12px/1.4 system-ui,sans-serif;color:#8a93a6;border-bottom:1px solid #2a2f3a;background:#0f1216;";
+        const dot = document.createElement("span");
+        dot.style.cssText = "width:6px;height:6px;border-radius:50%;background:#3ecf8e;flex:none;";
+        const title = document.createElement("span");
+        title.style.cssText = "color:#7aa2ff;font-weight:600;";
+        title.textContent = "Weeksir Stage";
+        const desc = document.createElement("span");
+        desc.textContent = "任务视图 · 中间产物实时预览 · 就绪";
+        el.appendChild(dot); el.appendChild(title); el.appendChild(desc);
+        bar.parentElement.insertBefore(el, bar);
+        return true;
+      }
+      try {
+        if (!build()) {
+          const mo = new MutationObserver(function () { if (build()) mo.disconnect(); });
+          mo.observe(document.body, { childList: true, subtree: true });
+        }
+      } catch (e) {}
+    }
+
     const inject = ["slots"];
 
     const HERO_TABS = [
@@ -240,11 +271,46 @@ body {
     // 列表来源：c:\dsh\.dsh\skills\<name>\SKILL.md 的 name 字段
     const SKILLS = [
       { id: "omni", label: "Omni 出片", prompt: "/omni " },
+      { id: "super-clone", label: "超级复刻", prompt: "/super-clone " },
+      { id: "hypit", label: "Hypit 时间轴", prompt: "/hypit " },
       // 后续真账号接入后，从 .dsh/skills 目录扫描自动生成
     ];
 
+    // 切换技能：清掉旧的 /技能 命令再放新的，避免叠加（命令置前，描述在后）。
+    function setSkillPrompt(prompt) {
+      try {
+        const ids = SKILLS.map(function (s) { return s.id; });
+        const re = new RegExp("(^|\\s)/(" + ids.join("|") + ")\\b", "g");
+        const ce = document.querySelector('[contenteditable="true"]');
+        const ta = document.querySelector('textarea[data-dsh], textarea[role="textbox"], textarea');
+        if (!ce && !ta) return false;
+        let txt = ce ? (ce.textContent || "") : (ta.value || "");
+        txt = txt.replace(re, " ").replace(/\s+/g, " ").trim();
+        const out = txt ? (prompt + txt) : prompt;
+        if (ce) {
+          ce.focus();
+          document.execCommand("selectAll", false, null);
+          document.execCommand("insertText", false, out);
+          ce.dispatchEvent(new Event("input", { bubbles: true }));
+        } else {
+          ta.focus();
+          ta.value = out;
+          ta.dispatchEvent(new Event("input", { bubbles: true }));
+          const v = ta.value.length; ta.setSelectionRange(v, v);
+        }
+        return true;
+      } catch (e) { return false; }
+    }
+
     function insertComposerText(text) {
       try {
+        const ce = document.querySelector('[contenteditable="true"]');
+        if (ce) {
+          ce.focus();
+          document.execCommand("insertText", false, text);
+          ce.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        }
         const ta = document.querySelector('textarea[data-dsh], textarea[role="textbox"], textarea');
         if (ta) {
           const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value") ||
@@ -515,7 +581,7 @@ body {
       // 文字 span（独立节点，便于后续替换）
       const btnText = document.createElement("span");
       btnText.setAttribute("data-ws-skill-text", "1");
-      btnText.textContent = "技能";
+      btnText.textContent = "选择技能";
       btn.appendChild(btnText);
 
       // 下拉箭头（CSS border 三角）
@@ -616,7 +682,7 @@ body {
           setBtnText(s.label);
           renderRows();
           setOpen(false);
-          insertComposerText(s.prompt);
+          setSkillPrompt(s.prompt);
         });
         pop.appendChild(r);
         return r;
@@ -648,7 +714,7 @@ body {
       wrap.appendChild(btn);
       wrap.appendChild(pop);
       renderRows();
-      setBtnText("技能");
+      setBtnText("选择技能");
       try { window.__WEEKSIR_SKILL__ = null; } catch (e) {}
       return wrap;
     }
@@ -951,6 +1017,7 @@ body {
       injectHeroTabs();
       hidePptButtons();
       hideSystemCommands();
+      mountStageBar();
       ctx.slots.inject("sidebar.brand.mark", () =>
         ctx.slots.inject("sidebar.brand.name", () =>
           ctx.slots.inject("conversation.hero.brand.mark", function* () {

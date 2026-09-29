@@ -1,0 +1,25 @@
+{
+  "name": "ops-gateway",
+  "version": "0.1.0",
+  "description": "Weeksir 运维面：右栏 'API网关' 标签，内嵌 model_admin(:8100) 配置面板。仅测试/运维端，客户包不装。",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}

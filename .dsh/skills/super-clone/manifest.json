@@ -1,0 +1,22 @@
+{
+  "schema": "weeksir-skill-manifest/0.1",
+  "id": "super-clone",
+  "name": "超级复刻",
+  "version": "0.1.0",
+  "kind": "片型合同",
+  "stage": "produce",
+  "description": "原片最小迁移换产品(必选)，可选换脸/换背景；Wan 3.0，一段一张脸，>15s 切段，原声贴回",
+  "when_to_use": "超级复刻、爆款复刻、换产品、换脸、换背景；多脸/短镜/对齐原声的难单",
+  "visibility": "customer",
+  "capabilities": ["video.generate"],
+  "engine": "wan3",
+  "depends_on": ["hypit"],
+  "runner": "runner/run.py",
+  "entry": "D:/video-skill/backend/services/super_clone_wan3.py:run_pipeline",
+  "approval_points": ["timeline", "failed-rerun", "final"],
+  "input": {
+    "required": ["video", "product_name", "product_images"],
+    "optional": ["model_images", "scene_text", "trim_start", "trim_end", "product_facts"]
+  },
+  "credits_estimate": 40
+}

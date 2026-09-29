@@ -83,6 +83,10 @@ BRIEF → ANALYSIS（分镜+肤色+产品可见性）→ TIMELINE（等人批）
 
 `D:\video-skill\backend\services\super_clone_wan3.py` 的 `run_pipeline`
 
+**推荐走 skill 自带 runner（薄封装，参数见 `--help`）**：`runner/run.py`
+`python runner/run.py --task-id <id> --video <该段原片> --product-images <图...> --product-name <名> --output-dir <目录> [--model-image <脸>] --as-duration-chunk`
+包元数据见 `manifest.json`（能力/依赖/积分）。
+
 每段传入：该段裁剪后的原片、该段产品图、该段唯一脸图、产品名、背景文字、`as_duration_chunk=True`。不要 `split_by_shots`。
 
 P1 只写文件，不调用 Wan。
