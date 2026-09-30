@@ -52,7 +52,7 @@ Stage0.5 reason_brief(async) → 拿产品卡推理「卖点 + 3 个故事方向
      ② 确认 目标市场/国家 + 台词语言 + 口播(语言/性别/开关) + 画面文字/字幕用什么语言
      → 你回后 agent 落定：POST /country（推 COUNTRY_LANG 定台词/口播语言），必要时 run 级 voiceover_language/设置 覆写；**语言没定前不跑 ai_script**
 Stage1 ai_script(async，用你选的方向当 selling_points) 或 script(手工) [可 translate_script 补中文]
-Gate1.5 请示"方案" → POST /gate{script}
+Gate1.5 请示"方案 + 分镜脚本"：把整张逐拍分镜表(拍号/景别·运镜动机/画面/台词/时长/keyframe要点)摊开贴对话让人逐拍审 → 人点头才 POST /gate{script}
 Stage2 frames(async, backend=gflow|zexapi)
   → 监控: 轮询 state.job + state.frames；逐帧读 state.eyes_checks + 看图做语义 QA
   → 不合格按 §4 自愈（改 prompt / 换后端 / 单帧重跑），修到全合格

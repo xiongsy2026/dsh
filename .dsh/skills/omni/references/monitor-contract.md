@@ -146,7 +146,7 @@ Stage6  selfcheck     POST /selfcheck (async)  [成片验收]
 - ❌ 死路：markdown 本地绝对路径 / `file:///` / `C:\` / `dsh-app://…/api/file` 在桌面端**一律不渲染**；`data:` URI 被 sanitize。**别用这些**。
 
 **三个关口模板：**
-1. **方案**(Stage1 后)：文本为主——结构/段数/6拍×N 的 beat_function 序列/产品第几拍入场/关键台词，markdown 表格。回"通过/改哪拍"。
+1. **方案 + 分镜脚本**(Stage1 后)：**必须把整张逐拍分镜表摊开给人审，不是只给摘要**。markdown 表格列：拍号/所属段 · beat_function · 景别与运镜动机(shot_motivation) · 画面(story_beat) · 台词(dialogue，目标语言) · 时长 · keyframe 画面要点。表头之上再给一句 global_arc / 情感核心 / 产品第几拍入场。回"通过 / 改第 N 拍(说改哪)"。人点头才 `POST /gate{script}`。
 2. **审帧**(Stage2 后，Gate3 前)：贴每段 6 帧的 markdown http 缩略 + focus 帧原图；不合格的**先由 agent 按 §4 自己修到全合格**再请示，请示时说明"已自修 N 帧"。客户可"通过" / "重拍第__帧(说问题)" / "要放大看第__帧"(→ read_image)。
 3. **成片验收**(Stage6 selfcheck 后)：`present(final_clean.mp4)` + selfcheck 摘要 + agent 的 EYES 结论 + 已知风险。客户点了播放看完再批。
 
