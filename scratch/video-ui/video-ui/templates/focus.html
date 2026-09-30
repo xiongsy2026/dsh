@@ -16,9 +16,19 @@
   .runmeta { font-size:12px; color:var(--mut); }
   main { padding:14px; max-width:820px; margin:0 auto; }
   .stage { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
-  .step { font-size:12px; color:var(--mut); border:1px solid var(--line); border-radius:14px; padding:3px 10px; }
+  .step { font-size:12px; color:var(--mut); border:1px solid var(--line); border-radius:14px; padding:3px 10px; cursor:pointer; }
+  .step:hover { border-color:var(--run); color:var(--fg); }
   .step.on { color:#fff; border-color:var(--run); background:rgba(75,110,245,.18); }
   .step.done { color:var(--ok); border-color:var(--ok); }
+  .step.bad { color:var(--bad); border-color:var(--bad); }
+  .step.sel { box-shadow:0 0 0 1px var(--run) inset; font-weight:700; }
+  .card { font-size:12px; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#14161d; }
+  table.bt { width:100%; border-collapse:collapse; font-size:12px; }
+  table.bt th,table.bt td { border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top; }
+  table.bt th { color:var(--mut); font-weight:600; }
+  .dlg { color:var(--mut); }
+  .cam { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:8px; font-size:12px; }
+  .cam b { color:var(--run); }
   h3 { font-size:13px; color:var(--mut); font-weight:600; margin:18px 0 8px; }
   .grid { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
   .cell { position:relative; border:1px solid var(--line); border-radius:8px; overflow:hidden; aspect-ratio:9/16; background:#161821; }
@@ -66,50 +76,82 @@ function pickDefault(){
   return runs.length ? runs[0].name : null;   // list_runs 已按 mtime 倒序 → 最新
 }
 
-function stageIdx(s){ const order=["intake","script_review","frames","frames_review","camera","video","done"]; let i=order.indexOf(s); return i<0?0:i; }
+function stageIdx(s){ return ({intake:0,script:1,script_review:1,frames:2,frames_review:2,camera:3,video:4,done:5})[s] ?? 0; }
+
+let sel = null, lastSt = null, lastBeats = null;
 
 function renderRun(st, beats){
+  lastSt = st; lastBeats = beats;
   const m = document.getElementById("main");
   if(!st){ m.innerHTML = '<div class="empty">还没有 run。agent 建一条后这里会自动出现。</div>'; return; }
   const si = stageIdx(st.stage);
+  const seg = st.segment_status||{};
+  const segVals = Object.values(seg).map(v=>(v||{}).status);
+  const segFailed = segVals.length>0 && segVals.every(s=>s==="failed");
+  const framesFailed = Object.values(st.frames||{}).some(f=>(f||{}).status==="failed");
+  const failAt = segFailed?4:(framesFailed?2:-1);
+  const cur = (sel===null)?si:sel;
   let html = '<div class="stage">';
   STEPS.forEach((s,i)=>{
-    const cls = i<si?"done":(i===si?"on":"");
-    html += `<span class="step ${cls}">${s[1]}</span>`;
+    let cls = i<si?"done":(i===si?"on":"");
+    if(i===failAt) cls="bad";
+    if(i===cur) cls += " sel";
+    html += `<span class="step ${cls}" data-s="${i}">${s[1]}</span>`;
   });
   html += '</div>';
   const job = st.job||{};
   if(job.active) html += `<div class="runmeta" style="margin-bottom:8px">⏳ ${esc(job.current||"处理中…")}</div>`;
-
-  // 关键帧网格
-  const frames = st.frames||{};
-  if(Object.keys(frames).length){
-    html += '<h3>关键帧</h3><div class="grid">';
-    for(const [k,f] of Object.entries(frames)){
-      const src = f.thumb ? `${API}/files/${encodeURIComponent(st.name)}/${f.thumb}` : "";
-      const cls = f.status||"";
-      const inner = src && cls!=="running" ? `<img loading="lazy" src="${src}">` : (cls==="running"?'<div class="spin">…</div>':'<div class="spin">—</div>');
-      html += `<div class="cell ${cls}">${inner}<span class="st"><b>${k}</b><span>${f.backend||''}</span></span></div>`;
-    }
-    html += '</div>';
-  }
-  // 分段
-  const seg = st.segment_status||{};
-  if(Object.keys(seg).length){
-    html += '<h3>分段</h3><div class="grid" style="grid-template-columns:repeat(3,1fr)">';
-    for(const [k,v] of Object.entries(seg)){
-      const src = v.file ? `${API}/files/${encodeURIComponent(st.name)}/${v.file}` : "";
-      html += `<div class="cell ${v.status||''}" style="aspect-ratio:9/16">${src?`<video src="${src}" controls preload="metadata"></video>`:'<div class="spin">'+(v.status||'')+'</div>'}</div>`;
-    }
-    html += '</div>';
-  }
-  // 成片
-  const fin = st.final||{};
-  const fsrc = fin.clean||fin.concat;
-  if(fsrc){
-    html += '<h3>成片</h3><video src="'+API+'/files/'+encodeURIComponent(st.name)+'/'+fsrc+'" controls preload="metadata"></video>';
-  }
+  html += stageSection(cur, st, beats);
   m.innerHTML = html;
+  m.querySelectorAll(".step").forEach(el=>el.onclick=()=>{ sel=+el.getAttribute("data-s"); renderRun(lastSt,lastBeats); });
+}
+
+function stageSection(i, st, beats){
+  const name = encodeURIComponent(st.name);
+  const F = rel => API+"/files/"+name+"/"+rel;
+  if(i===0){
+    let h='<h3>建档 · 产品卡 / 名册</h3>';
+    const pc=st.product_card||{};
+    h += pc.summary_en ? `<div class="card">${esc(pc.summary_en)}</div>` : '<div class="runmeta">（无产品卡）</div>';
+    const as=st.assets||[];
+    if(as.length){ h+='<div class="grid" style="grid-template-columns:repeat(4,1fr);margin-top:8px">';
+      as.forEach(a=>{ h+=`<div class="cell done">${a.thumb?`<img loading="lazy" src="${F(a.thumb)}">`:'<div class="spin">—</div>'}<span class="st"><b>${esc(a.name||a.id||'')}</b><span>${esc(a.kind||'')}</span></span></div>`; });
+      h+='</div>'; }
+    return h;
+  }
+  if(i===1){
+    let h='<h3>剧本 · 分镜</h3>';
+    if(!beats||!beats.length) return h+'<div class="runmeta">（无剧本）</div>';
+    h+='<table class="bt"><tr><th>#</th><th>功能</th><th>在场</th><th>剧情 / 台词</th></tr>';
+    beats.forEach(b=>{ h+=`<tr><td>${b.id}</td><td>${esc(b.beat_function||'')}</td><td>${esc(b.product_presence||'')}</td><td>${esc(b.story_beat||'')}<br><span class="dlg">${esc(b.dialogue||'')}</span></td></tr>`; });
+    return h+'</table>';
+  }
+  if(i===2){
+    const frames=st.frames||{}; if(!Object.keys(frames).length) return '<h3>关键帧</h3><div class="runmeta">（还没生成）</div>';
+    let h='<h3>关键帧</h3><div class="grid">';
+    for(const [k,f] of Object.entries(frames)){ const src=f.thumb?F(f.thumb):""; const cls=f.status||"";
+      const inner=src&&cls!=="running"?`<img loading="lazy" src="${src}">`:(cls==="running"?'<div class="spin">…</div>':'<div class="spin">—</div>');
+      h+=`<div class="cell ${cls}" title="${esc(f.error||'')}">${inner}<span class="st"><b>${k}</b><span>${esc(f.backend||'')}</span></span></div>`; }
+    return h+'</div>';
+  }
+  if(i===3){
+    const cam=st.camera||{}; const keys=Object.keys(cam); let h='<h3>运镜词</h3>';
+    if(!keys.length) return h+'<div class="runmeta">（还没写运镜）</div>';
+    keys.forEach(k=>{ h+=`<div class="cam"><b>段 ${k}</b><div>${esc(cam[k])}</div></div>`; });
+    return h;
+  }
+  if(i===4){
+    const seg=st.segment_status||{}; if(!Object.keys(seg).length) return '<h3>分段</h3><div class="runmeta">（还没出片）</div>';
+    const vals=Object.values(seg).map(v=>(v||{}).status); const allFail=vals.length&&vals.every(s=>s==="failed");
+    let h='<h3>分段</h3>';
+    if(allFail) h+='<div class="runmeta" style="color:var(--bad);margin-bottom:8px">⚠ 全部段失败（多为 zexapi 资源不足），等通道恢复后单独重跑分段。</div>';
+    h+='<div class="grid" style="grid-template-columns:repeat(3,1fr)">';
+    for(const [k,v] of Object.entries(seg)){ const src=v.file?F(v.file):"";
+      h+=`<div class="cell ${v.status||''}" title="${esc((v||{}).error||'')}">${src?`<video src="${src}" controls preload="metadata"></video>`:'<div class="spin">'+esc(v.status||'')+'</div>'}</div>`; }
+    return h+'</div>';
+  }
+  const fin=st.final||{}; const fsrc=fin.clean||fin.concat;
+  return '<h3>成片</h3>'+(fsrc?`<video src="${F(fsrc)}" controls preload="metadata"></video>`:'<div class="runmeta">（还没拼接出成片）</div>');
 }
 
 function esc(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -140,7 +182,7 @@ function renderHist(){
   el.innerHTML = runs.map(r=>`<div class="ritem ${r.name===focus?'sel':''}" data-n="${esc(r.name)}">
     <div class="t">${esc(r.title||r.name)}</div>
     <div class="m">${r.mode||''} · ${r.duration||''}s · ${r.segments||''}段 · ${esc(r.stage||'')} · ${r.size_mb||0}MB</div></div>`).join('') || '<div class="empty">无</div>';
-  el.querySelectorAll(".ritem").forEach(it=>it.onclick=()=>{ focus=it.getAttribute("data-n"); renderHist(); loadFocus(); closeHist(); });
+  el.querySelectorAll(".ritem").forEach(it=>it.onclick=()=>{ focus=it.getAttribute("data-n"); sel=null; renderHist(); loadFocus(); closeHist(); });
 }
 
 function openHist(){ document.getElementById("hist").classList.add("open"); }
