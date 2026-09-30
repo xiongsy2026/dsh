@@ -63,6 +63,7 @@ Stage4 ai_camera(async, 逐段多模态) [或 /camera 手写]
 Stage5 segments(async, omni_flash-hd-10s)  # 审核拦截改运镜词措辞，不改参数
 Stage6 finalize(async, concat+delogo) → selfcheck(async)
 Stage6 请示"成片"：present(final_clean.mp4) → 右栏 video 播 → **人实际听一遍口播**(念出来的台词/语言/语速是否合规、有无翻译腔/静音/错字) → 人批
+  → 人批后追加一句："满意就存成视频模板？给片型名" → 满意则按 references/video-template.md 抽配方写 accounts/<acct>/video_templates/<名>.json
 ```
 
 ## 监控 + 优化（这是 agent 的活，video-ui 不做语义判断）
@@ -94,6 +95,13 @@ Stage6 请示"成片"：present(final_clean.mp4) → 右栏 video 播 → **人�
 ## 执行方式
 用 shell（Bash）对 video-ui 发 HTTP（python requests 处理中文 run 名/URL，别用 curl 直传中文路径）。
 旧路径 `runner/run.py → gateway.call("video.generate")` **保留作纯 t2v 兜底**，正常 omni 出片走 video-ui，不用它。
+
+## 视频模板（满意 run → 沉淀可复用片型，见 references/video-template.md）
+成片人验收满意后，把这条 run 的"拍法/节奏/调性"蒸馏成**结构化片型模板**，下次换品一键复刻骨架、只喂新料。
+- **存配方、挖料**：结构/段数/时长/每拍 beat_function·景别·情绪·口播节奏·后端 → 进模板；产品名/卖点/图/具体品牌价格功效台词 → 挖成 `{PRODUCT}` 等占位符（换品重填，且是合规雷区）。
+- **存哪**：`accounts/<本号>/video_templates/<片型名>.json`（账号隔离，A 号片型 B 号读不到）。流程+通用踩坑另进 skill playbook。
+- **触发**：① 成片批准后 agent 自动追问"满意就存成模板？给个名"（主用）；② 用户说"用『X』模板，产品是 Y"→ agent 读 json、填占位、`POST /api/run`+`/script` 铺骨架。**不新增 UI 按钮、不碰 composer、零跨源问题。**
+- **边界**：模板只省"从零搭剧本"，**不跳任何闸、不省 3 关口**；换品填出的新 prompt 必须重过 §5.5 合规 + §5.6 质量红线。
 
 ## 已知坑（落地前记牢）
 - 改 video-ui 代码要**重启 8765**才生效；config.json 现读即时生效。
