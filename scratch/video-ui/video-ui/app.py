@@ -10,6 +10,7 @@ Stage 2 关键帧走 gflow-cli，Stage 5 视频走 zexapi omni，Stage 5c/5d 走
 import os
 import queue
 import re
+import subprocess
 import threading
 import time
 import traceback
@@ -236,6 +237,32 @@ def doubao_status():
     return st
 
 
+def gflow_status(cfg):
+    """gflow 登录态：跑 `auth status`（不开浏览器/不烧额度，退出码 0=已登录）+ `auth list --json` 拿账号名。只读，不改登录。"""
+    exe = cfg.get("gflow_exe", "")
+    st = {"exe_present": bool(exe) and Path(exe).exists(), "logged_in": False,
+          "account": None, "project_ok": bool((cfg.get("gflow_project") or "").strip())}
+    if not st["exe_present"]:
+        return st
+    try:
+        r = subprocess.run([exe, "auth", "status"], capture_output=True, text=True,
+                           timeout=30, encoding="utf-8", errors="replace")
+        st["logged_in"] = (r.returncode == 0)
+    except Exception as exc:
+        st["error"] = str(exc)[:140]
+        return st
+    try:
+        r2 = subprocess.run([exe, "auth", "list", "--json"], capture_output=True, text=True,
+                            timeout=30, encoding="utf-8", errors="replace")
+        profiles = json.loads((r2.stdout or "").strip() or "[]")
+        cur = next((p for p in profiles if p.get("is_default")), profiles[0] if profiles else None)
+        if cur:
+            st["account"] = cur.get("google_account")
+    except Exception:
+        pass
+    return st
+
+
 @app.route("/api/bootstrap")
 def bootstrap():
     cfg = store.load_config()
@@ -247,6 +274,7 @@ def bootstrap():
         "key_present": zexp.has_key(),
         "dry_run": DRY_RUN,
         "doubao": doubao_status(),
+        "gflow": gflow_status(cfg),
         "eyes_checks": [[cid, label] for cid, label in EYES_CHECKS],
         "gflow_exe_present": Path(cfg.get("gflow_exe", "")).exists(),
         "now": datetime.now().isoformat(timespec="seconds"),

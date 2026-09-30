@@ -186,6 +186,10 @@ AI 推理的 dialogue/台词常**幼稚、翻译腔、空洞**——Gate1.5 审�
 
 ⚠️ **agent 不能并发驱动多个 run**：video-ui 单 worker 串行；如果客户提批量，agent 只能排队做，或者由 video-ui 那边扩成多 worker（改代码，本契约不主张）。
 
+⚠️ **gflow 登录 = 服务器侧运维动作，客户栏只看不办**（2026-09-30 定案 A）：video-ui 头部 gflow chip 现读 `gflow_status()`（跑 `gflow auth status`·不开浏览器不烧额度·退出码 0=已登录）显示「已登录·账号 / 未登录 / exe 缺失 / 缺 project」。**未登录时不在页面放登录按钮**——`gflow auth login` 弹的是**服务器那台机器**上的 Chrome（`auth login` 帮助原文 "Opens a browser window"），只在 1.0 客户=操作机时勉强可点，3.0 远程服务器客户根本看不见；且破"客户零后端/零登录感知"契约。→ 登录/换号一律运维在服务器命令行 `gflow auth login` 做，页面只负责报状态、agent 见"未登录"就停下找人。
+
+⚠️ **gflow 默认传输有头、不能无头**：默认 `ui_automation` 传输 `headless=False` 写死（`config.py:531` 原因=Google reCAPTCHA Enterprise 拒无头），每帧在服务机弹可见 Chrome。要无头只能走 experimental 传输（`GFLOW_CLI_EXPERIMENTAL_TRANSPORTS=1` + `GFLOW_CLI_TRANSPORT=bearer|evaluate_fetch|sapisidhash`，三者都 `generate_images`+`headless=True`），但未经默认路径验证、鉴权要求各异。1.0 本地有头无所谓；3.0 无桌面服务器才需要，届时实测。
+
 ---
 
 ## 7. 与既有 SKILL 条款的关系（不重复造）

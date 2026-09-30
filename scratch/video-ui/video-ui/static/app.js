@@ -30,8 +30,14 @@ function renderEnv() {
   $('#chip-dry').classList.toggle('hidden', !b.dry_run);
   $('#chip-key').innerHTML = 'zexapi key: <b>' + (b.key_present ? '已就绪' : '未设置') + '</b>';
   $('#chip-key').className = 'chip ' + (b.key_present ? 'ok' : 'warn');
-  $('#chip-gflow').innerHTML = 'gflow: <b>' + (!b.gflow_exe_present ? 'exe 缺失' : (c.gflow_project ? 'project ok' : '缺 project id')) + '</b>';
-  $('#chip-gflow').className = 'chip ' + (b.gflow_exe_present && c.gflow_project ? 'ok' : 'warn');
+  const gf = b.gflow || {};
+  let gtxt, gok;
+  if (!gf.exe_present) { gtxt = 'exe 缺失'; gok = false; }
+  else if (!gf.logged_in) { gtxt = '未登录（服务器跑 gflow auth login）'; gok = false; }
+  else if (!gf.project_ok) { gtxt = '已登录 · 缺 project'; gok = false; }
+  else { gtxt = '已登录' + (gf.account ? ' · ' + gf.account : ''); gok = true; }
+  $('#chip-gflow').innerHTML = 'gflow: <b>' + esc(gtxt) + '</b>';
+  $('#chip-gflow').className = 'chip ' + (gok ? 'ok' : 'warn');
   const f = b.caps || {};
   $('#chip-ffmpeg').innerHTML = 'ffmpeg: <b>' + [f.ffmpeg ? '有' : '无', f.concat ? 'concat' : '无concat', f.delogo ? 'delogo' : '无delogo', f.libx264 ? 'x264' : ''].filter(Boolean).join(' / ') + '</b>';
   $('#chip-ffmpeg').className = 'chip ' + (f.ffmpeg && f.concat && f.delogo && f.libx264 ? 'ok' : 'warn');
