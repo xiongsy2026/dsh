@@ -13,17 +13,24 @@ async function api(path, opts) {
 const postJSON = (p, body) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fileURL = (run, rel) => rel ? '/files/' + encodeURIComponent(run) + '/' + rel.split('/').map(encodeURIComponent).join('/') : '';
+// 会话绑定：iframe 带 ?session=<DSH会话id> → 只看本会话的 run（不带则退回全局，运维自用）
+const SESSION = new URLSearchParams(location.search).get('session') || '';
+const runsURL = () => '/api/runs' + (SESSION ? '?session=' + encodeURIComponent(SESSION) : '');
 
 /* ------------------------------------------------------------------ boot */
 async function boot() {
-  state.boot = await api('/api/bootstrap');
+  state.boot = await api('/api/bootstrap' + (SESSION ? '?session=' + encodeURIComponent(SESSION) : ''));
   renderEnv();
   renderRuns();
   // 默认加载本 run：URL 带 ?run= 就用它，否则取列表第一个（list_runs 已按 mtime 倒序 = 最新动过的）
   const runs = state.boot.runs || [];
   const wanted = new URLSearchParams(location.search).get('run');
   const pick = (wanted && runs.find(r => r.name === wanted)) || runs[0];
-  if (pick) selectRun(pick.name);
+  if (pick) {
+    selectRun(pick.name);
+  } else if (SESSION) {
+    $('#empty').innerHTML = '<div class="empty-mark">▶</div><p><b>本会话还没有 omni 任务</b></p><p class="muted">让 agent 跑一条，它就会出现在这里。</p>';
+  }
 }
 function renderEnv() {
   const b = state.boot, c = b.config || {};
@@ -100,7 +107,7 @@ async function delRun(name) {
     method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: name }) });
   if (res.error) return alert(res.error);
   if (state.run && state.run.name === name) { stopPoll(); state.run = null; delete document.getElementById('work').dataset.mode; $('#empty').classList.remove('hidden'); $('#stagebar').classList.add('hidden'); $$('#work .card').forEach(el => el.classList.add('hidden')); }
-  state.boot.runs = await api('/api/runs');
+  state.boot.runs = await api(runsURL());
   renderRuns();
   alert(res.mode === 'moved' ? ('已移到：' + res.moved_to) : (res.note || '已删除'));
 }
@@ -128,7 +135,7 @@ async function refresh() {
       delete document.getElementById('work').dataset.mode;
       $('#stagebar').classList.add('hidden'); $('#empty').classList.remove('hidden');
       $$('#work .card').forEach(el => el.classList.add('hidden'));
-      state.boot.runs = await api('/api/runs'); renderRuns();
+      state.boot.runs = await api(runsURL()); renderRuns();
     }
     return;
   }
@@ -143,7 +150,7 @@ async function refresh() {
     if (doneKind === 'ai_camera') Object.keys(state.drafts).forEach(k => {
       if (/^(cam|asm)\d+$/.test(k)) delete state.drafts[k];
     });
-    state.boot.runs = await api('/api/runs'); renderRuns();
+    state.boot.runs = await api(runsURL()); renderRuns();
   }
 }
 
@@ -833,7 +840,7 @@ $('#btn-create').onclick = async () => {
   const res = await api('/api/run', { method: 'POST', body: fd });
   if (res.error) return alert(res.error);
   $('#new-modal').classList.add('hidden');
-  state.boot.runs = await api('/api/runs');
+  state.boot.runs = await api(runsURL());
   await selectRun(res.name);
 };
 $('#inp-product').onchange = async () => {

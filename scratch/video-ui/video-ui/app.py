@@ -266,8 +266,10 @@ def gflow_status(cfg):
 @app.route("/api/bootstrap")
 def bootstrap():
     cfg = store.load_config()
+    session = (request.args.get("session") or "").strip() or None
     return jsonify({
-        "runs": store.list_runs(),
+        "session": session,
+        "runs": store.list_runs(session),
         "config": {k: v for k, v in cfg.items()},
         "caps": postproc.capabilities(),
         "runs_root": str(store.RUNS_ROOT),
@@ -305,7 +307,8 @@ def settings():
 
 @app.route("/api/runs")
 def runs_list():
-    return jsonify(store.list_runs())
+    session = (request.args.get("session") or "").strip() or None
+    return jsonify(store.list_runs(session))
 
 
 @app.route("/api/run", methods=["POST"])
@@ -321,7 +324,8 @@ def create_run():
     mode = (request.form.get("mode") or "product").strip()
     if mode not in ("product", "story"):
         return jsonify({"error": "mode 只能是 product 或 story"}), 400
-    run = store.create_run(title, duration, mode)
+    session = (request.form.get("session") or "").strip() or None
+    run = store.create_run(title, duration, mode, session=session)
     product = request.files.get("product")
     if product and product.filename:
         if not IMAGE_EXT_RE.search(product.filename):

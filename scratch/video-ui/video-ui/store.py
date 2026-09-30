@@ -261,7 +261,7 @@ class Run(object):
         }
 
 
-def create_run(title, duration, mode="product"):
+def create_run(title, duration, mode="product", session=None):
     slug = re.sub(r"[^\w\-.\u4e00-\u9fff]+", "-", title.strip())[:40] or "run"
     name = "%s-%s-%s" % (datetime.now().strftime("%Y%m%d-%H%M%S"), slug, ("%04d" % (int(time.time()) % 10000)))
     root = RUNS_ROOT / name
@@ -280,6 +280,7 @@ def create_run(title, duration, mode="product"):
         "segments": segments_for(duration),
         "total_frames": segments_for(duration) * 6,
         "stage": "intake",
+        "session": (str(session).strip() or None) if session else None,
         "assets": {},
         "frames": {},
         "frame_review": {},
@@ -331,7 +332,7 @@ def trash_run(name):
     return last, "hidden"
 
 
-def list_runs():
+def list_runs(session=None):
     if not RUNS_ROOT.exists():
         return []
     out = []
@@ -343,6 +344,8 @@ def list_runs():
         except Exception:
             continue
         st = run.state
+        if session and (st.get("session") or "") != session:
+            continue
         out.append({
             "name": p.name,
             "title": st.get("title", ""),
@@ -350,6 +353,7 @@ def list_runs():
             "duration": st.get("duration"),
             "segments": st.get("segments"),
             "stage": st.get("stage"),
+            "session": st.get("session"),
             "mtime": datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
             "size_mb": round(dir_size(p) / 1048576.0, 1),
             "flags": run.stage_flags(),

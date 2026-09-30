@@ -17,10 +17,13 @@ window.__ModuleLoader__.load({
       return h("span", { title: "流水线视图（运维）" }, "流水线");
     }
 
-    function ViewBody() {
+    function ViewBody(props) {
+      // 会话级绑定：sidebar.right.pane.tab 是 scope:"session" 槽，body 组件从 props 拿到当前会话 sessionId
+      const sid = props && props.sessionId ? String(props.sessionId) : '';
+      const src = sid ? (VIEW_URL + '?session=' + encodeURIComponent(sid)) : VIEW_URL;
       return h("div", { style: { width: "100%", height: "100%", display: "flex", flexDirection: "column" } },
         h("iframe", {
-          src: VIEW_URL,
+          src: src,
           title: "流水线视图",
           style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" }
         })

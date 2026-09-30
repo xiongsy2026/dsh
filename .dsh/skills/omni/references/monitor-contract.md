@@ -21,7 +21,7 @@
 ## 1. 驱动约定（HTTP 端点·agent 只用这些）
 
 **同步**（一次请求返回结果）：
-- `POST /api/run` form: title/duration/mode；可选 multipart 字段 `product`。→ 建 run。
+- `POST /api/run` form: title/duration/mode/**session(=$DSH_SESSION_ID，绑会话)**；可选 multipart 字段 `product`。→ 建 run。
 - `POST /api/run/<n>/product` 字段 `product`。→ 换/补主图。
 - `POST /api/run/<n>/assets` 字段 `asset`，form: kind (product|character|prop)/name。→ 加细节图/角色图。
 - `POST /api/run/<n>/country` JSON `country`。→ 目标国家/口播语言。
@@ -56,7 +56,7 @@
 ## 2. 阶段流水线（agent 视角）
 
 ```
-Stage0  intake        POST /api/run + /product + /assets + /country
+Stage0  intake        POST /api/run (带 session=$DSH_SESSION_ID) + /product + /assets + /country
 Stage0  product_card  POST /product_card (async) [产品模式；story 见 §6 bug]
 Stage0.5 reason_brief POST /reason_brief (async) → 推理「卖点 + 3 故事方向」写 brief.json
         选方向+定语言(触点) 贴 3 个 story_options 让人挑/改一个；同时确认 目标市场 + 台词语言 + 口播(语言/性别/开关) + 画面文字/字幕约定 → 方向作 selling_points、语言经 /country(+/settings·voiceover_language) 落定，喂 Stage1
