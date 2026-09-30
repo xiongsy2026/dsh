@@ -69,7 +69,8 @@ window.__ModuleLoader__.load({
             if (document.querySelector('iframe[src*="8765"]')) return; // 本会话已开着，别重复弹
             fetch(VIEW_URL + "api/runs?session=" + encodeURIComponent(sid))
               .then(r => r.ok ? r.json() : [])
-              .then(runs => { if (Array.isArray(runs) && runs.length) ctx.sidebarRight.openTab(KEY, { revealIfOpened: true }); })
+              // 触发点 = 本会话有 run 且【已过 Gate1.5 方案批准】(flags.script_approved)——立项/选方向/写剧本阶段不弹，创意方案确认后才弹
+              .then(runs => { if (Array.isArray(runs) && runs.some(r => r.flags && r.flags.script_approved)) ctx.sidebarRight.openTab(KEY, { revealIfOpened: true }); })
               .catch(() => {});                                        // video-ui 没起/跨源失败：不弹，不崩
           } catch (e) { /* 忽略，下次再试 */ }
         }
