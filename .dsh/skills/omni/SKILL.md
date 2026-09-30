@@ -47,7 +47,10 @@ whenToUse: >
 ```
 Stage0 product_card(产品模式, async)   # story 模式用 asset_card（已修 bug）
 Stage0.5 reason_brief(async) → 拿产品卡推理「卖点 + 3 个故事方向」(写 brief.json)
-  → 请示"选方向"：把 3 个 story_options 贴进对话，你挑一个/改一个（创意方向归人，agent 不擅自定）
+  → 请示"选方向 + 定语言"（一次问齐，语言先钉死再生成剧本）：
+     ① 把 3 个 story_options 贴进对话，你挑一个/改一个（创意方向归人，agent 不擅自定）
+     ② 确认 目标市场/国家 + 台词语言 + 口播(语言/性别/开关) + 画面文字/字幕用什么语言
+     → 你回后 agent 落定：POST /country（推 COUNTRY_LANG 定台词/口播语言），必要时 run 级 voiceover_language/设置 覆写；**语言没定前不跑 ai_script**
 Stage1 ai_script(async，用你选的方向当 selling_points) 或 script(手工) [可 translate_script 补中文]
 Gate1.5 请示"方案" → POST /gate{script}
 Stage2 frames(async, backend=gflow|zexapi)

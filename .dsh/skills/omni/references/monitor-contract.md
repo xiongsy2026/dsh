@@ -59,7 +59,7 @@
 Stage0  intake        POST /api/run + /product + /assets + /country
 Stage0  product_card  POST /product_card (async) [产品模式；story 见 §6 bug]
 Stage0.5 reason_brief POST /reason_brief (async) → 推理「卖点 + 3 故事方向」写 brief.json
-        选方向(触点)   把 3 个 story_options 贴进对话，人选/改一个 → 作为 selling_points 喂 Stage1
+        选方向+定语言(触点) 贴 3 个 story_options 让人挑/改一个；同时确认 目标市场 + 台词语言 + 口播(语言/性别/开关) + 画面文字/字幕约定 → 方向作 selling_points、语言经 /country(+/settings·voiceover_language) 落定，喂 Stage1
 Stage1  script        POST /ai_script (async，用所选方向) 或 POST /script (sync 手工)
         [可选] translate_script (async)
 Gate1.5 script        POST /gate {gate:"script", approve:true}     ← 关口
@@ -74,6 +74,8 @@ Stage6  selfcheck     POST /selfcheck (async)  [成片验收]
 ```
 
 > **创意方向归人**：`reason_brief` 出的 3 个故事方向是给人挑的，agent **不擅自定方向直接 ai_script**。这是"方案"之前的一个轻触点（选方向 + 方案可合并成一次请示：先给方向让你选、再给据此生成的剧本方案）。
+
+> **语言先钉死再生成（并入上面那个触点，不新增关口）**：台词语言由 `/country`→`COUNTRY_LANG` 推（`prompts.py:535` 强制 dialogue 用目标语言、`keyframe_prompt` 仍英文）；口播走 `effective_voiceover`（优先级 国家 > run `voiceover_language` > 全局，`app.py:158`）。**语言/市场没在人这边确认前不跑 `ai_script`**——语言错则剧本台词 + 口播全返工，最贵。画面内出现的所有文字/字幕用什么语言也在这一触点跟人说清（video-ui 不自动管这块，纯 agent 请示项；之前品牌字 NGLED/NGLEED 漂移就属这类无人复核的文字）。
 
 闸门由服务端强制：`/frames` 要求 `review.script_approved`；`/ai_camera` `/camera` `/segments` 要求 `review.frames_approved`（app.py:816/842/871/989）。agent 不能跳。
 
