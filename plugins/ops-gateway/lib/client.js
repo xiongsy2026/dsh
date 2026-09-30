@@ -9,8 +9,8 @@ window.__ModuleLoader__.load({
 
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated"); } catch (e) {}
 
-    // video-ui 流水线实时仪表盘（本机引擎）。客户包不装本插件。
-    const VIEW_URL = "http://127.0.0.1:8765/";
+    // video-ui 流水线只读单栏视图（agent 驱动时展示；自动聚焦最新 run）。客户包不装本插件。
+    const VIEW_URL = "http://127.0.0.1:8765/focus";
     const KEY = "weeksir-pipeline-view";
 
     function ViewTitle() {

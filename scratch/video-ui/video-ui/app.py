@@ -209,6 +209,12 @@ def index():
     return send_from_directory(str(Path(__file__).parent / "templates"), "index.html")
 
 
+@app.route("/focus")
+def focus():
+    """只读单栏流水线视图（agent 驱动时用；自动聚焦最新 run，无生成按钮）。"""
+    return send_from_directory(str(Path(__file__).parent / "templates"), "focus.html")
+
+
 @app.route("/static/<path:asset>")
 def static_assets(asset):
     return send_from_directory(str(Path(__file__).parent / "static"), asset)
