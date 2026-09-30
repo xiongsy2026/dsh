@@ -89,6 +89,7 @@ Stage6 请示"成片"：present(final_clean.mp4) → 右栏 video 播 → **人�
 5. **批准只在 3 关口**（方案/审帧/成片），不逐段问。闸门由你 `POST /gate` 打，但**打之前必须先有人在对话里的"通过"**。
 6. **切号=切记忆**：每次调用追加 `accounts/<account>/SKILL_LOG.md`，可复用结论进 `MEMORY.md`；禁读它号记忆。
 7. **档案层**：每跑一条 run，在 `productions/<task>/DELIVERABLES.md` 落一条 run 指针（字段见 SKILL 的交付档案层节 / 契约 §8）；**产物本体留 video-ui run 目录，不搬进 productions**。
+8. **成片批准后必须固定追问存模板**：Stage6 人验收通过后，agent **无条件**追加一句"这条满意的话，要不要存成视频模板？给个片型名"——不许因为"客户没提"就跳过（同 reason_brief 曾被跳过的教训）。人回"存"→按 `references/video-template.md` 写 `accounts/<acct>/video_templates/<名>.json`；人说"不用"或未满意则不写、不纠缠。
 
 详细 prompt 规则、叙事结构选型、多语言口播等 playbook 在 `../product-video-pipeline/SKILL.md`（权威配方），本 skill 只负责驱动 video-ui 落地 + 监控优化。
 
