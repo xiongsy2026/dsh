@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>omni 出片 · 产品图生视频流水线</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">▶</span><span class="bname">omni 出片</span></div>
+  <div class="env">
+    <label class="chip hidden" id="chip-dry">DRY-RUN<span class="muted">（不烧额度）</span></label>
+    <label class="chip" id="chip-key">zexapi key: <b>?</b></label>
+    <label class="chip" id="chip-gflow">gflow: <b>?</b></label>
+    <label class="chip" id="chip-ffmpeg">ffmpeg: <b>?</b></label>
+    <button id="btn-settings" class="ghost">设置</button>
+  </div>
+</header>
+
+<div id="settings-panel" class="panel hidden">
+  <h3>设置</h3>
+  <div class="grid2">
+    <label>zexapi Key（仅本次进程内存，绝不写盘）
+      <div class="row"><input id="set-key" type="password" placeholder="sk-... 或留空用环境变量"><button id="btn-key" class="ghost">填入</button></div>
+    </label>
+    <label>Flow project id（gflow 必填）
+      <div class="row"><input id="set-project" placeholder="0f474d52-...."><button id="btn-save-settings" class="ghost">保存</button></div>
+    </label>
+    <label>关键帧通道
+      <select id="set-image-backend"><option value="zexapi">zexapi · nano_banana_2（默认）</option><option value="gflow">gflow-cli · nano-pro（需装 exe）</option></select>
+    </label>
+    <label>视频模型 / 尺寸
+      <div class="row"><input id="set-video-model"><input id="set-video-size"></div>
+    </label>
+    <label>口播
+      <div class="row"><input type="checkbox" id="set-vo-enabled"> 启用 <select id="set-vo-lang">
+        <option>American English</option><option>British English</option><option>Chinese Mandarin</option><option>Japanese</option><option>Korean</option><option>Spanish</option><option>French</option><option>German</option>
+      </select><select id="set-vo-gender"><option>female</option><option>male</option></select></div>
+    </label>
+    <label>omni 水印框 x,y,w,h
+      <div class="row"><input id="set-wm-x" type="number"><input id="set-wm-y" type="number"><input id="set-wm-w" type="number"><input id="set-wm-h" type="number"></div>
+    </label>
+  </div>
+  <p class="muted">runs 目录：<code id="runs-root"></code></p>
+</div>
+
+<main>
+  <aside id="runs">
+    <div class="row"><button id="btn-new" class="primary wide">＋ 新建 run</button></div>
+    <div id="runs-list"></div>
+  </aside>
+
+  <section id="work">
+    <nav id="stagebar" class="stagebar hidden" aria-label="流水线阶段">
+      <button class="sb" data-goto="stage0"><i></i><b>0</b>素材</button>
+      <button class="sb" data-goto="stage1"><i></i><b>1</b>剧本</button>
+      <button class="sb" data-goto="stage2"><i></i><b>2</b>关键帧</button>
+      <button class="sb" data-goto="stage4"><i></i><b>4</b>运镜</button>
+      <button class="sb" data-goto="stage5"><i></i><b>5</b>视频</button>
+      <button class="sb" data-goto="stage6"><i></i><b>6</b>交付</button>
+    </nav>
+    <div id="empty" class="empty">
+      <div class="empty-mark">▶</div>
+      <p><b>新建一个 run 开始</b></p>
+      <p class="muted">上传产品图 → 粘剧本 → 生帧 → 审帧 → 粘运镜 → 出片 → 拼接去水印</p>
+    </div>
+
+    <div id="stage0" class="card hidden">
+      <div class="card-h"><span class="step">0</span><h2><span id="s0-title">本次投放</span> <em id="s0-name"></em></h2></div>
+      <div id="s0-product">
+        <p class="muted">产品<b>主图 + 细节图</b>可以传多张，<b>人物角色图</b>也可以传多个——都按小图网格列在这里。主图永远排第一：产品登场的帧会把「主图 +（有的话）一张细节图」当参考图发给生图模型，没登场的帧一张都不给。「提取产品特征」一次看全部产品图，细节图越多，基准卡越不容易瞎编。</p>
+        <div class="row" style="align-items:flex-end">
+          <label>加一张 <select id="p-asset-kind">
+            <option value="product">产品细节图</option><option value="character">人物角色图</option>
+          </select></label>
+          <label>名字（可选，方便认） <input id="p-asset-name" placeholder="如：扣头特写 / 女主"></label>
+          <label>图片 <input type="file" id="inp-p-asset" accept="image/*"></label>
+          <button id="btn-p-asset-add" class="primary">加入</button>
+          <label>替换主图 <input type="file" id="inp-product" accept="image/*"></label>
+          <span id="anchor-state" class="chip">人锚: 无</span>
+        </div>
+        <div class="row"><button id="btn-card" class="primary">提取产品特征（看全部产品图）</button>
+          <span id="card-state" class="chip">无基准卡</span></div>
+        <label>补充说明（可选，仅作旁证，与图冲突以图为准）
+          <input id="card-notes" placeholder="如：925 银；投影面是 13 种语言「我爱你」+ 14 个爱心"></label>
+        <div id="product-roster" class="roster"></div>
+        <div id="card-box"></div>
+      </div>
+      <div id="s0-roster" class="hidden">
+        <p class="muted">剧情模式没有产品。这里上传短片里会出现的<b>角色定妆图</b>与<b>道具图</b>（可多张）——它们就是剧本唯一能引用的人物/道具名册。给每个资产「提取特征」后，生帧时按每拍 <code>cast</code> 自动带上对应参考图并锁死外观。</p>
+        <div class="row" style="align-items:flex-end">
+          <label>类型 <select id="asset-kind"><option value="character">角色</option><option value="prop">道具</option></select></label>
+          <label>名字（剧本里逐字引用，建议简短） <input id="asset-name" placeholder="如：小美 / 旧怀表"></label>
+          <label>图片 <input type="file" id="inp-asset" accept="image/*"></label>
+          <button id="btn-asset-add" class="primary">加入名册</button>
+        </div>
+        <span id="asset-state" class="chip"></span>
+        <div id="roster-box" class="roster"></div>
+      </div>
+    </div>
+
+    <div id="stage1" class="card hidden">
+      <div class="card-h"><span class="step">1</span><h2>剧本 <em>AI 写 或 我手写后粘进来，两条路都通到同一套校验</em></h2></div>
+      <div class="ai-box">
+        <div class="row"><b>AI 写剧本</b><span class="muted">1 次 chat 调用（gemini-3.5-flash，花 zexapi 额度）。校验不过会带着错误自动重生成，最多 3 次。</span></div>
+        <div class="grid2">
+          <label id="lbl-ai-name">产品名 <input id="ai-name" placeholder="月猫坠链"></label>
+          <label>目标平台 <select id="ai-platform"><option>通用</option><option>TikTok</option><option>抖音</option><option>小红书</option><option>Instagram</option></select></label>
+          <label>目标国家/市场 <select id="ai-country">
+            <option value="">通用（欧美语境）</option><option>中国</option><option>美国</option><option>英国</option><option>加拿大</option><option>澳大利亚</option><option>新西兰</option><option>爱尔兰</option><option>印度</option><option>日本</option><option>韩国</option><option>德国</option><option>法国</option><option>西班牙</option><option>墨西哥</option><option>巴西</option>
+          </select></label>
+          <label>叙事结构 <select id="ai-structure">
+            <!-- 选项由 app.js fillStructures() 按 run.mode 从 /api/run 下发的 structures 重建；这里只放产品模式默认值 -->
+            <option value="">模型自选</option><option>悬念揭秘</option><option>痛点解决</option><option>情感故事</option><option>UGC种草</option><option>高级质感</option><option>对比反转</option>
+          </select></label>
+          <label>规格 <span id="ai-seginfo" class="staticv"></span></label>
+        </div>
+        <label id="lbl-ai-brief">产品卖点 + 故事方向（越具体越好：材质/部件/朝向，以及想要的情感与场景）
+          <textarea id="ai-brief" rows="4" placeholder="925 银新月开口坠，开口朝右，月亮内弧蹲一只银猫，右侧一颗黑曜圆球，上方挂五角星小吊坠。想要异地恋纪念日、深夜意外发现礼物的情感，收礼人是欧美女性。"></textarea></label>
+        <div id="story-outline-box" class="ai-box hidden">
+          <div class="row"><b>① 先写故事大纲</b><span class="muted">1 次 chat（花 zexapi 额度）。只定人物、冲突、转折、结局，不排分镜、不写英文提示词。看完不满意可以直接改下面这段文本，或让它重写。</span></div>
+          <div class="row">
+            <button id="btn-story-outline" class="primary">写故事大纲</button>
+            <button id="btn-story-draft-save" class="ghost">保存我改的大纲</button>
+            <span id="story-state" class="chip">未写大纲</span>
+          </div>
+          <textarea id="story-draft" rows="7" placeholder="先点「写故事大纲」，或直接把你自己的想法按「开场 / 推进 / 转折 / 高潮 / 结尾」写在这里——下一步会照它逐拍展开。"></textarea>
+        </div>
+        <div id="brief-row" class="row"><button id="btn-brief" class="ghost">推理：帮我出卖点 + 3 个故事方向</button>
+          <span id="brief-state" class="chip">未推理</span>
+          <span class="muted">读第 0 步的产品基准卡推理（1 次 chat），点一条就填进上面的框。</span></div>
+        <div id="brief-box"></div>
+        <label>额外要求（可选，优先级最高）<input id="ai-extra" placeholder="如：全程不出现男性；结尾要有狗入镜"></label>
+        <div class="row"><button id="btn-ai-script" class="primary">让 AI 写剧本</button>
+          <button id="btn-zh" class="ghost">补中文对照</button>
+          <span id="ai-state" class="chip"></span><span id="zh-state" class="chip"></span>
+          <span class="muted">「补中文对照」= 1 次 chat，只翻缺的（手工粘贴的剧本用）。</span></div>
+      </div>
+      <h4 style="margin-top:14px">手工粘贴</h4>
+      <p class="muted">粘贴完整 script.json（含 <code>global_arc / story_hook / emotional_core / subject_bible / segments[].beats[]</code>）。提交后按 SKILL 的 Stage 1 校验清单卡：6 拍×段、duration 求和=10s、keyframe_prompt 必须英文。产品模式查产品入场节拍；剧情模式查每拍 <code>cast</code> 是否都在第 0 步名册里、且不得出现带货话术。</p>
+      <textarea id="script-text" rows="10" placeholder='{ "duration": 20, "global_arc": "...", "subject_bible": {...}, "segments": [ {"phase":"setup","beats":[{...6 beats...}]} ] }'></textarea>
+      <div class="row">
+        <button id="btn-script" class="primary">校验并载入剧本</button>
+        <button id="btn-script-sample" class="ghost">看字段模板</button>
+      </div>
+      <div id="script-report"></div>
+      <div id="script-table"></div>
+      <div class="row gate">
+        <button id="btn-script-gate" class="primary">✓ 剧本审核通过（Stage 1.5）</button>
+        <span id="script-gate-state" class="chip"></span>
+      </div>
+    </div>
+
+    <div id="stage2" class="card hidden">
+      <div class="card-h"><span class="step">2</span><h2>关键帧 <em id="s2-sub">逐帧串行，未出场的主体不给模型看它的参考图</em></h2></div>
+      <div class="row">
+        <label>通道 <select id="f-backend">
+          <option value="zexapi">zexapi nano_banana_2（花额度）</option>
+          <option value="gflow">gflow nano-pro（Flow 额度，需装 exe）</option>
+        </select></label>
+        <label>参考图 <select id="f-refmode">
+          <option value="skill">流水线策略（产品图+第1帧+上一帧）</option>
+          <option value="anchor_only">只给人锚（gflow 单图限制）</option>
+          <option value="prev_only">只给上一帧</option>
+        </select></label>
+        <button id="btn-frames-all" class="primary">生成全部待生成帧</button>
+        <button id="btn-frames-sel" class="ghost">重拍选中帧</button>
+        <span id="f-hint" class="muted"></span>
+      </div>
+      <div id="frames-grid" class="grid-frames"></div>
+      <div class="row gate">
+        <button id="btn-frames-gate" class="primary">✓ 关键帧全部通过（Stage 3）</button>
+        <span id="frames-gate-state" class="chip"></span>
+        <span class="muted">逐帧核对 10 项：产品完整性/形态/配色/比例/角度、not_present 帧零泄露、人物一致、场景一致、无多余文字手指示意、衔接帧连续。</span>
+      </div>
+    </div>
+
+    <div id="stage4" class="card hidden">
+      <div class="card-h"><span class="step">4</span><h2>运镜提示词 <em>AI 逐段写 或 手写粘贴，英文 150-300 词</em></h2></div>
+      <div class="row">
+        <button id="btn-cam-all" class="primary">AI 写全部段运镜</button>
+        <span id="cam-state" class="chip"></span>
+        <span class="muted">每段 1 次多模态 chat（带该段 6 张关键帧 + 剧本 beats），花 zexapi 额度。词数不足或夹中文会自动重写一次。</span>
+      </div>
+      <p class="muted" id="cam-vo"></p>
+      <div id="camera-box"></div>
+    </div>
+
+    <div id="stage5" class="card hidden">
+      <div class="card-h"><span class="step">5</span><h2>视频 <em>omni_flash-hd-10s，1 段 10s，7 张参考图上限</em></h2></div>
+      <div class="row">
+        <button id="btn-seg-all" class="primary">生成全部段</button>
+        <span class="muted">失败会走降级链 1080x1920 → 720x1280。内容审核拦截需回第 4 步软化措辞后单跑该段。</span>
+      </div>
+      <div id="segments-box"></div>
+    </div>
+
+    <div id="stage6" class="card hidden">
+      <div class="card-h"><span class="step">6</span><h2>合成与交付 <em>ffmpeg 拼接 + delogo 去 omni 右下角水印</em></h2></div>
+      <div class="row"><button id="btn-finalize" class="primary">拼接 + 去水印</button>
+        <span class="muted">多段先拼一次再去水印，少一次重编码。</span></div>
+      <div class="row"><button id="btn-selfcheck" class="ghost">一键自查（本地，零成本）</button>
+        <span id="selfcheck-state" class="chip">未跑</span>
+        <span class="muted">ffprobe 时长/分辨率、volumedetect 音轨、blackdetect 黑帧、freezedetect 停滞、各段规格一致性、关键帧齐不齐、delogo 是否真动了水印区、目录里有无密钥残留。</span></div>
+      <div id="selfcheck-box"></div>
+      <div id="final-box"></div>
+      <div id="checklist"></div>
+    </div>
+
+    <div id="logcard" class="card logcard hidden">
+      <div class="card-h"><span class="step">›</span><h2>任务日志</h2></div>
+      <pre id="log"></pre>
+    </div>
+  </section>
+</main>
+
+<div id="new-modal" class="modal hidden">
+  <div class="modal-body">
+    <h3>新建 run</h3>
+    <div class="mfield">
+      <span class="mlabel">模式</span>
+      <div class="modes">
+        <label class="mode-card"><input type="radio" name="new-mode" value="product" checked>
+          <span class="mc-t">产品模式</span><span class="mc-d">带货广告 · 单一产品主体</span></label>
+        <label class="mode-card"><input type="radio" name="new-mode" value="story">
+          <span class="mc-t">纯剧情模式</span><span class="mc-d">无产品 · 多角色 / 道具</span></label>
+      </div>
+    </div>
+    <label id="new-title-label">产品/战役名 <input id="new-title" placeholder="月猫坠链 20s"></label>
+    <label>目标时长（秒）<input id="new-duration" type="number" value="10" min="10" max="90" step="10"></label>
+    <p class="muted">段数自动 = ceil(时长/10)，总帧数 = 段数×6。</p>
+    <div id="new-product-row"><label>产品图 <input id="new-product" type="file" accept="image/*"></label></div>
+    <p id="new-story-hint" class="muted hidden">剧情模式先建 run，随后在第 0 步上传多个角色/道具定妆图。</p>
+    <div class="row end"><button id="btn-create" class="primary">创建</button><button id="btn-cancel" class="ghost">取消</button></div>
+  </div>
+</div>
+
+<div id="lightbox" class="modal hidden"><img id="lightbox-img" alt=""></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

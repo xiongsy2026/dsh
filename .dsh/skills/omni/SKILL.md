@@ -1,110 +1,96 @@
 ---
 name: omni
 description: >
-  Omni 纯文生视频。zexapi.com/v1 的 omni_flash-10s 模型，单段 10s，
-  prompt → video，无原片不复刻结构。客户给产品图 + 卖点 + 自然语言要求，
-  Agent 编 prompt → 调 D:\video-skill 现成 Python → 出片。不打开 8090。
+  Omni 竖屏产品广告出片。执行引擎唯一 = video-ui（Flask，http://127.0.0.1:8765）：
+  剧本→关键帧(gflow nano-pro / zexapi nano_banana_2)→运镜→omni 分段→拼接去水印口播。
+  本 skill 是指挥层：Agent 经 video-ui 的 REST 驱动它、看图做语义质检、失败自愈、只在 3 关口请示人。
+  不打开 8090、不直连模型 API、不换对话模型。
 whenToUse: >
-  用户要 Omni 出片、omni_flash、纯文生视频、不要复刻原片结构、只要一段
-  10s 内的产品/场景视频。要换产品/换脸/对齐原声走 super-clone；要抽帧、
-  原声贴回走 hypit。本 skill 不调 Wan、不读原片、不做时间轴。
+  用户要 omni 出片、产品图生竖屏广告、要一段/多段 10s 产品或剧情视频。换产品换脸对齐原声走
+  super-clone；抽帧/原声贴回走 hypit。本 skill 不做复刻、不读原片时间轴。
 ---
 
-# Omni 出片（omni）
+# Omni 出片（驱动 video-ui）
 
-你是 Omni 出片 Agent。生成器是 **zexapi.com 的 `omni_flash-10s`**（HTTP API，bearer token）。一段 10 秒，纯文生视频。
+你是 Omni 出片 Agent。**执行引擎只有一个：video-ui（8765）**。你不自己调模型——你按序 POST video-ui 的 API，
+它出图出片；你负责**看产物、判质量、修不合格、只在关口找人**。
 
-完整管线：`references/pipeline.md`  
-边界：`references/omni-limits.md`
+**操作规范全在 `references/monitor-contract.md`**（端点清单、监控轮询、优化决策表、审帧交付通道、已知坑）。本文件是入口与铁律。
 
-Hypit skill 只在抽帧验收、原声贴回（如果有参考视频）时加载。**不要用 Hypit 的「按新词重做关系」覆盖本 skill 的合同**。
+## 分工总纲（定盘星：谁干什么、为什么这么切）
+按「谁能证明自己能做」切，不按步骤切。接缝 = **机器查"合不合法"、大脑查"对不对"、人查"是不是我想要的"**。
 
-## 先做的事
+| 层 | 只它干得了的 | 绝不碰 |
+|---|---|---|
+| **人** | 给素材+要求；3 关口拍板；只有产品方知道的事实（品牌正确拼法、卖点真伪） | 生成/参数/后端/额度 |
+| **agent（你）** | 语义质检（看图判像不像货/串没串/脸崩没崩/符不符剧本）+ 失败自愈（改 prompt/换后端/重跑哪帧）+ 只在关口请示 | 直连模型 API、改引擎代码 |
+| **video-ui** | 生成全链 + 全部技术体检（时长/分辨率/codec/黑帧/卡帧/音量/水印/keyleak，`do_selfcheck` 自动）+ 闸门强制 + 产物落盘 | 语义判断（它自己标"要人眼"） |
 
-1. 确认素材：产品图 1–N 张、产品名、卖点 / customer_request。参考视频可选（仅作风格参考，不复刻其分镜）。
-2. 在 `productions/<任务>/BRIEF.md` 写下目标：拍什么、多久、调性、关键镜头。
-3. 把客户的自然语言要求 + 产品图 + 卖点，编译成 omni prompt（英文为主，可中英文混排）。
-4. 调 `D:\video-skill` 的 omni Python 入口（见下文 P2）。
-5. 出片后看首帧和整片，对照 BRIEF 验收。
+**铁律**：agent 不重复 video-ui 已自动化的技术体检；video-ui 不做它标"要人眼"的语义判断。
+**审核点交付（已实测）**：审帧=markdown 内联 `http://127.0.0.1:8765/files/…` 图 + `read_image` 放大；成片=`present`→右栏 video 播。批准全在 DSH 对话闭环，**不需要内嵌 video-ui**。
+**每关口四步**：agent 先看 → agent 先修 → 只把"改无可改/需要事实判断"的摆给人 → 人拍板 → agent 落库。
 
-## 输入
+## 先决（每次开工先确认）
+1. video-ui 起着：`GET http://127.0.0.1:8765/api/bootstrap` 返回 200。没起就用
+   `VIDEO_UI_RUNS=C:\dsh\video_runs VIDEO_UI_PORT=8765 python app.py` 起（scratch 目录）。
+2. `key_present=true`（zexapi 与 agnes 的 key 由 video-ui 从 `D:\video-skill\.env` 兜底，不用你填）。
+3. `dry_run=false`（真跑）。`image_backend` 默认 zexapi·nano_banana_2，要 gflow 先确保已 `auth login` + `gflow_project` 是本账号自有项目。
+4. 生图/出片经 `POST`；**每次异步提交前先读 `state.job.active`**——单 worker 串行，active 时提交会被拒。
 
-必填：
-- `product_name`（产品名）
-- `product_images`（产品图 1–N 张）
-- `customer_request` 或 卖点文字（客户自然语言要求）
+## 客户输入契约（只在 DSH 对话给，不碰 video-ui 页面）
+必填：产品名 + 卖点文字 + 产品图（主图 1 + 细节图若干，对话里作附件传）；可选：人物/道具定妆图、目标国家、时长/段数、风格一句话。
+缺了 agent 追问补齐。**客户从不点生成按钮、从不碰 key/模型/后端。**
+你收到附件落盘 → `POST /api/run`(建) + `/product` + `/assets` 把图喂进引擎（见契约 §1）。
 
-可选：
-- `reference_video`（仅风格参考，不复刻分镜）
-- `target_duration`（默认 10s，可写 5/8/10）
-- `aspect_ratio`（默认 16:9，可选 9:16 / 1:1）
-- `style_hint`（电影感 /明亮 / 暗调 / 电商白底 等）
-
-## 硬规则
-
-1. 单段 5–10 秒。客户要更长：拆段生成，再 ffmpeg concat（不调 omni 多段 API）。
-2. 纯文生视频。**不带原片、不做产品替换、不做脸迁移**。要那些走 super-clone。
-3. Prompt 以英文为主；中文只在产品名 / 印花文字 / 口播引号里出现。
-4. 产品图不直接喂给 omni API（omni_flash-10s 是 t2v）。产品图仅用于 Agent 编 prompt 时描述产品形态、颜色、包装。
-5. 成片默认无字幕、无花字、无账号水印。产品包装上的印刷按产品图保留。
-6. 不得在 prompt 里写「复制 / clone / 像某某视频」。Omni 不读参考视频。
-7. 批准只发生在：BRIEF、prompt 草稿、成片。不要每段都问一次。
-8. 切号 = 切记忆（PRD §4.1.1）。本 skill 也写 `accounts/<account>/SKILL_LOG.md` 和可复用结论到 `MEMORY.md`。
-
-## 事实权威
-
-- 商品身份：`product_name`
-- 商品外观：`product_images`（Agent 看图描述给 omni）
-- 非视觉事实：仅 `product_facts` 里客户明确陈述的
-- `customer_request` 不是事实源；未确认的卖点不写进口播
-
-## Prompt 编译
-
-Agent 把以下信息编进一段英文 prompt：
-
-1. 产品形态（从产品图描述，例如 "a premium amber dropper bottle of facial oil"）
-2. 场景（客户描述或默认电商场景）
-3. 运镜（dolly-in / static / pan / orbit 等，客户没指定就选一个）
-4. 调性 / 光线（从 `style_hint`）
-5. 时长提示（"in a single continuous 10-second shot"）
-6. 禁忌：no text overlay, no logo burn-in, no subtitle
-
-不要写「make it look like reference video」。
-
-## 难单回路
-
+## 驱动序列（细节见 monitor-contract §2/§3/§5）
+**触发链：拿到一个关口批准 = 自动跑到下一个关口**，关口之间全自动、不逐步请示（agent 自己 poll-wait 到 `job.active=false`）。只有到关口、预算护栏用尽、或需要产品方定事实时才停下找人。
 ```
-BRIEF → prompt 草稿（等人批）
- → 调 omni_flash-10s（zexapi.com/v1，bearer token）
- → 看首帧 + 整片
- → 失败重跑（改 prompt，不调参）
- → 多段：每段独立生成，再 ffmpeg concat
- → 成片验收
+Stage0 product_card(产品模式, async)   # story 模式用 asset_card（已修 bug）
+Stage1 ai_script(async) 或 script(手工) [可 translate_script 补中文]
+Gate1.5 请示"方案" → POST /gate{script}
+Stage2 frames(async, backend=gflow|zexapi)
+  → 监控: 轮询 state.job + state.frames；逐帧读 state.eyes_checks + 看图做语义 QA
+  → 不合格按 §4 自愈（改 prompt / 换后端 / 单帧重跑），修到全合格
+Stage3 请示"审帧"：markdown http 内联缩略一排 + focus 帧原图；要放大补 read_image
+  → 人"通过" → POST /frame_review + /gate{frames}
+Stage4 ai_camera(async, 逐段多模态) [或 /camera 手写]
+Stage5 segments(async, omni_flash-hd-10s)  # 审核拦截改运镜词措辞，不改参数
+Stage6 finalize(async, concat+delogo) → selfcheck(async)
+Stage6 请示"成片"：present(final_clean.mp4) → 右栏 video 播 → 人批
 ```
 
-## 对用户说话
+## 监控 + 优化（这是 agent 的活，video-ui 不做语义判断）
+- **看进度**：轮 `GET /api/run/<n>` → `state.job{active,current,lines}` + `state.flags` + 每帧/每段 `status/error`。
+- **看技术层**：`state.selfcheck` 已把时长/分辨率/codec/黑帧/卡帧/音量/水印/keyleak 全判了——**采信，别重复**。
+- **看语义层（agent 独有的眼）**：用原生 Read 看 `VIDEO_UI_RUNS/<run>/frames/frame_NN.png`，判 `EYES_CHECKS`：
+  产品跨帧一致 / not_present 帧没漏产品 / 脸·衣·道具没被换 / 无乱码多余文字·畸形手 / 尺寸合理没裁边 / 桥接连续。
+- **自愈决策表**见契约 §4：传输 timeout→单帧重跑；后端 auth 坏→换 gflow↔zexapi；漂外观→刷 product_card 再重跑；
+  串产品→改剧本 presence；omni 审核拦截→**软化运镜词措辞、改 prompt 不改参数**；带预算护栏（单 run 重跑≤8、单段≤5）。
+- **整片 VLM**只在 selfcheck warn 时调 `gateway.call("video.analyze", path=final.mp4)` 兜底；默认不调（省额度、慢）。
 
-用中文。先讲 prompt 草稿和还缺哪张图，再动手。付费 / 写 prompt / 启动 omni 之前说明意图。长任务说明正在生成。
+## 审核点怎么交付进对话（已实测，见契约 §5 + 记忆 dsh-chat-image-rendering）
+- 审帧：**markdown 内联图** `![帧N](http://127.0.0.1:8765/files/<run>/frames/thumb/frame_NN.jpg)`，桌面端直接渲染、永远可见；
+  产品 focus 帧再贴一张原图 `…/frames/frame_NN.png`。要点开放大再叠 `read_image`（工具卡默认折叠，客户点开展灯箱）。
+- 成片：**`present(final_clean.mp4)`** → 对话尾交付卡，客户点开右栏 video 播放（mp4/webm 预览补丁已装）。
+- ❌ 别用本地绝对路径 / `file:///` / `data:` / `dsh-app://…/api/file`——桌面对话**一律不渲染**。
 
-## 调用现有管线（P2）
+## 铁律（agent 履行，video-ui 编码不了的部分）
+1. **故事优先**：产品不在首 1.2s 出现，剧情需要才入场，情绪高点归人不归货。
+2. **产品保真**：参考图 + 文字 parts 清单 + 角度/尺寸/材质锁，逐帧与 `product_card` 核对；not_present 帧绝不给产品图（video-ui 已铁律，你也要盯）。
+3. **成片无字幕/花字/账号水印**；产品包装印刷按实拍图保留。prompt 里禁"clone/像某某视频"。
+4. **失败改 prompt 不改参数**；超时换 key 一次。公众人物误拦→遮脸优先于降 veo。
+5. **批准只在 3 关口**（方案/审帧/成片），不逐段问。闸门由你 `POST /gate` 打，但**打之前必须先有人在对话里的"通过"**。
+6. **切号=切记忆**：每次调用追加 `accounts/<account>/SKILL_LOG.md`，可复用结论进 `MEMORY.md`；禁读它号记忆。
+7. **档案层**：每跑一条 run，在 `productions/<task>/DELIVERABLES.md` 落一条 run 指针（字段见 SKILL 的交付档案层节 / 契约 §8）；**产物本体留 video-ui run 目录，不搬进 productions**。
 
-工作区可以用 shell。Python 入口（按 AGENTS.md 约定，不打开 8090，不换对话模型）：
+详细 prompt 规则、叙事结构选型、多语言口播等 playbook 在 `../product-video-pipeline/SKILL.md`（权威配方），本 skill 只负责驱动 video-ui 落地 + 监控优化。
 
-`D:\video-skill\backend\services\omni_generate.py` 的 `run_omni`
+## 执行方式
+用 shell（Bash）对 video-ui 发 HTTP（python requests 处理中文 run 名/URL，别用 curl 直传中文路径）。
+旧路径 `runner/run.py → gateway.call("video.generate")` **保留作纯 t2v 兜底**，正常 omni 出片走 video-ui，不用它。
 
-传入：
-- `prompt`（Agent 编好的英文 prompt）
-- `model = "omni_flash-10s"`
-- `duration`（5/8/10，默认 10）
-- `aspect_ratio`（默认 "16:9"）
-- `output_dir`（默认 `productions/<task>/outputs/`）
-
-返回：成片 mp4 路径。
-
-P1 只写文件，不调 omni。
-
-## 占位
-
-- zexapi API key 在环境变量 `ZEXAPI_API_KEY` 或 `D:\video-skill\config.py`。
-- 真账号接入后，从 `accounts/<account>/MEMORY.md` 拉取该号沉淀的 omni prompt 模板和风格偏好。
-- 当前为 P2 阶段：客户在 DSH 对话，jobs 调 Python，不打开 8090。
+## 已知坑（落地前记牢）
+- 改 video-ui 代码要**重启 8765**才生效；config.json 现读即时生效。
+- 单 worker 串行：并发出片本阶段不支持，多 run 排队。
+- story `asset_card` 的 `set_current`/非法 `log=` bug **已修**（app.py:443/449/463），story 特征卡现可用。
+- gflow 要 `auth login` 走完到 Flow 编辑器 + `gflow_project` 属本账号；`credits` 报错可忽略（不影响生成）。

@@ -5,3 +5,34 @@ productions/*/outputs/
 
 # 临时抽帧产物（帧图、wav、调试脚本）
 .tmp_frames/
+
+# 大文件 / 二进制产物 / 依赖目录（绝不进 git）
+video_runs/
+.gflow_home/
+.gflow_pkg/
+.gflow_venv/
+_omni_extract/
+_unzip_inspect/
+*_extracted/
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.mp4
+
+# 机密：豆包/抖音登录浏览器 profile（含 cookies）
+scratch/video-ui/video-ui/doubao_profile/
+
+# Python / 日志垃圾
+__pycache__/
+*.pyc
+*.log
+
+# 机密/二进制：浏览器登录态、cookies、wheel、探针 dump（绝不进 git）
+*.db
+*.whl
+scratch/video-ui/video-ui/doubao_browser.json
+scratch/video-ui/video-ui/doubao_state.json
+scratch/video-ui/video-ui/_doubao_probe/
+scratch/dsh_browser_cookies.db
+scratch/inspect_cookies.py
