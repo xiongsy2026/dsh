@@ -32,7 +32,7 @@ window.__ModuleLoader__.load({
 
     // 声明需要的服务：slots（页签 body/title）+ sidebarRightTabs（页签类型注册表）+ sidebarRight（控制器，用来 openTab）
     // "timer" 必须声明，否则 ctx.setInterval 被 guard 拒（"cannot get property setInterval without inject"）
-    const inject = ["slots", "sidebarRightTabs", "sidebarRight", "timer"];
+    const inject = ["slots", "sidebarRightTabs", "sidebarRight", "timer", "sessions"];
     function apply(ctx) {
       try {
         window.__OPS_GW_APPLY__ = true;
@@ -58,14 +58,26 @@ window.__ModuleLoader__.load({
           ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: KEY }, ViewTitle)
         ), "pipeline-view: title");
 
-        // ④ 保证"每个会话都有流水线"：轮询——若当前 DOM 里没有我们的 iframe（新会话/被关），就 openTab；已开着则跳过，避免抢焦点
-        if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === "function" && typeof ctx.setInterval === "function") {
-          ctx.setInterval(() => {
-            try {
-              if (document.querySelector('iframe[src*="8765"]')) return;   // 本会话已开着，别打扰
-              ctx.sidebarRight.openTab(KEY, { revealIfOpened: true });
-            } catch (e) { /* 还没会话绑定，下次再试 */ }
-          }, 3000);
+        // ④ 只在"当前会话真的有 omni run"时才弹页签（新会话 / 不做 omni 的会话不弹；页签开关是 per-seat）
+        function curSession() {
+          try { return (ctx.sessions && ctx.sessions.list && ctx.sessions.list.getSnapshot().current) || ""; } catch (e) { return ""; }
+        }
+        function syncTab() {
+          try {
+            const sid = curSession();
+            if (!sid) return;                                          // 还没会话绑定
+            if (document.querySelector('iframe[src*="8765"]')) return; // 本会话已开着，别重复弹
+            fetch(VIEW_URL + "api/runs?session=" + encodeURIComponent(sid))
+              .then(r => r.ok ? r.json() : [])
+              .then(runs => { if (Array.isArray(runs) && runs.length) ctx.sidebarRight.openTab(KEY, { revealIfOpened: true }); })
+              .catch(() => {});                                        // video-ui 没起/跨源失败：不弹，不崩
+          } catch (e) { /* 忽略，下次再试 */ }
+        }
+        if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === "function" &&
+            typeof ctx.setInterval === "function" && ctx.sessions && ctx.sessions.list) {
+          try { ctx.sessions.list.subscribe(() => syncTab()); } catch (e) {}
+          ctx.setInterval(syncTab, 4000);
+          syncTab();
         }
       } catch (e) {
         // 绝不因运维面板拖垮 DSH

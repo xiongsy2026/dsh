@@ -263,6 +263,15 @@ def gflow_status(cfg):
     return st
 
 
+@app.after_request
+def _cors_api(resp):
+    # 允许 DSH 插件（dsh-app:// 源）跨源 fetch /api/*，用于探测"本会话有没有 run"
+    if request.path.startswith("/api/"):
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    return resp
+
+
 @app.route("/api/bootstrap")
 def bootstrap():
     cfg = store.load_config()
