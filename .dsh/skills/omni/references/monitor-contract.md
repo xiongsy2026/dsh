@@ -58,18 +58,22 @@
 ```
 Stage0  intake        POST /api/run + /product + /assets + /country
 Stage0  product_card  POST /product_card (async) [产品模式；story 见 §6 bug]
-Stage1  script        POST /ai_script (async) 或 POST /script (sync 手工)
+Stage0.5 reason_brief POST /reason_brief (async) → 推理「卖点 + 3 故事方向」写 brief.json
+        选方向(触点)   把 3 个 story_options 贴进对话，人选/改一个 → 作为 selling_points 喂 Stage1
+Stage1  script        POST /ai_script (async，用所选方向) 或 POST /script (sync 手工)
         [可选] translate_script (async)
-Gate1.5 script        POST /gate {gate:"script", approve:true}     ← 3 关口之一
+Gate1.5 script        POST /gate {gate:"script", approve:true}     ← 关口
 Stage2  frames        POST /frames {backend, ref_mode:"skill"}     (async)
 Stage3  语义 QA       见 §3 判 EYES_CHECKS；单帧 POST /frame_review
-Gate3   frames        POST /gate {gate:"frames", approve:true}     ← 3 关口之一
+Gate3   frames        POST /gate {gate:"frames", approve:true}     ← 关口
 Stage4  camera        POST /ai_camera (async) 或 /camera (sync)
 Stage5  segments      POST /segments (async)
 Stage6  finalize      POST /finalize (async)
 Stage6  selfcheck     POST /selfcheck (async)  [成片验收]
-        成片批准       回对话请示人                                  ← 3 关口之一
+        成片批准       回对话请示人                                  ← 关口
 ```
+
+> **创意方向归人**：`reason_brief` 出的 3 个故事方向是给人挑的，agent **不擅自定方向直接 ai_script**。这是"方案"之前的一个轻触点（选方向 + 方案可合并成一次请示：先给方向让你选、再给据此生成的剧本方案）。
 
 闸门由服务端强制：`/frames` 要求 `review.script_approved`；`/ai_camera` `/camera` `/segments` 要求 `review.frames_approved`（app.py:816/842/871/989）。agent 不能跳。
 

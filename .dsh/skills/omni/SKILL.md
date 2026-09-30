@@ -46,7 +46,9 @@ whenToUse: >
 **触发链：拿到一个关口批准 = 自动跑到下一个关口**，关口之间全自动、不逐步请示（agent 自己 poll-wait 到 `job.active=false`）。只有到关口、预算护栏用尽、或需要产品方定事实时才停下找人。
 ```
 Stage0 product_card(产品模式, async)   # story 模式用 asset_card（已修 bug）
-Stage1 ai_script(async) 或 script(手工) [可 translate_script 补中文]
+Stage0.5 reason_brief(async) → 拿产品卡推理「卖点 + 3 个故事方向」(写 brief.json)
+  → 请示"选方向"：把 3 个 story_options 贴进对话，你挑一个/改一个（创意方向归人，agent 不擅自定）
+Stage1 ai_script(async，用你选的方向当 selling_points) 或 script(手工) [可 translate_script 补中文]
 Gate1.5 请示"方案" → POST /gate{script}
 Stage2 frames(async, backend=gflow|zexapi)
   → 监控: 轮询 state.job + state.frames；逐帧读 state.eyes_checks + 看图做语义 QA
