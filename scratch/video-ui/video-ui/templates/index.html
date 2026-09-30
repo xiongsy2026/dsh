@@ -7,7 +7,12 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="logo">▶</span><span class="bname">omni 出片</span></div>
+  <div class="brand"><span class="logo">▶</span><span class="bname">omni 出片</span>
+    <div class="run-switch" id="run-switch">
+      <button id="btn-run-switch" class="rs-btn" title="切换历史记录（其他 run）"><span class="rs-label">历史</span><span class="rs-caret">▾</span></button>
+      <div id="run-switch-menu" class="rs-menu hidden"></div>
+    </div>
+  </div>
   <div class="env">
     <label class="chip hidden" id="chip-dry">DRY-RUN<span class="muted">（不烧额度）</span></label>
     <label class="chip" id="chip-key">zexapi key: <b>?</b></label>
@@ -235,7 +240,14 @@
   </div>
 </div>
 
-<div id="lightbox" class="modal hidden"><img id="lightbox-img" alt=""></div>
+<div id="lightbox" class="modal hidden">
+  <button id="lb-prev" class="lb-nav" title="上一帧（←）">‹</button>
+  <div class="lb-stage">
+    <img id="lightbox-img" alt="">
+    <div id="lb-cap" class="lb-cap"></div>
+  </div>
+  <button id="lb-next" class="lb-nav" title="下一帧（→）">›</button>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

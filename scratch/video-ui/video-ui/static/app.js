@@ -19,6 +19,11 @@ async function boot() {
   state.boot = await api('/api/bootstrap');
   renderEnv();
   renderRuns();
+  // 默认加载本 run：URL 带 ?run= 就用它，否则取列表第一个（list_runs 已按 mtime 倒序 = 最新动过的）
+  const runs = state.boot.runs || [];
+  const wanted = new URLSearchParams(location.search).get('run');
+  const pick = (wanted && runs.find(r => r.name === wanted)) || runs[0];
+  if (pick) selectRun(pick.name);
 }
 function renderEnv() {
   const b = state.boot, c = b.config || {};
@@ -55,7 +60,32 @@ function renderRuns() {
   }).join('') || '<p class="muted pad">还没有 run</p>';
   $$('#runs-list .run-item').forEach(el => el.onclick = () => selectRun(el.dataset.run));
   $$('#runs-list .run-del').forEach(el => el.onclick = () => delRun(el.dataset.del));
+  renderRunSwitch();
 }
+
+/* ------------------------------------------------ 头部「omni 出片」旁的历史切换下拉 */
+function renderRunSwitch() {
+  const runs = (state.boot && state.boot.runs) || [];
+  $('#run-switch-menu').innerHTML = runs.length ? runs.map(r => {
+    const active = state.run && state.run.name === r.name;
+    return `<div class="rs-item ${active ? 'active' : ''}">
+      <button class="rs-item-main" data-switch="${esc(r.name)}">
+        <span class="rs-item-title">${r.mode === 'story' ? '<span class="mtag story">剧情</span>' : ''}${esc(r.title || r.name)}</span>
+        <span class="rs-item-meta">${esc(r.mtime || '')} · ${r.duration || '?'}s · ${stageLabel((r.flags || {}).final ? 'done' : r.stage)}</span></button>
+      <button class="rs-item-del" data-del="${esc(r.name)}" title="删除（移到 video_runs/_trash，可找回）">✕</button>
+    </div>`;
+  }).join('') : '<p class="rs-empty">还没有 run</p>';
+  $$('#run-switch-menu [data-switch]').forEach(el => el.onclick = () => {
+    hideSwitch(); selectRun(el.dataset.switch);
+  });
+  $$('#run-switch-menu [data-del]').forEach(el => el.onclick = (e) => {
+    e.stopPropagation();   // 只删不切、也别关菜单（方便连续删）
+    delRun(el.dataset.del);
+  });
+}
+function hideSwitch() { const m = $('#run-switch-menu'); if (m) m.classList.add('hidden'); }
+$('#btn-run-switch').onclick = (e) => { e.stopPropagation(); renderRunSwitch(); $('#run-switch-menu').classList.toggle('hidden'); };
+document.addEventListener('click', e => { if (!e.target.closest('#run-switch')) hideSwitch(); });
 async function delRun(name) {
   const r = (state.boot.runs || []).find(x => x.name === name) || {};
   const label = (r.title || name) + '（' + (r.size_mb || '?') + 'MB，' + (r.duration || '?') + 's / ' + (r.segments || '?') + ' 段）';
@@ -622,7 +652,7 @@ function renderFrames() {
     renderFrames();
   });
   $$('#frames-grid img').forEach(img => img.onclick = () => {
-    $('#lightbox-img').src = img.dataset.full; $('#lightbox').classList.remove('hidden');
+    const fr = img.closest('.frame'); if (fr) openLightbox(+fr.dataset.idx);
   });
 }
 function statusText(info) {
@@ -841,8 +871,51 @@ $('#btn-save-settings').onclick = async () => {
   });
   state.boot.config = res.config; renderEnv(); $('#settings-panel').classList.add('hidden');
 };
-$('#lightbox').onclick = () => $('#lightbox').classList.add('hidden');
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#lightbox').classList.add('hidden'); });
+$('#lightbox').onclick = e => { if (e.target === $('#lightbox')) closeLightbox(); };
+document.addEventListener('keydown', e => {
+  const lb = $('#lightbox');
+  if (lb.classList.contains('hidden')) return;
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') lbStep(-1);
+  else if (e.key === 'ArrowRight') lbStep(1);
+});
+$('#lb-prev').onclick = e => { e.stopPropagation(); lbStep(-1); };
+$('#lb-next').onclick = e => { e.stopPropagation(); lbStep(1); };
+$('#lightbox-img').onclick = e => { e.stopPropagation(); $('#lightbox').classList.toggle('lb-zoom'); };
+
+/* 关键帧灯箱：左右逐帧切换（只列已出图的帧，按拍序） */
+function frameShots() {
+  const r = state.run, frames = r.frames || {};
+  return state.beats.map(b => {
+    const info = frames[String(b.id).padStart(2, '0')] || {};
+    return info.file ? { id: b.id, full: fileURL(r.name, info.file), beat: b } : null;
+  }).filter(Boolean);
+}
+function openLightbox(id) {
+  state.lbList = frameShots();
+  state.lbAt = state.lbList.findIndex(f => f.id === id);
+  if (state.lbAt < 0) return;
+  $('#lightbox').classList.remove('lb-zoom');   // 每次打开回到「适应」
+  showLb();
+  $('#lightbox').classList.remove('hidden');
+}
+function closeLightbox() { $('#lightbox').classList.add('hidden'); }
+function showLb() {
+  const f = state.lbList[state.lbAt]; if (!f) return;
+  const img = $('#lightbox-img');
+  img.src = f.full;
+  img.title = '点击放大 / 还原';
+  const b = f.beat;
+  $('#lb-cap').textContent = `帧 ${f.id} · ${state.lbAt + 1}/${state.lbList.length} · ${b.beat_function || ''} · ${b.story_beat || ''}`;
+  const many = state.lbList.length > 1;
+  $('#lb-prev').classList.toggle('hidden', !many);
+  $('#lb-next').classList.toggle('hidden', !many);
+}
+function lbStep(d) {
+  if (!state.lbList || !state.lbList.length) return;
+  state.lbAt = (state.lbAt + d + state.lbList.length) % state.lbList.length;
+  showLb();
+}
 
 /* 头部会因窄屏换行变高，粘性偏移（阶段条 top / 卡片 scroll-margin）要跟真实高度对齐 */
 function syncHeaderH() {
