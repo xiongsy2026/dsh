@@ -9,8 +9,8 @@ window.__ModuleLoader__.load({
 
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated"); } catch (e) {}
 
-    // video-ui 流水线只读单栏视图（agent 驱动时展示；自动聚焦最新 run）。客户包不装本插件。
-    const VIEW_URL = "http://127.0.0.1:8765/focus";
+    // video-ui 原流水线 UI（agent 驱动时展示）。客户包不装本插件。
+    const VIEW_URL = "http://127.0.0.1:8765/";
     const KEY = "weeksir-pipeline-view";
 
     function ViewTitle() {
@@ -55,17 +55,14 @@ window.__ModuleLoader__.load({
           ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: KEY }, ViewTitle)
         ), "pipeline-view: title");
 
-        // ④ 自动打开：openTab 需要已绑定的会话，故轮询重试，一旦成功就停（setInterval 随 fiber 生命周期回收）
+        // ④ 保证"每个会话都有流水线"：轮询——若当前 DOM 里没有我们的 iframe（新会话/被关），就 openTab；已开着则跳过，避免抢焦点
         if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === "function" && typeof ctx.setInterval === "function") {
-          let opened = false;
           ctx.setInterval(() => {
-            if (opened) return;
             try {
+              if (document.querySelector('iframe[src*="8765"]')) return;   // 本会话已开着，别打扰
               ctx.sidebarRight.openTab(KEY, { revealIfOpened: true });
-              opened = true;
-              console.log("[pipeline-view] openTab ok");
-            } catch (e) { /* 还没会话绑定，继续等 */ }
-          }, 1500);
+            } catch (e) { /* 还没会话绑定，下次再试 */ }
+          }, 3000);
         }
       } catch (e) {
         // 绝不因运维面板拖垮 DSH
