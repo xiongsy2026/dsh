@@ -12,11 +12,10 @@ window.__ModuleLoader__.load({
     // video-ui 原流水线 UI（agent 驱动时展示）。客户包不装本插件。
     const VIEW_URL = "http://127.0.0.1:8765/";
     const KEY = "weeksir-pipeline-view";
-    // hypit：走统一网关 :8000（ADR-C 试点·同源免 CORS）。gateway 进程手起、暂未进 launcher。
-    //   网关 include_router(prefix="/hypit") → 原生页 :8000/hypit/hypit、API :8000/hypit/api/hypit/*。
-    //   回退到旧端口：把 HYPIT_ORIGIN 改回 "http://127.0.0.1:8090" 且 HYPIT_VIEW_URL 用 + "/hypit"（8090 页是 /hypit）。
-    const HYPIT_ORIGIN = "http://127.0.0.1:8000/hypit";
-    const HYPIT_VIEW_URL = HYPIT_ORIGIN + "/hypit";
+    // hypit：D-free 后走 hypit 原生 CLI（工作区 C:\dsh\hypit_runs），右栏 = hypit 自带 studio。
+    //   studio 是 per-run 临时进程：agent 跑 `hypit studio --run <x>.svrun --port 5179` 后本 tab 才有内容；没跑就白屏。
+    //   不再挂 D 控制台（:8090/:8000 已弃用于 hypit）。
+    const HYPIT_STUDIO_URL = "http://127.0.0.1:5179/";
     const HKEY = "weeksir-hypit-view";
 
     function ViewTitle() {
@@ -24,7 +23,7 @@ window.__ModuleLoader__.load({
     }
 
     function HypitTitle() {
-      return h("span", { title: "Hypit 原生工作台（运维）" }, "Hypit");
+      return h("span", { title: "Hypit 原生 Studio（build 后由 agent 起 hypit studio）" }, "Hypit Studio");
     }
 
     function IFrameBody(url, label) {
@@ -45,9 +44,9 @@ window.__ModuleLoader__.load({
     }
 
     function HypitBody() {
-      // 原生 /hypit 页无 session 查询参数：iframe 直接指原生控制台；
-      // 会话归属靠 presence 门控（本会话有对应 production 才弹这个 tab）。
-      return IFrameBody(HYPIT_VIEW_URL, "Hypit 工作台");
+      // hypit 原生 studio（agent 跑 `hypit studio --run X --port 5179` 后此端口才有服务）。
+      // 无 session 参数、per-run 临时；没起 studio 时 iframe 白屏属正常。
+      return IFrameBody(HYPIT_STUDIO_URL, "Hypit Studio");
     }
 
     // 声明需要的服务：slots（页签 body/title）+ sidebarRightTabs（页签类型注册表）+ sidebarRight（控制器，用来 openTab）
@@ -78,12 +77,12 @@ window.__ModuleLoader__.load({
           ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: KEY }, ViewTitle)
         ), "pipeline-view: title");
 
-        // ③'. Hypit 原生页 tab：类型 + body(iframe→:8090/hypit) + title
+        // ③'. Hypit Studio tab：类型 + body(iframe→native studio :5179) + title
         ctx.effect(() => ctx.sidebarRightTabs.register({
           id: HKEY,
           kind: HKEY,
           priority: "extension",
-          title: () => "Hypit"
+          title: () => "Hypit Studio"
         }), "pipeline-view: hypit tab type");
         ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab", () =>
           ctx.slots.register({ name: "sidebar.right.pane.tab", key: HKEY }, HypitBody)
@@ -108,20 +107,10 @@ window.__ModuleLoader__.load({
           } catch (e) { /* 忽略，下次再试 */ }
         }
         function syncHypitTab(sid) {
-          try {
-            if (!sid) return;
-            if (document.querySelector('iframe[src*="8000"]')) return;  // 本会话已开着，别重复弹
-            // ⚠️ 需 8090 给 /api/* 加 CORS、且 /api/hypit/projects 的每个 production 带 session 字段，
-            //    否则 fetch 被跨源挡 → 不弹（fallback：不崩，等 8090 补 CORS 后自动生效）。
-            fetch(HYPIT_ORIGIN + "/api/hypit/projects")
-              .then(r => r.ok ? r.json() : {})
-              .then(data => {
-                const prods = (data && data.productions) || [];
-                // 触发点 = 本会话有归属自己的 hypit 工程（agent 建工程时把 $DSH_SESSION_ID 记进 production.session）
-                if (prods.some(p => p.session && String(p.session) === sid)) ctx.sidebarRight.openTab(HKEY, { revealIfOpened: true });
-              })
-              .catch(() => {});
-          } catch (e) { /* 忽略 */ }
+          // ⏸ 停用：hypit 走原生 CLI 后没有可廉价轮询的常驻 API（studio 是 per-run 临时进程、且无 CORS 探测口）。
+          //    Hypit Studio tab 保持【手动打开】；agent build 完起 `hypit studio --port 5179`，人再开/刷新看。
+          //    将来要自动弹：需一个"studio 是否在 :5179"的可靠信号（同源探测口或本地标记），再在此接回。
+          return;
         }
         function syncTab() {
           const sid = curSession();

@@ -36,3 +36,6 @@ scratch/video-ui/video-ui/doubao_state.json
 scratch/video-ui/video-ui/_doubao_probe/
 scratch/dsh_browser_cookies.db
 scratch/inspect_cookies.py
+
+# hypit 原生工作区（CLI 项目 state/产物，勿 commit）
+hypit_runs/

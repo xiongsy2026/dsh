@@ -176,6 +176,22 @@ DSH 默认按 **项目目录** 隔离会话（工作区文件、productions、sk
 
 ---
 
+## 4.1 模型调用轨（所有 skill 调模型的唯一入口）
+
+skill 要调模型不各接厂商、不靠 agent 记忆串——统一走一条 `tool-jobs` 命令（对齐 §1 的"jobs 调 Python"、§6 的"不另写 Agent 内核"）：
+
+```
+python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <LOOP.member> --json '<params>'
+```
+
+- **能力名**：`text.complete` / `image.generate` / `video.generate` / `video.analyze`（purpose 见 `gateway.py caps`）。凭证/选模型/计价全在 `gateway.py` 的 ROUTES 注册表，skill 只给"能力 + purpose + 参数"。
+- **积分**：`gateway.invoke()` 内自动 `precheck→preauth→call→commit/rollback`（本地 sqlite 桩，接口 = 未来 weeksir.com 账本）。`--account` 传 `LOOP.member`，扣在客户身份、账号隔离。
+- **成本进已有批准**：批准前 `gateway.py resolve` 出 `credits.estimated` 摆进"方案批准"话术，不新增批准类。
+- **为什么不是 MCP/插件**：DSH 不加载 MCP、插件不能给 Agent 注入工具（`AGENT-FRAMEWORK.md:6`）。命令契约写进 `AGENTS.md` + 各 skill 的 SKILL.md，**新会话读文件即恢复**。
+- 设计全文：`docs/ADR-model-gateway.md`。
+
+---
+
 ## 5. 实现顺序（按依赖，已规划）
 
 本阶段路由 **只提名视频三条**。其它环写在表里但不进 weeksir 路由。

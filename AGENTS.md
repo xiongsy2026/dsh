@@ -53,3 +53,18 @@
 本阶段客户只在 DSH 对话。jobs 调用 `D:\video-skill` 现成 Python。不打开 8090。不换对话模型（Agnes 3.0 Flash）。
 
 商品资料本阶段不建档：出片时在对话里现问产品图和卖点即可。
+
+## 模型调用轨（所有 skill 调模型的唯一入口）
+
+任何 skill 要调模型（文字 / 图 / 视频 / 看图），一律经 `tool-jobs` 跑统一网关，**不各自硬编码厂商 key/endpoint、不直连供应商**：
+
+```
+python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <LOOP.member> --json '<params>'
+```
+
+- `capability`：`text.complete` / `image.generate` / `video.generate` / `video.analyze`；`purpose` 看 `gateway.py caps`。
+- 返回归一 JSON：`{ok, result, credits:{estimated,charged,balance_after}, error}`。
+- **积分**：网关调用前自动 校验余额→预扣→成功提交 / 失败回滚；不足则 `ok:false` 提示去 weeksir.com 充值。`--account` 用 `LOOP.member`。
+- **估价**（批准前给人看成本）：`gateway.py resolve <cap> [purpose]`，或读信封 `credits.estimated`。折进"方案批准"，不新增批准类。
+- 为什么走 tool-jobs 而非 MCP/插件：DSH 不加载 MCP、插件不能给 Agent 注入工具（见 `docs/AGENT-FRAMEWORK.md:6`）。命令契约写在这里 + 各 skill 的 SKILL.md，**跨会话读文件即恢复、不靠 agent 记忆**。
+- 完整设计：`docs/ADR-model-gateway.md`。
