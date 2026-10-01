@@ -140,14 +140,16 @@ window.__ModuleLoader__.load({
         }
         let hypitSeenOpen = false;   // 本进程内是否已自动弹过一次（弹过又被关掉=人主动关的，就不再骚扰）
         function syncHypitTab(sid) {
-          // 触发信号 = 有 agent 在跑的 hypit studio（8100 代探回 up:true）。
-          // studio 只有一个端口、且 --run 绑死单条工程 ⇒ 它不像 omni 那样能按 session 过滤，这里就是全局信号：
-          // 没起 studio 不弹，起了才弹一次；人关掉后本次不再自动弹（要开从右栏页签选）。
+          // 触发信号 = **本会话**自己 claim 过的 studio 活着（8100 代探 + 按会话主人过滤）。
+          // studio 只有一个端口、也没有 DSH 会话概念 ⇒ 主人由 agent 起 studio 前登记
+          //   python D:\video-skill\backend\hypit_bridge.py studio-claim "$DSH_SESSION_ID" <run>
+          // 不传/不匹配 session 一律不弹（否则 omni 会话会被弹出 Hypit 工作台，2026-10-01 踩过）。
           try {
+            if (!sid) return;
             const open = !!document.querySelector('iframe[src*="5179"]');
             if (open) { hypitSeenOpen = true; return; }
             if (hypitSeenOpen) return;
-            fetch(HYPIT_PROBE)
+            fetch(HYPIT_PROBE + "?session=" + encodeURIComponent(sid))
               .then(r => r.ok ? r.json() : null)
               .then(j => { if (j && j.up) ctx.sidebarRight.openTab(HKEY, { revealIfOpened: true }); })
               .catch(() => {});
