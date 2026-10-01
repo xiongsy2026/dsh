@@ -99,6 +99,7 @@ resolve → 计价(注册表 price，或 skill manifest 声明的预估积分)
 | video.generate | omni-t2v | omni(zexapi) | 40/10s | ✅ |
 | video.generate | agnes-v | agnes-video | 30/10s | ⏳ |
 | video.generate | clone-r2v / wan3-dashscope / motion | wan3/dashscope/rh-motion | 50/10s | ⏳ |
+| video.generate | seedance-2.5 / seedance-2.0 | vinted.cam(rhart sparkvideo·≥20s仅2.5) | 60/50 每10s | ⏳ |
 | video.generate | h3 | manxue minimax | 60/10s | ⏳ |
 | lipsync | default/vo | runninghub | 20/24 | ⏳ |
 | transcribe | whisperx | 本地 | 0 | ⏳(本地免费) |
@@ -155,6 +156,22 @@ produce 环本来就有"方案批准"关口（:175）。把估价-预扣贴上�
 2. `AGENT-FRAMEWORK.md` + `AGENTS.md`：加「模型调用轨」约定（一处定义）。
 3. produce 三条 skill（omni/super-clone/hypit）SKILL.md：改引统一 `gateway.py call` 模板（hypit 另加 provider 包指网关 HTTP）。
 4. 验证：新开会话、清空记忆下，一条 skill 仍能经 tool-jobs 调到模型 + 出 estimated。
+
+## 距离目标评估 + 最短路径（2026-10-01·务实校准）
+目标 = 统一 API 网关 + 可设置积分 + 商业化（DSH 为标准）。三目标分开看，代码/非代码分开：
+
+- **A 统一 API 网关（≈60%）**：✅ 注册表覆盖 config 全 provider（含 seedance/vinted、zexapi、agnes/mimo）+ CLI `call` + HTTP `/api/model/{caps,resolve,call,health}`（TestClient 实测通）。差：① 适配器只接了 ~5 条，nano/seedance/faceswap/lipsync/motion/h3/wan3 仍 ⏳；② **所有 skill 还没改走它**（omni/super-clone 仍直连）；③ HTTP 要重启 8090 才可达；④ gemini/gpt/grok 上游抖，**当下只 agnes 文本稳**。
+- **B 可设置积分（≈40%）**：✅ Ledger 四接口 + 逐条单价 + 失败不扣费。差：① **"设置"现在=改代码**（PRICE 硬在 gateway.py，无改价面板）；② **真账本在 weeksir.com**（本地 sqlite 是桩、余额假数、无充值）——没 weeksir.com 积分 API 就不算能商用扣费。
+- **C 商业化（早期·瓶颈是非代码三堵墙）**：① 🔴 **hypit 商用授权**（Apache-2.0 with conditions，给客户用/打包卖须找 Hypit.AI 谈）；②  **生成栈服务端化(3.0)+瘦客户端+发版流水线**（build_release/签名/更新源）；③ 🟠 **安全 Gate 0**（控制台无鉴权、cli 是 subprocess，给客户前只读化/origin 白名单/执行端点鉴权）。
+
+**最短路径（按依赖）**：
+1. 重启 8090 激活 `/api/model/*` + 提交本批。
+2. 补 skill 真用的适配器（omni 的 nano 生图、seedance 视频）。
+3. **P0-③**：omni 包 `zexp.chat` + env 开关 `VIDEO_UI_VIA_GATEWAY` 灰度走网关（第一个样板）。
+4. **PRICE 外置 `model_prices.json` + model_admin 加改价/积分页** → "设置积分"从改码变点面板。
+5. 并行推非代码墙：**问 Hypit.AI 商用授权** + **确认 weeksir.com 积分 API**（这俩决定 B/C 能否落地）。
+
+**一句话**：统一入口已立、离"skill 都只认它"近（数天~两周）；可设积分卡在"改价面板 + weeksir.com 真账本"（中，含非代码）；商业化真正远的是 hypit 授权/服务端化/安全闸三堵非代码墙，不是再多写网关代码。
 
 ## 风险 / 待确认
 - [ ] weeksir.com 是否已有正式积分/账本 API 可对接，还是 P1 先做适配层？（PRD:507）

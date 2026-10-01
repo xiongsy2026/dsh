@@ -17,6 +17,9 @@ window.__ModuleLoader__.load({
     //   不再挂 D 控制台（:8090/:8000 已弃用于 hypit）。
     const HYPIT_STUDIO_URL = "http://127.0.0.1:5179/";
     const HKEY = "weeksir-hypit-view";
+    // 模型网关管理台 = model_admin(:8100)：列能力/改价/看健康/写 .env 密钥。运维专用、非会话绑定、客户包不含。
+    const MGMT_URL = "http://127.0.0.1:8100/";
+    const MGKEY = "weeksir-model-gateway";
 
     function ViewTitle() {
       return h("span", { title: "流水线视图（运维）" }, "流水线");
@@ -47,6 +50,15 @@ window.__ModuleLoader__.load({
       // hypit 原生 studio（agent 跑 `hypit studio --run X --port 5179` 后此端口才有服务）。
       // 无 session 参数、per-run 临时；没起 studio 时 iframe 白屏属正常。
       return IFrameBody(HYPIT_STUDIO_URL, "Hypit Studio");
+    }
+
+    function MgmtTitle() {
+      return h("span", { title: "模型网关管理台 model_admin:8100（运维）" }, "模型网关");
+    }
+
+    function MgmtBody() {
+      // 全局运维台，非会话绑定：列 ROUTES/改价/看健康/写 .env。8100 没起则白屏（手动起 model_admin）。
+      return IFrameBody(MGMT_URL, "模型网关管理台");
     }
 
     // 声明需要的服务：slots（页签 body/title）+ sidebarRightTabs（页签类型注册表）+ sidebarRight（控制器，用来 openTab）
@@ -90,6 +102,22 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () =>
           ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: HKEY }, HypitTitle)
         ), "pipeline-view: hypit title");
+
+        // ③''. 模型网关管理台 tab（运维·全局·非会话门控）：类型 + body(iframe→:8100) + title
+        ctx.effect(() => ctx.sidebarRightTabs.register({
+          id: MGKEY,
+          kind: MGKEY,
+          priority: "extension",
+          title: () => "模型网关"
+        }), "pipeline-view: model-gateway tab type");
+        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab", () =>
+          ctx.slots.register({ name: "sidebar.right.pane.tab", key: MGKEY }, MgmtBody)
+        ), "pipeline-view: model-gateway body");
+        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () =>
+          ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: MGKEY }, MgmtTitle)
+        ), "pipeline-view: model-gateway title");
+        // 运维台常驻：启动即开一次（关了可从右栏页签带再点开）
+        try { if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === "function") ctx.sidebarRight.openTab(MGKEY, { revealIfOpened: true }); } catch (e) {}
 
         // ④ 只在"当前会话真的有 omni run"时才弹页签（新会话 / 不做 omni 的会话不弹；页签开关是 per-seat）
         function curSession() {
