@@ -189,7 +189,11 @@ def chat(messages, model="mimo-v2.5-pro", temperature=0.85, max_tokens=8000):
 
 def _chat_via_gateway(messages, model, temperature, max_tokens):
     gw = os.getenv("MODEL_GATEWAY_URL", "http://127.0.0.1:8100")
-    r = requests.post(gw + "/api/model/call", timeout=420, json={
+    tok = os.getenv("MODEL_GATEWAY_TOKEN") or _skill_env().get("MODEL_GATEWAY_TOKEN") or ""
+    hdr = {"content-type": "application/json"}
+    if tok:
+        hdr["Authorization"] = "Bearer " + tok      # 网关 .env 里设了 MODEL_GATEWAY_TOKEN 就必须带
+    r = requests.post(gw + "/api/model/call", timeout=420, headers=hdr, json={
         "capability": "text.complete", "purpose": _gateway_purpose(model),
         "account": os.getenv("VIDEO_UI_MEMBER", "omni"),
         "params": {"messages": messages, "model": model, "temperature": temperature, "max_tokens": max_tokens},
