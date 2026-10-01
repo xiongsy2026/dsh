@@ -55,8 +55,18 @@ python gateway.py test                                   # 各 route 真探活
 - 为什么同源 8100：管理面（写 .env / 测通 / 价目）与调用面（`/api/model/call`）**共用同一份 `gateway.ROUTES` 与同一把 key**，天然不分叉；8100 已常驻且已 `import gateway`，加路由零新依赖。
 - 为什么**不挂 8090**：8090 是流水线任务服务器，模型端点挂它就得为激活而重启（丢内存态任务）、并把"统一 API"绑死在一个临时宿主上。原 `backend/model_router.py`（FastAPI 版）已删、`app.py` 的 `include_router` 已撤 → **8100 是唯一 HTTP 入口**，8090 只留流水线 + `/api/health/models`（8100 的 health 顺带读它）。
 - CLI 轨不受影响：`gateway.py call` 仍是 skill 首选（`tool-jobs` 跑 Python，无需任何端口）。
-- hypit 侧写**一个** provider 包把 baseUrl 指这里、bindings 把 seedance/wan/… 全绑过来 → hypit 生成也走同一入口（见 [[super-clone-hypit-pipeline]] provider 机制）。
-- ⚠️ 8100 **无鉴权**，只绑 127.0.0.1、只运维自用；一旦要给客户机/公网调，必须先加 token 并整体挪到 weeksir 服务端（3.0）。
+- hypit 侧写**一个** provider 包把 baseUrl 指这里、bindings 把 seedance/wan/… 全绑过来 → hypit 生成也走同一入口（✅ 已实装，见下面「hypit 生成腿接网关」节）。
+- ⚠️ 鉴权现状（实测）：8100 只绑 127.0.0.1；**`/api/hypit/*` 已验 `Authorization: Bearer $MODEL_GATEWAY_TOKEN`**（`.env` 里非空即生效，无 token=401），**`/api/model/*` 与面板 `/` 仍是裸的**（本机运维自用）。要给客户机/公网调，必须把校验铺到全部写端点并整体挪到 weeksir 服务端（3.0）。
+
+## hypit 生成腿接网关（2026-10-01 实装·未花钱验证）
+
+hypit 的 Provider 协议只认 HTTP（`POST /uploads`、`POST /videos`、`GET /videos/{id}`、`GET /rates`），不吃 Python 函数 ⇒ 它是统一网关的**唯一 HTTP 客户端**，不是第二条轨。
+
+- **服务端** = `backend/hypit_bridge.py`（挂在 8100 的 `/api/hypit/*`）：模型白名单 `HYPIT_MODELS`→网关 `(capability,purpose)`；`handle_submit` 建 sqlite jobs 行 + 守护线程跑 `gateway.invoke`（**预扣/结算/回滚全复用**），成功把 mp4 移到 `D:\video-skill\outputs\_hypit_jobs\<jid>.mp4` 并以 `/api/hypit/assets/<f>` 出片（jobs 状态存 `.gateway_jobs.sqlite`）；`check_support` 对超 10s、非 720p、视频/音频参考**明确拒绝**（不静默丢弃）。
+- **客户端** = 自写包 `C:\dsh\hypit_runs\packages\provider-gateway`（`@weeksir/provider-gateway`），Profile 里 endpoint `weeksir.gateway` + binding `@hypit/seedance@1#seedance-2-mini`；凭据 `weeksir.gateway` 走 hypit 平台凭据存储（`{store,platform,key}` 引用，明文不落盘）。
+- **三条硬约束**（都踩过）：① hypit 的 Profile 校验只收 https 或**主机名写作 `localhost`** 的 http，填 `127.0.0.1` 被拒 ⇒ baseUrl/PUBLIC_BASE 一律 `http://localhost:8100`（解析到 127.0.0.1，`::1` 不通）；② `pricing.kind="page"` 要求 https ⇒ 不声明 `pricing`，改 `readPricing()` 拉 `/rates`；③ 上游要能自己抓参考图 ⇒ `/uploads` 必须回**公网 URL**（现走 imgbb）。
+- **实测到哪一步**：`hypit plan` 显示生成腿 `→ weeksir.gateway (@weeksir/provider-gateway), bound in the Profile`；`hypit pricing` 读到我们的 /rates；鉴权 401/200、支持上限拒绝语义都验过。**`hypit build` 真花钱那条没跑**（需批准）。
+- **license 边界**：hypit = *Apache-2.0 with conditions*（非纯开源）。自用、以及用它是给我们自己客户出片（产物归我们）可走；**把 hypit 打包分发给客户、或多租户对外服务，需 Hypit.AI 书面授权**（sales）。3.0 服务端化前先把这条谈定。
 
 ## 推理脑注册表（2026-10-01 全中转实测 · `text.complete` 现有 8 条腿）
 模型名集中在 `config.py` 的「文本推理脑注册表」字段（.env 可覆盖），不散在代码里；单价按实测 token 分档（≈100 tok/分）。

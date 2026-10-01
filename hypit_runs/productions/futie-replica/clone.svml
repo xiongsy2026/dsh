@@ -1,0 +1,90 @@
+<?svml using="@hypit/markup@1"?>
+<svml>
+  <import as="copy" from="@hypit/text@1"/>
+  <import as="seedance" from="@hypit/seedance@1"/>
+  <import as="pipeline" from="@hypit/media-pipeline@1"/>
+  <import as="time" from="@hypit/timeline-author@1"/>
+  <import as="media-track" from="@hypit/media-track@1"/>
+  <import as="space" from="@hypit/spatial@1"/>
+  <import as="program" from="@hypit/program-space@1"/>
+  <import as="film" from="@hypit/film@1"/>
+  <import as="render" from="@hypit/render-hyperframes@1"/>
+  <import as="look" source="./look.svs"/>
+
+  <!-- ═══ Canvas & Clock（先声明，供后续引用） ═══ -->
+  <space:Canvas id="canvas" width="1080" height="1920"/>
+  <program:Clock id="clock" frame-rate="30"/>
+  <space:Frame id="full" within={canvas} left="0%" top="0%" right="100%" bottom="100%"/>
+
+  <!-- ═══ 4 段视觉指令（含口播台词，seedance generate-audio 生成对应声音） ═══ -->
+  <copy:Value id="dir1">
+    A close mirror-selfie view of a young woman with an oval face, straight black center-parted hair,
+    minimal makeup with a cool clean tone, sitting at a home dressing table. She looks tired and pale,
+    resting her chin on her hand. A dark amber glass bottle with a red printed label sits on the table;
+    she opens the red cap. Soft warm indoor light, slight handheld vlog wobble. She speaks to the
+    camera in Mandarin Chinese: 气色暗沉没精神，脸色蜡黄，照镜子越看越累？
+  </copy:Value>
+  <copy:Value id="dir2">
+    Same young woman (oval face, straight black center-parted hair, minimal makeup) at the home
+    dressing table, now with a slightly brighter expression. She holds a single glossy translucent
+    red bear-shaped gummy up toward the camera, then eats it; her expression softens into a gentle
+    smile. The amber bottle sits open on the table. Warm indoor light, close handheld angle. She
+    speaks to the camera in Mandarin Chinese: 每天一颗富铁软糖，红枣浓香，酸甜可口。
+  </copy:Value>
+  <copy:Value id="dir3">
+    Same young woman now outdoors in natural daylight, noticeably rosier complexion, near greenery
+    and a café terrace. She holds a small white single-serve wrapper, tears it open and eats one
+    red bear gummy inside. Cool outdoor light, casual vlog handheld selfie angle. She speaks to the
+    camera in Mandarin Chinese: 铁含量 81.6 毫克，坚持吃，气色真的不一样。
+  </copy:Value>
+  <copy:Value id="dir4">
+    Same young woman sitting in a car, seatbelt across her chest, holding the full amber bottle up
+    toward the camera, smiling confidently, then the frame settles into a final hold. Natural
+    daylight through the car window, handheld selfie angle. She speaks to the camera in Mandarin
+    Chinese: 点下方，囤一瓶。
+  </copy:Value>
+
+  <!-- ═══ 4 段视频生成（seedance 5s，9:16，含口播音频） ═══ -->
+  <seedance:TextVideo id="seg1-video" model="mini" prompt={dir1}
+    duration="5" aspect-ratio="9:16" generate-audio="true"/>
+  <seedance:TextVideo id="seg2-video" model="mini" prompt={dir2}
+    duration="5" aspect-ratio="9:16" generate-audio="true"/>
+  <seedance:TextVideo id="seg3-video" model="mini" prompt={dir3}
+    duration="5" aspect-ratio="9:16" generate-audio="true"/>
+  <seedance:TextVideo id="seg4-video" model="mini" prompt={dir4}
+    duration="5" aspect-ratio="9:16" generate-audio="true"/>
+
+  <!-- ═══ 归一化（主运动视频 + 默认音频） ═══ -->
+  <pipeline:Normalize id="seg1-media" source={seg1-video.video} clock={clock}
+    video="primary-moving" audio="default" span-authority="video"/>
+  <pipeline:Normalize id="seg2-media" source={seg2-video.video} clock={clock}
+    video="primary-moving" audio="default" span-authority="video"/>
+  <pipeline:Normalize id="seg3-media" source={seg3-video.video} clock={clock}
+    video="primary-moving" audio="default" span-authority="video"/>
+  <pipeline:Normalize id="seg4-media" source={seg4-video.video} clock={clock}
+    video="primary-moving" audio="default" span-authority="video"/>
+
+  <!-- ═══ 时间轴：纯代码编排（无表演 Take），总时长 20s ═══ -->
+  <time:Timeline id="tl" clock={clock} end="20s"/>
+
+  <!-- ═══ 画面：media-track 放在 Timeline 上，4 段按窗口播放，source-audio 带出口播 ═══ -->
+  <media-track:Track id="pic" timeline={tl.timeline} canvas={canvas}>
+    <media-track:Item id="seg1" media={seg1-media.media} frame={full}
+      appearance={look.media.full} at="0s" for="5s" source-audio="content"/>
+    <media-track:Item id="seg2" media={seg2-media.media} frame={full}
+      appearance={look.media.full} at="5s" for="5s" source-audio="content"/>
+    <media-track:Item id="seg3" media={seg3-media.media} frame={full}
+      appearance={look.media.full} at="10s" for="5s" source-audio="content"/>
+    <media-track:Item id="seg4" media={seg4-media.media} frame={full}
+      appearance={look.media.full} at="15s" for="5s" source-audio="content"/>
+  </media-track:Track>
+
+  <!-- ═══ Film 合成（画面轨含口播音） ═══ -->
+  <film:Film id="main" canvas={canvas} timeline={tl.timeline} appearance={look.film.main}>
+    <film:Track source={pic.visual}/>
+    <film:Track source={pic.audio}/>
+  </film:Film>
+
+  <!-- ═══ 最终成片 ═══ -->
+  <render:Video id="final" composition={main.composition} timeline={tl.timeline}/>
+</svml>

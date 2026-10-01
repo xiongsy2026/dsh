@@ -1,0 +1,10 @@
+{
+  "name": "weeksir-hypit-production",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WeekSir 的 hypit 生产工程：SVML/SVRun 授权 + 本地 runtime + 自写 Provider（@weeksir/provider-gateway → http://localhost:8100/api/hypit 统一模型网关）",
+  "dependencies": {
+    "@weeksir/provider-gateway": "file:packages/provider-gateway"
+  }
+}

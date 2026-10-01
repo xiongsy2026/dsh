@@ -1,0 +1,10 @@
+{
+  "name": "@weeksir/provider-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Weeksir 统一模型网关的 hypit Provider：把 @hypit/seedance 的视频能力绑到 http://localhost:8100/api/hypit 的作业协议（积分/审计与 skill 同一套账）。",
+  "hypit": { "activation": "./src/activation.js" },
+  "exports": { ".": "./src/provider.js" },
+  "files": ["src"]
+}

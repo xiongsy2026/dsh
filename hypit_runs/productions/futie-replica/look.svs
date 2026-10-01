@@ -1,0 +1,8 @@
+<?svml using="@hypit/svs@1"?>
+<sheet version="1">
+  film.main { background: #000000; }
+  media.full {
+    fit: cover;
+    stack-order: 10;
+  }
+</sheet>

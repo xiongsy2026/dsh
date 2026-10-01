@@ -37,5 +37,13 @@ scratch/video-ui/video-ui/_doubao_probe/
 scratch/dsh_browser_cookies.db
 scratch/inspect_cookies.py
 
-# hypit 原生工作区（CLI 项目 state/产物，勿 commit）
-hypit_runs/
+# hypit 原生工作区：默认全挡（state / 媒体 / 依赖 / 备份），只放行工程文件与自写 provider 源码
+hypit_runs/*
+!hypit_runs/packages/
+!hypit_runs/productions/
+!hypit_runs/hypit.runtime.json
+!hypit_runs/package.json
+!hypit_runs/package-lock.json
+hypit_runs/**/node_modules/
+# 任何落盘的密钥临时文件（auth login --from 用管道，不留文件）
+.secret*

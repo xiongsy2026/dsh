@@ -1,0 +1,41 @@
+{
+  "format": "hypit.runtime-local@1",
+  "dataRoot": ".hypit/runtimes/local",
+  "credentials": {
+    "platform": {
+      "use": "@hypit/credential-store-platform"
+    }
+  },
+  "endpoints": {
+    "hypihub.default": {
+      "use": "@hypit/provider-hypihub",
+      "config": {
+        "baseUrl": "https://hypit.ai",
+        "apiKey": {
+          "store": "platform",
+          "key": "hypihub.oauth"
+        }
+      }
+    },
+    "media.local": {
+      "use": "@hypit/provider-media-local"
+    },
+    "hyperframes.local": {
+      "use": "@hypit/provider-hyperframes-local"
+    },
+    "weeksir.gateway": {
+      "use": "@weeksir/provider-gateway",
+      "config": {
+        "baseUrl": "http://localhost:8100/api/hypit",
+        "apiKey": {
+          "store": "platform",
+          "key": "weeksir.gateway"
+        },
+        "pollIntervalMs": 5000
+      }
+    }
+  },
+  "bindings": {
+    "@hypit/seedance@1#seedance-2-mini": "weeksir.gateway"
+  }
+}
