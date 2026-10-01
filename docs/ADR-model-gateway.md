@@ -1,9 +1,10 @@
 # ADR：统一模型网关 + 积分适配层（skill 的模型调用底座）
 
-- 状态：Accepted（P0-①② 已落地并实测；P0-③/HTTP/真账本 待做）
+- 状态：Accepted（P0-①② + HTTP 契约 已落地并实测；P0-③/真账本 待做）
 - 日期：2026-10-01
 - ✅ 已做：`gateway.py` 补 `text.complete`/`image.generate(default)` 适配器 + 积分账本桩(`Ledger` 四接口 precheck/preauth/commit/rollback, 本地 sqlite) + `invoke()` 信封 + `call` 子命令；实测 text.complete 返 "pong"、成功扣1、失败(未接适配器)回滚余额复原、流水正确。`AGENTS.md` + `AGENT-FRAMEWORK.md §4.1` 写入「模型调用轨」契约。
-- ⏳ 待做：P0-③ 各 produce skill 的 SKILL.md 改引统一命令（灰度切，先不拆现有直连）；`image.generate` detail/generic + `video.generate` clone-r2v/agnes-v 适配器；P1 HTTP 契约 + hypit provider 绑定 + 对账；P2 weeksir.com 真账本平替。
+- ⏳ 待做：P0-③ 各 produce skill 的 SKILL.md 改引统一命令（灰度切，先不拆现有直连）；`image.generate` detail/generic + `video.generate` clone-r2v/agnes-v 适配器；P1 hypit provider 绑定 + 对账；P2 weeksir.com 真账本平替。
+- ✅ 2026-10-01(续) HTTP 契约已上线，并把宿主从 8090 换成常驻 8100：`model_admin.py` 加 `/api/model/{caps,resolve,call,health}`（同进程复用 `gateway.invoke`）、`model_router.py` 删除、`app.py` 撤 include；实测 8100 `POST /api/model/call {text.complete/agnes}`→"ok"·扣1、未接 purpose→`ok:false`·charged0·余额不动、面板 `GET /` 200、8090 `/api/model/*` 404（无第二入口）。
 - 决策者：产品
 - 相关：[[model-gateway-direction]] [[dsh-product-roadmap]] [[omni-delivery-contract]] [[super-clone-hypit-pipeline]] `docs/PRD-weeksir-platform.md`（§4.4 模型网关 / §6.x 积分账本） `docs/ADR-pipeline-server.md` `D:\video-skill\backend\gateway.py`
 
@@ -44,7 +45,14 @@ python gateway.py test                                   # 各 route 真探活
 失败：`ok:false` + `error`，且**已 rollback**（见积分流程）。
 
 ### HTTP 契约（同一 call() 再包一层·供 hypit provider / 外部工具 / 未来服务端）
-最小 FastAPI（127.0.0.1，见安全）：`POST /call {capability,purpose,params,account}`、`GET /resolve`、`GET /health`。hypit 侧写**一个** provider 包把 baseUrl 指这里、bindings 把 seedance/wan/… 全绑过来 → hypit 生成也走同一入口（见 [[super-clone-hypit-pipeline]] provider 机制）。
+**宿主 = 常驻管理进程 `backend/model_admin.py`（127.0.0.1:8100，计划任务 `WeeksirModelAdmin` 开机自启），不是 8090。**
+端点：`POST /api/model/call {capability,purpose,account,params}`、`GET /api/model/caps`、`GET /api/model/resolve?capability=&purpose=`、`GET /api/model/health`。
+
+- 为什么同源 8100：管理面（写 .env / 测通 / 价目）与调用面（`/api/model/call`）**共用同一份 `gateway.ROUTES` 与同一把 key**，天然不分叉；8100 已常驻且已 `import gateway`，加路由零新依赖。
+- 为什么**不挂 8090**：8090 是流水线任务服务器，模型端点挂它就得为激活而重启（丢内存态任务）、并把"统一 API"绑死在一个临时宿主上。原 `backend/model_router.py`（FastAPI 版）已删、`app.py` 的 `include_router` 已撤 → **8100 是唯一 HTTP 入口**，8090 只留流水线 + `/api/health/models`（8100 的 health 顺带读它）。
+- CLI 轨不受影响：`gateway.py call` 仍是 skill 首选（`tool-jobs` 跑 Python，无需任何端口）。
+- hypit 侧写**一个** provider 包把 baseUrl 指这里、bindings 把 seedance/wan/… 全绑过来 → hypit 生成也走同一入口（见 [[super-clone-hypit-pipeline]] provider 机制）。
+- ⚠️ 8100 **无鉴权**，只绑 127.0.0.1、只运维自用；一旦要给客户机/公网调，必须先加 token 并整体挪到 weeksir 服务端（3.0）。
 
 ## 积分系统（账本适配层·对齐 PRD §6.x）
 **原则：单一账本在 weeksir.com，网关只做"调用前预扣 / 成功提交 / 失败回滚"的适配，绝不在 DSH 另建用户/积分表。**（PRD:276/283）
@@ -160,12 +168,12 @@ produce 环本来就有"方案批准"关口（:175）。把估价-预扣贴上�
 ## 距离目标评估 + 最短路径（2026-10-01·务实校准）
 目标 = 统一 API 网关 + 可设置积分 + 商业化（DSH 为标准）。三目标分开看，代码/非代码分开：
 
-- **A 统一 API 网关（≈60%）**：✅ 注册表覆盖 config 全 provider（含 seedance/vinted、zexapi、agnes/mimo）+ CLI `call` + HTTP `/api/model/{caps,resolve,call,health}`（TestClient 实测通）。差：① 适配器只接了 ~5 条，nano/seedance/faceswap/lipsync/motion/h3/wan3 仍 ⏳；② **所有 skill 还没改走它**（omni/super-clone 仍直连）；③ HTTP 要重启 8090 才可达；④ gemini/gpt/grok 上游抖，**当下只 agnes 文本稳**。
+- **A 统一 API 网关（≈65%）**：✅ 注册表覆盖 config 全 provider（含 seedance/vinted、zexapi、agnes/mimo）+ CLI `call` + HTTP `/api/model/{caps,resolve,call,health}`（**常驻 8100、已 curl 实测**）。差：① 真适配器 10 条（text agnes/mimo/zexapi、analyze default/mimo、image default/nano、omni-t2v、seedance 2.5/2.0），**剩 11 条 ⏳**（faceswap/lipsync/motion/h3/wan3-dashscope/detail/generic/agnes-v/transcribe，都不挡 omni）；② **所有 skill 还没改走它**（omni 开关默认关、super-clone 仍直连）；③ gemini/gpt/grok 上游抖，**当下只 agnes 文本稳**。
 - **B 可设置积分（≈40%）**：✅ Ledger 四接口 + 逐条单价 + 失败不扣费。差：① **"设置"现在=改代码**（PRICE 硬在 gateway.py，无改价面板）；② **真账本在 weeksir.com**（本地 sqlite 是桩、余额假数、无充值）——没 weeksir.com 积分 API 就不算能商用扣费。
 - **C 商业化（早期·瓶颈是非代码三堵墙）**：① 🔴 **hypit 商用授权**（Apache-2.0 with conditions，给客户用/打包卖须找 Hypit.AI 谈）；②  **生成栈服务端化(3.0)+瘦客户端+发版流水线**（build_release/签名/更新源）；③ 🟠 **安全 Gate 0**（控制台无鉴权、cli 是 subprocess，给客户前只读化/origin 白名单/执行端点鉴权）。
 
 **最短路径（按依赖）**：
-1. 重启 8090 激活 `/api/model/*` + 提交本批。
+1. ~~重启 8090 激活 `/api/model/*`~~ → **已不需要**：HTTP 入口搬到常驻 8100 并实测可达（8090 退回纯流水线服务器）。剩下的最短路径 = 用 `VIDEO_UI_VIA_GATEWAY=1` 重启 8765 跑一次 omni 端到端（含 `script_model=agnes`）。
 2. 补 skill 真用的适配器（omni 的 nano 生图、seedance 视频）。
 3. **P0-③**：omni 包 `zexp.chat` + env 开关 `VIDEO_UI_VIA_GATEWAY` 灰度走网关（第一个样板）。
 4. **PRICE 外置 `model_prices.json` + model_admin 加改价/积分页** → "设置积分"从改码变点面板。

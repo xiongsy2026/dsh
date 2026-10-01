@@ -870,11 +870,7 @@ $('#ai-country').onchange = async () => {
   state.snap = ''; refresh();
 };
 $('#btn-settings').onclick = () => $('#settings-panel').classList.toggle('hidden');
-$('#btn-key').onclick = async () => {
-  const res = await postJSON('/api/session_key', { key: $('#set-key').value });
-  state.boot.key_present = res.key_present; renderEnv();
-  if (!res.key_present) alert('清空了；环境变量 ZEXAPI_API_KEY 也没设');
-};
+// zexapi Key 输入框已从 UI 移除（密钥只在网关 .env）；不再需要 #btn-key 处理器
 $('#btn-save-settings').onclick = async () => {
   const res = await postJSON('/api/settings', {
     gflow_project: $('#set-project').value, image_backend: $('#set-image-backend').value,

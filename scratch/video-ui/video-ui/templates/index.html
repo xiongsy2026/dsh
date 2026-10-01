@@ -25,9 +25,7 @@
 <div id="settings-panel" class="panel hidden">
   <h3>设置</h3>
   <div class="grid2">
-    <label>zexapi Key（仅本次进程内存，绝不写盘）
-      <div class="row"><input id="set-key" type="password" placeholder="sk-... 或留空用环境变量"><button id="btn-key" class="ghost">填入</button></div>
-    </label>
+    <!-- zexapi Key 输入已移除：密钥只在网关 .env（OMNI_API_KEY），不进 UI/浏览器。zexp 仍从 D:\video-skill\.env 兜底 -->
     <label>Flow project id（gflow 必填）
       <div class="row"><input id="set-project" placeholder="0f474d52-...."><button id="btn-save-settings" class="ghost">保存</button></div>
     </label>
