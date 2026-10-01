@@ -157,9 +157,30 @@ def _budget(model, max_tokens):
     return max(int(max_tokens or 0), 6000) if str(model or "").lower().startswith(_THINKY) else max_tokens
 
 
+# 带图片的请求必须走多模态脑：mimo 系上游明确回 404 "No endpoints found that support image input"
+# （2026-10-01 端到端实测），而 agnes-3.0-flash 实测能吃 image_url/video_url。
+VISION_CHAT_MODEL = os.environ.get("VISION_CHAT_MODEL", "agnes-3.0-flash")
+
+
+def needs_vision(messages):
+    for m in messages or []:
+        c = m.get("content")
+        if isinstance(c, list) and any(isinstance(p, dict) and ("image_url" in p or "video_url" in p) for p in c):
+            return True
+    return False
+
+
+def pick_chat_model(messages, model):
+    """这条请求该用哪个模型：带图一律用多模态脑，纯文本才用调用方给的 script_model。"""
+    if needs_vision(messages) and not str(model or "").lower().startswith("agnes"):
+        return VISION_CHAT_MODEL
+    return model
+
+
 def chat(messages, model="mimo-v2.5-pro", temperature=0.85, max_tokens=8000):
     """统一入口：默认走直连；VIDEO_UI_VIA_GATEWAY=1 时改走模型网关（积分/审计/去抖都在网关侧）。
     契约不变（返回文本），调用方无感。默认关 = 与现在一模一样，零风险。"""
+    model = pick_chat_model(messages, model)
     max_tokens = _budget(model, max_tokens)
     if os.getenv("VIDEO_UI_VIA_GATEWAY") == "1":
         return _chat_via_gateway(messages, model, temperature, max_tokens)

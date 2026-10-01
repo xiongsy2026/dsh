@@ -648,7 +648,7 @@ def product_card(name):
     if not run.product_group():
         return jsonify({"error": "先上传产品图（主图或细节图任一即可）"}), 400
     if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
-        return jsonify({"error": "缺 ZEXAPI_API_KEY（提取产品特征要调 1 次多模态 chat）"}), 400
+        return jsonify({"error": "文本脑通道未就绪（提取产品特征要调 1 次多模态 chat）"}), 400
     payload = request.get_json(silent=True) or {}
     ok, msg = submit(name, "product_card", do_product_card, str(payload.get("notes", "")).strip()[:800])
     return jsonify({"ok": ok, "msg": msg})
@@ -664,7 +664,7 @@ def translate_script(name):
     if not run.script:
         return jsonify({"error": "先载入剧本"}), 400
     if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
-        return jsonify({"error": "缺 ZEXAPI_API_KEY（补中文对照要调 1 次 chat）"}), 400
+        return jsonify({"error": "文本脑通道未就绪（补中文对照要调 1 次 chat）"}), 400
     beats, keys = prompts.missing_zh(run.script)
     if not beats and not keys:
         return jsonify({"error": "已经全有中文对照，不用补"}), 400
@@ -868,7 +868,7 @@ def ai_camera(name):
     if DRY_RUN:
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），AI 生成已禁用以免烧额度"}), 400
     if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
-        return jsonify({"error": "缺 ZEXAPI_API_KEY（AI 写运镜每段要调 1 次多模态 chat）"}), 400
+        return jsonify({"error": "文本脑通道未就绪（AI 写运镜每段要调 1 次多模态 chat）"}), 400
     payload = request.get_json(silent=True) or {}
     total = run.state.get("segments") or 0
     targets = payload.get("segments")
@@ -1129,7 +1129,7 @@ def story_outline(name):
     if DRY_RUN:
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），AI 生成已禁用以免烧额度"}), 400
     if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
-        return jsonify({"error": "缺 ZEXAPI_API_KEY（写故事大纲要调 1 次 chat）"}), 400
+        return jsonify({"error": "文本脑通道未就绪（写故事大纲要调 1 次 chat）"}), 400
     if job(name)["active"]:
         return jsonify({"error": "有任务在跑，稍后再试"}), 409
     cfg = store.load_config()
@@ -1332,7 +1332,7 @@ def ai_script(name):
     if run.mode == "story" and not selling:
         selling = draft[:400]
     if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
-        return jsonify({"error": "缺 ZEXAPI_API_KEY（AI 写剧本要调 1 次 chat）"}), 400
+        return jsonify({"error": "文本脑通道未就绪（AI 写剧本要调 1 次 chat）"}), 400
     cfg = store.load_config()
     ok, msg = submit(name, "ai_script", do_ai_script,
                      str(payload.get("product_name", "")).strip() or run.state.get("title", ""),
@@ -1539,7 +1539,7 @@ def reason_brief(name):
     if DRY_RUN:
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），不调 chat"}), 400
     if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
-        return jsonify({"error": "缺 ZEXAPI_API_KEY（推理要调 1 次 chat）"}), 400
+        return jsonify({"error": "文本脑通道未就绪（推理要调 1 次 chat）"}), 400
     payload = request.get_json(silent=True) or {}
     ok, msg = submit(name, "reason_brief", do_reason_brief,
                      str(payload.get("hint", "")).strip()[:800],
