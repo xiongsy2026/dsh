@@ -89,7 +89,6 @@ python gateway.py test                                   # 各 route 真探活
 ⚠️ 两点提醒：mimo 爱在正文后附"设计思路"，剧本/运镜的 prompt 要锁死"只出正文/严格 JSON"；生效需**重启 8765**（用户自己终端起的进程，别擅自 kill）。
 
 ## 积分系统（账本适配层·对齐 PRD §6.x）
-
 **原则：单一账本在 weeksir.com，网关只做"调用前预扣 / 成功提交 / 失败回滚"的适配，绝不在 DSH 另建用户/积分表。**（PRD:276/283）
 接口（1.0 本地 sqlite 桩实现、3.0 换 weeksir.com API，**接口不变**）：
 ```
@@ -113,6 +112,9 @@ resolve → 计价(注册表 price，或 skill manifest 声明的预估积分)
  → preauth 预扣 → 调模型适配器 → 成功 commit / 失败 rollback → 写流水 → 返回信封
 ```
 - **计价按路由逐条**（`capability/purpose` 粒度，取代早期按能力 flat 的桩）；视频按 `duration` 每 10s 折算一个单位。**扣在客户身份**（account = weeksir 客户，店铺 1:N，PRD:289），不是单个抖音号。
+- **✅ usage 回写扣费已落地（2026-10-01，D `838c870`）**：文本/看图**按上游返回的 `usage.total_tokens` 结算**，费率在 `model_prices.json` 的 `token_rate`（默认 **10 分/1k token**，即 1 分≈100 token）；生图/生视频仍按条计（`basis=flat`）。`settle_credits()` 规则：`charged = max(1, round(tokens/1000*rate))`，**护栏 = 单条封顶 `max(预估×8, 200)`**（防上游跑飞把客户积分一次掏空，超出标 `basis=usage-capped`）。`invoke` 用 `commit(hold_id, charged, tokens)` 落库，信封 `credits` 增加 `tokens/basis`，面板两张表显示 **预估 vs 实扣 vs token**，流水写 `settle … 实扣N/预估M tok=X`。
+  - 为什么必须这么做（实测）：同一句极简提问 `gpt-6.1-sol` 消耗 28 → 4396 token、`gpt-5.6-sol` 22366 ⇒ **整条单价只能当报价/护栏，不能当账单**。真跑对照：agnes 113 tok→扣 1（预估 1）、mimo-v2.5-pro 563 tok→**扣 6（预估只有 1）**。
+  - 仍留的口子：`meter()` 的 `estimated` 还是拍脑袋的整条价（3.0 应改成 `token 预算 × 费率 + 上游单价表`）；上游不返 usage 的适配器会走 `flat`。
 - **1.0 本机**：`ledger:"STUB"` 本地记账即可（PRD:458 本机阶段不接网站），但**接口就是上面四个**，3.0 平移到 weeksir.com 不改调用方。
 - **与生成关口咬合**：omni/hypit 的"build 前预算批准"直接读 `resolve` 的 `credits.estimated`（[[omni-delivery-contract]] §9 预算护栏、[[super-clone-hypit-pipeline]] pricing 闸）。
 
