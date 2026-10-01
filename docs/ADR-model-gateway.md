@@ -69,12 +69,14 @@ python gateway.py test                                   # 各 route 真探活
 | `gemini38` | zexapi | **gemini-3.8-flash** | live-ok 3.9s | 6 | token 大户（~900） |
 | `claude48` | zexapi | **claude-opus-4-8** | live-ok 3.2s | 2 | 便宜且干净 |
 | `deepseekv4` | zexapi | deepseek-v4-pro | live-ok 2.2s | 7 | **思考型：max_tokens <2000 会"空正文"**（HTTP 200 但 content 空） |
-| `qwen38max` | dashscope | qwen3.8-max | live-ok 1.4s | 2 | ⚠️ chat 必须走 `DASHSCOPE_CHAT_BASE_URL=…/compatible-mode/v1`，不是 `api/v1` |
-| `gpt61` | nocannobb | gpt-6.1-sol | 上游抖（502/503） | 1 | 最省 token（~30）；**必须带浏览器 UA** |
+| `qwen38max` | dashscope | qwen3.8-max | — | 2 | 🔒 已屏蔽：**阿里百炼账户欠费 `Arrearage`**（3.7-max/3.6-plus 同错；早间能出词只是免费额度未用尽）→ 充值后一键恢复。⚠️ 接通时 chat 必须走 `DASHSCOPE_CHAT_BASE_URL=…/compatible-mode/v1`，不是 `api/v1` |
+| `gpt61` | nocannobb | gpt-6.1-sol | 可用但**抖**（连打 3 次全 OK，2.5/8.9/12.3s；偶发 502/503） | 1 | 必须带浏览器 UA；⚠️ 见下面"固定分不准" |
 | `zexapi` | zexapi | gemini-3.5-flash | — | 1 | 🔒 已屏蔽：503 无渠道（同 key 的 3.7/3.8/opus-4-8 正常 → 别把单条无渠道当整分组坏） |
 
 **踩过的坑（写死在这里防止复发）**：`hub.nocannobb.com` 的 **403 error code: 1010 是 Cloudflare 拦"无 User-Agent 的脚本请求"**，不是 key 坏；网关所有 HTTP 请求现已统一带浏览器 UA。同理：探活路径 `/models` vs `/v1/models` 各家不同、route 无 model 时不能发 null、reasoning 模型小预算会返回空正文——**自家 probe 的现象 ≠ 上游事实，下"坏了"的结论前必须直连复现**。
-**不可用（非代码问题，要你去处理）**：manxue 的 claude 系 410 渠道已撤、manxue gpt-5.5 403 余额不足（该 key 没钱）；dashscope 三种不同原因要分开看——deepseek-v3.2/r1 = **403 免费额度用尽**、`ZHIPU/GLM-5.2` = **400 产品未开通**（后台点一下）、**MiniMax 全系（`MiniMax/MiniMax-H3`、M2.1/M2.5/M2.7/M3）= 400 `code:"Arrearage"` 账户欠费**（同 key 的 qwen 系与 Kimi-K2 正常出词，所以不是模型不存在）；agnes 2.5-pro 三档 403 额度不足（要充值）。
+**不可用（非代码问题，要你去处理）**：manxue 的 claude 系 410 渠道已撤、manxue gpt-5.5 403 余额不足（该 key 没钱）；**dashscope 这把 key 现在整片被账户欠费拦住**——`qwen3.8-max/3.7-max/3.6-plus` 与 MiniMax 全系都回 **400 `type/code:"Arrearage"`**（早间 qwen 能出词=免费额度尚未用尽；**别把"当时能通"当"这个模型没问题"**），另有 deepseek-v3.2/r1 = 403 免费额度用尽、`ZHIPU/GLM-5.2` = 400 产品未开通（后台点一下）；agnes 2.5-pro 三档 403 额度不足（要充值）。
+**⚠️ 固定单价不准（直接影响积分体系设计）**：同一句极简提问，`gpt-6.1-sol` 的 `total_tokens` 从早间 28 跳到 4396、`gpt-5.6-sol` 22366 —— reasoning 模型消耗随问题与思考长度**波动 100 倍以上**。所以 `model_prices.json` 的分数**只能当粗略预估**（报价/预算护栏用），真实扣费必须**按上游返回的 usage 结算**（= P2 的 weeksir.com 账本；`commit(hold_id, actual)` 早已留了 `actual` 位，现在只是 `charged = estimated`）。
+**面板状态语义（别把抖动当故障）**：`live-ok/reachable`=通；`live-fail/auth-fail/config-error`=**要你处理**（4xx＝欠费/未开通/模型名或端点错）；`upstream-5xx/slow`=**上游抖动**（5xx 或 20s 墙钟超时，不是我们 key/配置坏，别乱屏蔽）；`disabled`=已屏蔽（不计故障）；`no-probe/local`=探不了、要实跑。
 **⚠️ MiniMax H3 语言模型的两条接入前提**（充值后也别当 OpenAI 兼容腿接）：① 它在 `compatible-mode/v1` 回 **404 "Unsupported model for OpenAI compatibility mode"**，只能走 dashscope **原生协议** `POST /api/v1/services/aigc/text-generation/generation`（body `{model, input:{messages}, parameters:{result_format:"message"}}`）→ 网关要单独写一个 `dashscope_native` 适配器，不能复用 `_chat_compat`；② "H3" 这个名字在别的中转全是**视频**模型（manxue `1ren-minimax-h3/-v2`=我们 `video.generate/h3` 在用；zexapi 另有 `minimax-h3-{480p,768p,1080p,max-*}` 六档未接），别把两者混成一个能力。
 **默认脑切换**：面板「默认路由」一键改（`model_prices.json.defaults`），不改代码；正式定稿前建议跑 3 品类 ×2 次同题评测（打分维度=§5.5 合规 + §5.6 反幼稚腔）。
 
