@@ -1,0 +1,33 @@
+{
+  "name": "weeksir-skills",
+  "version": "0.1.0",
+  "description": "WEEKSIR 内置技能包（打包层）。把开发态 .dsh/skills 提升进 App，随安装包分发、随 App 发版更新。仿 dsh-image-generation 的 bundled-skill 形态。",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "index.js",
+    "skills",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "weeksir",
+    "skills"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-skill": "^0.1.2-rc.1"
+  }
+}

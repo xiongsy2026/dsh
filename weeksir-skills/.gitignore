@@ -1,0 +1,4 @@
+# skills/ 是 build 产物（sync 从 .dsh/skills 生成），只留 .gitkeep
+skills/*
+!skills/.gitkeep
+__pycache__/
