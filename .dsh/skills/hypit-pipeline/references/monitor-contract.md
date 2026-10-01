@@ -69,10 +69,15 @@ WeekSir 薄编排层驱动 **hypit 原生 CLI**（全局 `@hypit/hypit` v0.2.9�
 - **C 成片验收**。
 - 商用合规/反 AI 幼稚腔审核线沿用 [[omni-delivery-contract]] §5.5/§5.6（创意/分镜/口播通用）。
 
-## §4 右栏挂载（native studio，非 D 控制台）
-- pipeline-view 的「Hypit Studio」tab iframe 指 **`http://127.0.0.1:5179/`**（agent 起 `hypit studio --run X --port 5179` 后才有内容）。
-- ⚠️ studio 是 **per-run、临时进程**：没在跑就白屏；Ctrl+C 停。它是"看某条成片"的窗口，**不是制作中仪表盘**，也**不是拖拽 NLE**（改内容靠改 SVML 文本）。
-- presence 门控**暂关**（syncHypitTab 已 return）：没有像 video-ui 那样可廉价轮询的常驻 API；靠 agent 在 build 后起 studio、人手动开/刷新 tab 看。将来要做自动弹，需一个"studio 是否在 :5179"的轻量探测（studio 无 CORS，fetch 探不了，得另想信号）。
+## §4 右栏挂载 = hypit 官方 studio 工作台（不是 D 控制台，也不是"临时看片器"）
+studio 是 hypit 自带的 SVML 工作台：**左库 源文件(Source：Run+Author 闭包、可写回) / 任务(Tasks：一卡一条 Build，All·In progress·Finished，活动进度取自 Runtime 只读 control 口) / 产物(Artifacts：项目媒体卡)**，右侧 预览 + 属性，另有 `#comments`。**未 build 的 `.svrun` 也能打开**（先看结构，Build 后看进度与成片），所以 agent 在 authoring 阶段就可以把它挂上右栏。
+
+三条实测约束（改这里前必读）：
+1. **地址只能写 `http://localhost:5179/`**：Vite dev server 只监听 **IPv6 回环 `[::1]:5179`**（netstat 实证），写 `127.0.0.1` iframe 必白屏。
+2. **presence 信号走 8100 代探**：studio 自己的只读口 `GET /__studio/library?section=tasks` 虽然回 200，但 Vite 的 CORS **只回显白名单 origin**（实测给 `http://localhost:8765`、不给 `dsh-app://…`/`null`/外部 origin）⇒ DSH 渲染层 fetch 不到。改由 **8100 `GET /api/hypit/studio`**（服务端代探 5179，回 `{up,port,tasks,running,artifacts}`，带 `ACAO:*`、只读、不要 Bearer；端口不开放给查询参数，免得变成给本机网页用的端口探测器）。插件 `syncHypitTab` 每 4s 轮它，`up:true` 才 `openTab`。
+3. **预览区那条 `编译失败 · Studio projection is unresolved: @hypit/seedance@1#seedance-2-mini` 是设计如此**：studio 编辑期只做确定性 Producer + Runtime 显式许可的 **transient** Need，而 transient 执行**只注册 immediate 端点、异步端点声明 transient 会直接抛错**（`runtime-local/src/config.ts:599`）⇒ 我们这条 `lifecycle:"asynchronous"` 的网关腿进不了预览执行。**别为此去 `runtime up` 或改 provider**；成片只能在 `hypit build` 后从 任务/产物 面板看。
+- ⚠️ 安全边界：studio 是 **可写的本地无鉴权工作台**（`PUT /__studio/source` 直接改工程文件、`POST /__studio/mutation`）⇒ 只 ops 自用；给客户看只能给对话 + `hypit get` 导出的成片，或 `hypit snapshot --studio <url>` / `/__studio/visual.html` 的只读快照。
+- 部署事实：插件 `client.js` 经 `AppData\Roaming\dsh-desktop\harness\profiles\web\node_modules\ops-gateway` **符号链接**指回 `C:\dsh\plugins\ops-gateway` ⇒ 改完**不用 pnpm install，重载 DSH 窗口即生效**；8100 改码则要重启计划任务 `WeeksirModelAdmin`（Stop-ScheduledTask → Stop-Process 旧 PID → Start-ScheduledTask）。
 
 ## §5 会话/任务绑定
 - 一条工程 = `C:\dsh\hypit_runs` 下一个 run 目录；跨会话靠 `productions/<task>/`（BRIEF/ANALYSIS/TIMELINE/PROGRESS/DELIVERABLES）记当前 run，不靠 D、不靠 HTTP session 参数。
@@ -81,7 +86,7 @@ WeekSir 薄编排层驱动 **hypit 原生 CLI**（全局 `@hypit/hypit` v0.2.9�
 ## §6 前置与坑
 1. **build 要两样凭据/服务**：① HypiHub（`hypihub.default`，若用官方 Provider 才需要，OAuth、agent 不能替登）；② 我们的 `weeksir.gateway` apiKey（`hypit auth login weeksir.gateway --from`）。缺了 `hypit doctor` 报 `RUNTIME_CREDENTIAL_MISSING`，只能 check/plan。
 2. **build 长且花钱**：可到 1h、按 Need 计费；pricing 未批绝不 build（铁律1）。
-3. **studio 需已 build 的 .svrun**：没 build 打不开；端口固定 5179 便于右栏挂。
+3. **studio 未 build 也能开**（看 源文件/任务/产物，只是 预览 空）；端口固定 5179 便于右栏挂。⚠️ 未 build 的 run 在 预览 区会显示 `编译失败 · Studio projection is unresolved: @hypit/seedance@1#seedance-2-mini`——**这是设计如此**（生成腿是 asynchronous，studio 的编辑期 transient 执行不注册异步端点，见 §4），不是接线坏了，也别为此去 `runtime up`。
 4. **runtime up 才出片**：只 init 不 up，build 无 Worker（`hypit runtime status` 实测停着时 `Worker stopped`）。
 5. **D 的边界=只走 HTTP 契约**：生成腿经 `http://localhost:8100/api/hypit`（这**是**允许且要求的）；但 `:8090/:8000`、`hypit_workspace.py`、`D:\video-skill\hypit-workspace`、import D 的 Python 都不要再出现在本流程里（那是旧的 D 封装，已弃用）。
 6. **上游 skill 会被 npx 覆盖**：authoring 语法参考在 `.dsh/skills/hypit/`（只读）；本驱动契约只在 `hypit-pipeline/`，别写进上游。

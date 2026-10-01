@@ -12,10 +12,14 @@ window.__ModuleLoader__.load({
     // video-ui 原流水线 UI（agent 驱动时展示）。客户包不装本插件。
     const VIEW_URL = "http://127.0.0.1:8765/";
     const KEY = "weeksir-pipeline-view";
-    // hypit：D-free 后走 hypit 原生 CLI（工作区 C:\dsh\hypit_runs），右栏 = hypit 自带 studio。
-    //   studio 是 per-run 临时进程：agent 跑 `hypit studio --run <x>.svrun --port 5179` 后本 tab 才有内容；没跑就白屏。
+    // hypit 官方工作台 = `hypit studio`（Vite dev server）。实测两件事决定了这里的写法：
+    //   ① 它**只监听 IPv6 回环** [::1]:5179（netstat 实证），写 127.0.0.1 连不上 ⇒ 必须用 localhost；
+    //   ② 它有只读口 GET /__studio/library?section=tasks（一卡一条 Build 的状态/失败原因），
+    //      但 Vite 的 CORS 只回显白名单 origin（实测 dsh-app://、null 都不给 ACAO）⇒ 本插件 fetch 不到，
+    //      所以探活走 8100 的代探只读口 /api/hypit/studio（那边带 ACAO:*）。
     //   不再挂 D 控制台（:8090/:8000 已弃用于 hypit）。
-    const HYPIT_STUDIO_URL = "http://127.0.0.1:5179/";
+    const HYPIT_STUDIO_URL = "http://localhost:5179/";
+    const HYPIT_PROBE = "http://127.0.0.1:8100/api/hypit/studio";
     const HKEY = "weeksir-hypit-view";
     // 模型网关管理台 = model_admin(:8100)：列能力/改价/看健康/写 .env 密钥。运维专用、非会话绑定、客户包不含。
     const MGMT_URL = "http://127.0.0.1:8100/";
@@ -26,7 +30,7 @@ window.__ModuleLoader__.load({
     }
 
     function HypitTitle() {
-      return h("span", { title: "Hypit 原生 Studio（build 后由 agent 起 hypit studio）" }, "Hypit Studio");
+      return h("span", { title: "Hypit 官方工作台（agent 起 hypit studio --run X --port 5179；未 build 也能开，看 Source/Tasks/Artifacts）" }, "Hypit Studio");
     }
 
     function IFrameBody(url, label) {
@@ -47,8 +51,8 @@ window.__ModuleLoader__.load({
     }
 
     function HypitBody() {
-      // hypit 原生 studio（agent 跑 `hypit studio --run X --port 5179` 后此端口才有服务）。
-      // 无 session 参数、per-run 临时；没起 studio 时 iframe 白屏属正常。
+      // hypit 官方工作台：agent 跑 `hypit studio --run <x>.svrun --port 5179` 后 iframe 即有内容。
+      // 一个 studio 只开一个 run（--run 绑死），多工程时要换端口/换进程重启。
       return IFrameBody(HYPIT_STUDIO_URL, "Hypit Studio");
     }
 
@@ -134,11 +138,20 @@ window.__ModuleLoader__.load({
               .catch(() => {});                                        // video-ui 没起/跨源失败：不弹，不崩
           } catch (e) { /* 忽略，下次再试 */ }
         }
+        let hypitSeenOpen = false;   // 本进程内是否已自动弹过一次（弹过又被关掉=人主动关的，就不再骚扰）
         function syncHypitTab(sid) {
-          // ⏸ 停用：hypit 走原生 CLI 后没有可廉价轮询的常驻 API（studio 是 per-run 临时进程、且无 CORS 探测口）。
-          //    Hypit Studio tab 保持【手动打开】；agent build 完起 `hypit studio --port 5179`，人再开/刷新看。
-          //    将来要自动弹：需一个"studio 是否在 :5179"的可靠信号（同源探测口或本地标记），再在此接回。
-          return;
+          // 触发信号 = 有 agent 在跑的 hypit studio（8100 代探回 up:true）。
+          // studio 只有一个端口、且 --run 绑死单条工程 ⇒ 它不像 omni 那样能按 session 过滤，这里就是全局信号：
+          // 没起 studio 不弹，起了才弹一次；人关掉后本次不再自动弹（要开从右栏页签选）。
+          try {
+            const open = !!document.querySelector('iframe[src*="5179"]');
+            if (open) { hypitSeenOpen = true; return; }
+            if (hypitSeenOpen) return;
+            fetch(HYPIT_PROBE)
+              .then(r => r.ok ? r.json() : null)
+              .then(j => { if (j && j.up) ctx.sidebarRight.openTab(HKEY, { revealIfOpened: true }); })
+              .catch(() => {});
+          } catch (e) { /* 忽略，下次再试 */ }
         }
         function syncTab() {
           const sid = curSession();

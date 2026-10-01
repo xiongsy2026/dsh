@@ -54,7 +54,7 @@ whenToUse: >
 ## 铁律
 1. **build 前必过 pricing 预算批准**：hypit 按 Need 付费、build 一旦跑就花钱且耗时长（可到 1 小时）。pricing 成本 + plan 结构未经人批，绝不 build。
 2. **工程在 C:\dsh\hypit_runs、账在网关**：工程文件、产物、`.hypit` 状态都在 hypit_runs；生成腿一律经 `http://localhost:8100/api/hypit` → `gateway.invoke` 扣积分。**不 import D 的 Python、不点 D 的控制台、不碰 :8090/:8000**，也绝不让 hypit 绕开网关直连厂商。凭据只进 hypit 平台凭据存储，明文不落项目。
-3. **右栏 = native studio，不是 D 控制台**：studio 是 per-run 临时进程（agent 起 `hypit studio --run X --port 5179`，Ctrl+C 停）；不是常驻仪表盘，别当剪映 NLE。
+3. **右栏 = native studio 工作台，不是 D 控制台**：`hypit studio --run X --port 5179` 是 hypit 官方 SVML 工作台（源文件/任务/产物 + 预览/属性），**未 build 也能开**；iframe 必须写 `http://localhost:5179/`（Vite 只听 `[::1]`，写 127.0.0.1 必白屏）。它 per-run、Ctrl+C 停，且**能写回工程文件**⇒ 只 ops 自用、不给客户。细节与 presence 见 monitor-contract §4。
 4. **会话绑定**：一条工程对应一个 `C:\dsh\hypit_runs` 下的 run 目录；在 `productions/<task>/` 记当前 run（跨会话靠档案，不靠 D）。
 5. **档案层**：每条工程在 `productions/<task>/` 落 `BRIEF/ANALYSIS/TIMELINE/PROGRESS/DELIVERABLES`；产物本体留 hypit_runs，指针进 productions。
 6. **解耦**：hypit 是独立工程化生产引擎，不做换脸超级复刻（super-clone）、不做 omni 竖屏广告。
