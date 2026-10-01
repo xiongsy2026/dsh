@@ -1012,6 +1012,100 @@ body {
     }
 
 
+    // ===== 技能展示 dock（新对话页输入框下方，conversation.composer.dock 槽）=====
+    // 皮肤全用 DSH/Weeksir 主题 var()，自动跟随 super-clone-ui 的橙色品牌；点击 = setDraft("/skill ") 填进输入框不自动发。
+    const SKILL_DOCK_CSS_ID = "ws-skill-dock-css";
+    // 想只展示部分技能就填白名单（name 数组）；留空 = 展示 skills.list 返回的全部
+    const SKILL_DOCK_ALLOW = [];
+    function skillDockCss() {
+      if (typeof document === "undefined") return;
+      if (document.getElementById(SKILL_DOCK_CSS_ID)) return;
+      const st = document.createElement("style");
+      st.id = SKILL_DOCK_CSS_ID;
+      st.textContent = `
+.ws-dock{margin:10px 2px 2px}
+.ws-dock-head{display:flex;align-items:center;gap:10px;margin:0 2px 8px}
+.ws-dock-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary,#cfd3d6)}
+.ws-dock-sub{font-size:12px;color:var(--dsw-alias-label-tertiary,#969696)}
+.ws-dock-nav{margin-left:auto;display:flex;gap:6px}
+.ws-dock-nav button{width:28px;height:28px;border-radius:50%;background:var(--dsw-alias-bg-layer-2,#232327);
+  border:1px solid var(--dsw-alias-border-l1,#ffffff14);color:var(--dsw-alias-label-secondary,#cfd3d6);
+  cursor:pointer;font-size:15px;line-height:1;display:grid;place-items:center}
+.ws-dock-nav button:hover{border-color:var(--dsw-alias-brand-primary,#fa6f08);color:var(--dsw-alias-label-primary,#f5f5f5)}
+.ws-dock-row{display:flex;gap:12px;overflow-x:auto;scroll-behavior:smooth;padding:2px 2px 8px;scrollbar-width:none}
+.ws-dock-row::-webkit-scrollbar{display:none}
+.ws-skill{flex:0 0 auto;width:200px;border-radius:12px;overflow:hidden;cursor:pointer;
+  background:var(--dsw-alias-bg-layer-1,#171717);border:1px solid var(--dsw-alias-border-l1,#ffffff14);
+  transition:transform .16s cubic-bezier(.2,.7,.3,1),border-color .16s,box-shadow .16s}
+.ws-skill:hover{border-color:var(--dsw-alias-brand-primary,#fa6f08);transform:translateY(-3px);
+  box-shadow:0 14px 30px -16px rgba(0,0,0,.7)}
+.ws-skill .cv{height:96px;display:grid;place-items:center;font-size:30px;color:#fff;
+  background:linear-gradient(135deg,var(--dsw-alias-brand-primary,#fa6f08),#b118d6)}
+.ws-skill .bd{padding:9px 11px 11px}
+.ws-skill .nm{font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary,#f5f5f5);line-height:19px}
+.ws-skill .ds{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#969696);line-height:16px;margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`;
+      document.head.appendChild(st);
+    }
+    const RECENT_KEY = "ws-skill-recent";
+    function loadRecent() { try { return JSON.parse((typeof localStorage !== "undefined" && localStorage.getItem(RECENT_KEY)) || "[]"); } catch (e) { return []; } }
+    function saveRecent(a) { try { localStorage.setItem(RECENT_KEY, JSON.stringify(a.slice(0, 6))); } catch (e) {} }
+
+    function makeSkillDockBody(ctx) {
+      // 单个分区（标题 + 一行可左右滚动的卡片）。独立组件 → 各自持有 ref，挂载/卸载安全。
+      function SkillSection(props) {
+        const ref = React.useRef(null);
+        const scroll = (d) => { try { if (ref.current) ref.current.scrollBy({ left: d * 212, behavior: "smooth" }); } catch (e) {} };
+        return h("div", { className: "ws-dock" },
+          h("div", { className: "ws-dock-head" },
+            h("span", { className: "ws-dock-title" }, props.title),
+            h("span", { className: "ws-dock-nav" },
+              h("button", { onClick: () => scroll(-1), "aria-label": "左滚" }, "‹"),
+              h("button", { onClick: () => scroll(1), "aria-label": "右滚" }, "›"))),
+          h("div", { className: "ws-dock-row", ref: ref },
+            props.items.map(s => h("div", { key: props.title + ":" + s.name, className: "ws-skill", onClick: () => props.onPick(s.name) },
+              h("div", { className: "cv" }, (s.name || "·").slice(0, 1).toUpperCase()),
+              h("div", { className: "bd" },
+                h("div", { className: "nm" }, s.name),
+                s.desc ? h("div", { className: "ds" }, s.desc) : null)))));
+      }
+
+      return function SkillDock(props) {
+        const sessionId = props && props.sessionId;
+        const actions = props && props.inputActions;
+        const [skills, setSkills] = React.useState([]);
+        const [recent, setRecent] = React.useState(loadRecent);
+        React.useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const raw = await ctx.remote.skills.list({ sessionId: sessionId });
+              const list = Array.isArray(raw) ? raw : (raw && (raw.skills || raw.items)) || [];
+              let arr = list.map(s => ({
+                name: s.name || s.title || s.id || "",
+                desc: s.description || s.tagline || s.whenToUse || ""
+              })).filter(x => x.name);
+              if (SKILL_DOCK_ALLOW.length) arr = arr.filter(x => SKILL_DOCK_ALLOW.indexOf(x.name) >= 0);
+              if (alive) setSkills(arr);
+            } catch (e) { if (alive) setSkills([]); }
+          })();
+          return () => { alive = false; };
+        }, [sessionId]);
+        if (!skills.length) return null;
+        skillDockCss();
+        const byName = {}; skills.forEach(s => { byName[s.name] = s; });
+        const recentSkills = recent.map(n => byName[n]).filter(Boolean);
+        const onPick = (name) => {
+          try { if (actions && actions.setDraft) actions.setDraft("/" + name + " "); } catch (e) {}
+          const next = [name].concat(loadRecent().filter(n => n !== name)).slice(0, 6);
+          saveRecent(next); setRecent(next);
+        };
+        return h("div", null,
+          recentSkills.length ? h(SkillSection, { title: "最近使用", items: recentSkills, onPick: onPick }) : null,
+          h(SkillSection, { title: "推荐技能", items: skills, onPick: onPick }));
+      };
+    }
+
     function apply(ctx) {
       injectCss();
       injectHeroTabs();
@@ -1029,6 +1123,11 @@ body {
       );
       injectNativeAccountSwitcher();
       injectNativeSkillPicker();
+      // 新对话页输入框下方的技能展示 dock（最近使用 + 推荐技能）
+      try {
+        ctx.slots.inject("conversation.composer.dock", () =>
+          ctx.slots.register({ name: "conversation.composer.dock", id: "weeksir-skill-dock", order: 10 }, makeSkillDockBody(ctx)));
+      } catch (e) {}
     }
 
     exports.apply = apply;
