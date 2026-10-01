@@ -57,6 +57,14 @@ def _agnes_conf():
     return base, key
 
 
+def _mimo_conf():
+    """mimo* 模型打到小米 MiMo 端点（同名环境变量优先，否则取 D:\\video-skill\\.env）。"""
+    env = _skill_env()
+    base = os.environ.get("MIMO_BASE_URL") or env.get("MIMO_BASE_URL")
+    key = os.environ.get("MIMO_API_KEY") or env.get("MIMO_API_KEY")
+    return base, key
+
+
 def set_session_key(key):
     global _session_key
     _session_key = (key or "").strip() or None
@@ -67,13 +75,19 @@ def has_key():
 
 
 def chat_backend(model):
-    return "agnes" if str(model or "").lower().startswith("agnes") else "zexapi"
+    m = str(model or "").lower()
+    if m.startswith("agnes"):
+        return "agnes"
+    if m.startswith("mimo"):
+        return "mimo"
+    return "zexapi"
 
 
 def chat_ready(model):
-    """chat 能不能跑：agnes 通道看 AGNES 配置，其余看 zexapi key。"""
-    if chat_backend(model) == "agnes":
-        base, key = _agnes_conf()
+    """chat 能不能跑：按通道看各自配置（agnes/mimo 看 base+key，其余看 zexapi key）。"""
+    backend = chat_backend(model)
+    if backend in ("agnes", "mimo"):
+        base, key = (_agnes_conf() if backend == "agnes" else _mimo_conf())
         return bool(base and key)
     return has_key()
 
@@ -121,9 +135,32 @@ def _get(path, timeout=60):
     return r.json()
 
 
-def chat(messages, model="agnes-3.0-flash", temperature=0.85, max_tokens=8000):
-    """统一入口：默认走原直连；VIDEO_UI_VIA_GATEWAY=1 时改走模型网关（积分/审计/去抖都在网关侧）。
+# 模型名 → 网关 purpose（网关按 purpose 选 base/凭证，模型名原样透传）。未知模型落 zexapi，
+# 那条现在是"已屏蔽"，会明确报错提示去面板选一条注册过的腿——比悄悄换成 agnes 诚实。
+_GATEWAY_PURPOSE = (("agnes", "agnes"), ("mimo", "mimo"), ("gpt-", "gpt61"), ("gemini-3.7", "gemini38"),
+                    ("gemini-3.8", "gemini38"), ("gemini", "zexapi"), ("claude-opus-4-8", "claude48"),
+                    ("deepseek", "deepseekv4"), ("qwen", "qwen38max"))
+
+# 思考型模型：实测给 900~2500 预算时会「HTTP 200 但正文空」（预算全花在推理上），所以兜到 6000。
+_THINKY = ("mimo", "gpt-", "deepseek", "qwen", "gemini-3.7", "gemini-3.8")
+
+
+def _gateway_purpose(model):
+    m = str(model or "").lower()
+    for prefix, purpose in _GATEWAY_PURPOSE:
+        if m.startswith(prefix):
+            return purpose
+    return "zexapi"
+
+
+def _budget(model, max_tokens):
+    return max(int(max_tokens or 0), 6000) if str(model or "").lower().startswith(_THINKY) else max_tokens
+
+
+def chat(messages, model="mimo-v2.5-pro", temperature=0.85, max_tokens=8000):
+    """统一入口：默认走直连；VIDEO_UI_VIA_GATEWAY=1 时改走模型网关（积分/审计/去抖都在网关侧）。
     契约不变（返回文本），调用方无感。默认关 = 与现在一模一样，零风险。"""
+    max_tokens = _budget(model, max_tokens)
     if os.getenv("VIDEO_UI_VIA_GATEWAY") == "1":
         return _chat_via_gateway(messages, model, temperature, max_tokens)
     return _chat_direct(messages, model, temperature, max_tokens)
@@ -131,11 +168,10 @@ def chat(messages, model="agnes-3.0-flash", temperature=0.85, max_tokens=8000):
 
 def _chat_via_gateway(messages, model, temperature, max_tokens):
     gw = os.getenv("MODEL_GATEWAY_URL", "http://127.0.0.1:8100")
-    purpose = "agnes" if str(model).lower().startswith("agnes") else "zexapi"
     r = requests.post(gw + "/api/model/call", timeout=420, json={
-        "capability": "text.complete", "purpose": purpose,
+        "capability": "text.complete", "purpose": _gateway_purpose(model),
         "account": os.getenv("VIDEO_UI_MEMBER", "omni"),
-        "params": {"messages": messages, "temperature": temperature, "max_tokens": max_tokens},
+        "params": {"messages": messages, "model": model, "temperature": temperature, "max_tokens": max_tokens},
     })
     j = r.json()
     if not j.get("ok"):
@@ -143,15 +179,21 @@ def _chat_via_gateway(messages, model, temperature, max_tokens):
     return (j.get("result") or {}).get("text")
 
 
-def _chat_direct(messages, model="agnes-3.0-flash", temperature=0.85, max_tokens=8000):
+def _chat_direct(messages, model="mimo-v2.5-pro", temperature=0.85, max_tokens=8000):
     """Stage 1 剧本 / Stage 4 运镜用。524 与 5xx 重试（实测网关会偶发 524）。
-    模型名以 agnes 开头时打到 agnes 端点（key/base 来自 D:\\video-skill\\.env）。"""
+    按模型名前缀分流端点：agnes* → Agnes、mimo* → 小米 MiMo，其余 → zexapi；key/base 取自 D:\\video-skill\\.env。"""
     payload = {"model": model, "messages": messages, "temperature": temperature,
                "max_tokens": max_tokens, "stream": False}
     if str(model).lower().startswith("agnes"):
         base, key = _agnes_conf()
         if not (base and key):
             raise ZexError("agnes 通道缺 AGNES_BASE_URL/AGNES_API_KEY（检查 D:\\video-skill\\.env）")
+        url = base.rstrip("/") + "/chat/completions"
+        headers = {"Authorization": "Bearer %s" % key}
+    elif str(model).lower().startswith("mimo"):
+        base, key = _mimo_conf()
+        if not (base and key):
+            raise ZexError("mimo 通道缺 MIMO_BASE_URL/MIMO_API_KEY（检查 D:\\video-skill\\.env）")
         url = base.rstrip("/") + "/chat/completions"
         headers = {"Authorization": "Bearer %s" % key}
     else:

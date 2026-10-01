@@ -5,7 +5,7 @@
   "image_model": "nano-pro",
   "zexapi_image_model": "nano_banana_2",
   "video_model": "omni_flash-hd-10s",
-  "script_model": "agnes-3.0-flash",
+  "script_model": "mimo-v2.5-pro",
   "video_size": "1080x1920",
   "fallback_size": "720x1280",
   "fallback_model": "omni_flash-10s",
