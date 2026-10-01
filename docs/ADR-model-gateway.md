@@ -1,10 +1,11 @@
 # ADR：统一模型网关 + 积分适配层（skill 的模型调用底座）
 
-- 状态：Accepted（P0-①② + HTTP 契约 已落地并实测；P0-③/真账本 待做）
+- 状态：Accepted（P0-①② + HTTP 契约 + 价目/积分面板 已落地并实测；P0-③/真账本 待做）
 - 日期：2026-10-01
 - ✅ 已做：`gateway.py` 补 `text.complete`/`image.generate(default)` 适配器 + 积分账本桩(`Ledger` 四接口 precheck/preauth/commit/rollback, 本地 sqlite) + `invoke()` 信封 + `call` 子命令；实测 text.complete 返 "pong"、成功扣1、失败(未接适配器)回滚余额复原、流水正确。`AGENTS.md` + `AGENT-FRAMEWORK.md §4.1` 写入「模型调用轨」契约。
 - ⏳ 待做：P0-③ 各 produce skill 的 SKILL.md 改引统一命令（灰度切，先不拆现有直连）；`image.generate` detail/generic + `video.generate` clone-r2v/agnes-v 适配器；P1 hypit provider 绑定 + 对账；P2 weeksir.com 真账本平替。
-- ✅ 2026-10-01(续) HTTP 契约已上线，并把宿主从 8090 换成常驻 8100：`model_admin.py` 加 `/api/model/{caps,resolve,call,health}`（同进程复用 `gateway.invoke`）、`model_router.py` 删除、`app.py` 撤 include；实测 8100 `POST /api/model/call {text.complete/agnes}`→"ok"·扣1、未接 purpose→`ok:false`·charged0·余额不动、面板 `GET /` 200、8090 `/api/model/*` 404（无第二入口）。
+- ✅ 2026-10-01(续8a) **HTTP 契约已上线，宿主从 8090 换成常驻 8100**：`model_admin.py` 加 `/api/model/{caps,resolve,call,health}`（同进程复用 `gateway.invoke`）、`model_router.py` 删除、`app.py` 撤 include；实测 8100 `POST /api/model/call {text.complete/agnes}`→"ok"·扣1、未接 purpose→`ok:false`·charged0·余额不动、面板 `GET /` 200、8090 `/api/model/*` 404（无第二入口）。
+- ✅ 2026-10-01(续8b) **价目/默认路由外置 + 积分面板**：`model_prices.json`（21 条价 + 7 条默认路由，mtime 懒加载、坏则回落内置）；`holds.route` 列 → 逐路由调用审计；8100 页面加"改价/选默认路由"（校验后原子写）与"余额/流水/审计"两张表；CLI `prices`/`credits`。⇒ **"设置积分"从此是面板动作、不是改代码**（真账本仍在 weeksir.com，见 P2）。
 - 决策者：产品
 - 相关：[[model-gateway-direction]] [[dsh-product-roadmap]] [[omni-delivery-contract]] [[super-clone-hypit-pipeline]] `docs/PRD-weeksir-platform.md`（§4.4 模型网关 / §6.x 积分账本） `docs/ADR-pipeline-server.md` `D:\video-skill\backend\gateway.py`
 
@@ -63,14 +64,21 @@ preauth(account, cap, pur, p)-> {hold_id, cost}        # 按条预扣（PRD:346�
 commit(hold_id, actual)      -> {charged, balance_after}
 rollback(hold_id)            -> {refunded}             # 失败回滚该条
 ```
-流程（`call()` 内串起来）：
+- **计价外置（2026-10-01 已落地）**：价目与"每能力默认路由"不再硬在代码里，而是 `D:\video-skill\model_prices.json`：
+  ```json
+  {"prices": {"text.complete/agnes": 1, "video.generate/omni-t2v": 40, ...},
+   "defaults": {"text.complete": "agnes", "video.generate": "omni-t2v", ...}}
+  ```
+  `gateway.external_config()` 按 **mtime 懒加载**（面板保存后下一次调用即生效，无需重启）；文件缺失/损坏 → 打印一行警告并**回落 `PRICE_ROUTES`/`DEFAULT_PURPOSE` 内置兜底表**，配置坏掉不会让正在出片的管线停。CLI 可查：`gateway.py prices` / `gateway.py credits`。
+- **调用审计**：`holds` 加 `route` 列（`PRAGMA` 检测后 `ALTER TABLE`，旧行 NULL）→ 可按 **路由×状态** 聚合次数与积分（`done`=已扣、`rolled_back`=失败已退），配合 `ledger` 流水即"谁在什么时候调了哪条模型、扣了几分"。管理入口=8100 页面两张表（价目/默认路由**可编辑**；余额/审计**只读**）。
+- **保存校验**：`POST /api/model/prices` 只接受注册表里真实存在的 `cap/purpose`、价格必须是 0~100000 整数、默认路由必须是该能力下的合法 purpose；**任一条非法整批拒绝、不部分写入**，写文件用 `tmp + os.replace` 原子替换。
+- 流程（`call()` 内串起来）：
 ```
 resolve → 计价(注册表 price，或 skill manifest 声明的预估积分) 
  → precheck：不足→ 直接返回 ok:false + "去 weeksir.com 充值"，不发起生成（PRD:284/287）
  → preauth 预扣 → 调模型适配器 → 成功 commit / 失败 rollback → 写流水 → 返回信封
 ```
-- **计价移到注册表**：每条 ROUTE 加 `price`/`unit`（如 seedance 1080p/5s、agnes-image、text/1k token），取代现在按能力 flat 的 `PRICE` 桩；视频按 `duration` 折算。
-- **扣在客户身份**（account = weeksir 客户，店铺 1:N，PRD:289），不是单个抖音号。
+- **计价按路由逐条**（`capability/purpose` 粒度，取代早期按能力 flat 的桩）；视频按 `duration` 每 10s 折算一个单位。**扣在客户身份**（account = weeksir 客户，店铺 1:N，PRD:289），不是单个抖音号。
 - **1.0 本机**：`ledger:"STUB"` 本地记账即可（PRD:458 本机阶段不接网站），但**接口就是上面四个**，3.0 平移到 weeksir.com 不改调用方。
 - **与生成关口咬合**：omni/hypit 的"build 前预算批准"直接读 `resolve` 的 `credits.estimated`（[[omni-delivery-contract]] §9 预算护栏、[[super-clone-hypit-pipeline]] pricing 闸）。
 
@@ -169,14 +177,14 @@ produce 环本来就有"方案批准"关口（:175）。把估价-预扣贴上�
 目标 = 统一 API 网关 + 可设置积分 + 商业化（DSH 为标准）。三目标分开看，代码/非代码分开：
 
 - **A 统一 API 网关（≈65%）**：✅ 注册表覆盖 config 全 provider（含 seedance/vinted、zexapi、agnes/mimo）+ CLI `call` + HTTP `/api/model/{caps,resolve,call,health}`（**常驻 8100、已 curl 实测**）。差：① 真适配器 10 条（text agnes/mimo/zexapi、analyze default/mimo、image default/nano、omni-t2v、seedance 2.5/2.0），**剩 11 条 ⏳**（faceswap/lipsync/motion/h3/wan3-dashscope/detail/generic/agnes-v/transcribe，都不挡 omni）；② **所有 skill 还没改走它**（omni 开关默认关、super-clone 仍直连）；③ gemini/gpt/grok 上游抖，**当下只 agnes 文本稳**。
-- **B 可设置积分（≈40%）**：✅ Ledger 四接口 + 逐条单价 + 失败不扣费。差：① **"设置"现在=改代码**（PRICE 硬在 gateway.py，无改价面板）；② **真账本在 weeksir.com**（本地 sqlite 是桩、余额假数、无充值）——没 weeksir.com 积分 API 就不算能商用扣费。
+- **B 可设置积分（≈70%）**：✅ Ledger 四接口 + 逐条单价 + 失败不扣费 + **价目/默认路由外置 `model_prices.json`（mtime 懒加载、坏则回落内置）** + **8100 面板改价/选默认路由** + **`holds.route` 逐路由调用审计与余额/流水表**。差：① **真账本在 weeksir.com**（本地 sqlite 仍是桩、余额是假数、**没有充值入口**）——没 weeksir.com 积分 API 就不算能商用扣费；② 单价仍是人工拍的相对值，等接了上游真实计费再校准；③ 客户侧看不到"本次方案预计花多少分"的呈现（折进方案批准话术，见 §与生成关口咬合）。
 - **C 商业化（早期·瓶颈是非代码三堵墙）**：① 🔴 **hypit 商用授权**（Apache-2.0 with conditions，给客户用/打包卖须找 Hypit.AI 谈）；②  **生成栈服务端化(3.0)+瘦客户端+发版流水线**（build_release/签名/更新源）；③ 🟠 **安全 Gate 0**（控制台无鉴权、cli 是 subprocess，给客户前只读化/origin 白名单/执行端点鉴权）。
 
 **最短路径（按依赖）**：
 1. ~~重启 8090 激活 `/api/model/*`~~ → **已不需要**：HTTP 入口搬到常驻 8100 并实测可达（8090 退回纯流水线服务器）。剩下的最短路径 = 用 `VIDEO_UI_VIA_GATEWAY=1` 重启 8765 跑一次 omni 端到端（含 `script_model=agnes`）。
 2. 补 skill 真用的适配器（omni 的 nano 生图、seedance 视频）。
 3. **P0-③**：omni 包 `zexp.chat` + env 开关 `VIDEO_UI_VIA_GATEWAY` 灰度走网关（第一个样板）。
-4. **PRICE 外置 `model_prices.json` + model_admin 加改价/积分页** → "设置积分"从改码变点面板。
+4. ✅ ~~PRICE 外置 `model_prices.json` + model_admin 加改价/积分页~~ **已完成**（"设置积分"从改码变点面板；审计靠 `holds.route`）。
 5. 并行推非代码墙：**问 Hypit.AI 商用授权** + **确认 weeksir.com 积分 API**（这俩决定 B/C 能否落地）。
 
 **一句话**：统一入口已立、离"skill 都只认它"近（数天~两周）；可设积分卡在"改价面板 + weeksir.com 真账本"（中，含非代码）；商业化真正远的是 hypit 授权/服务端化/安全闸三堵非代码墙，不是再多写网关代码。
