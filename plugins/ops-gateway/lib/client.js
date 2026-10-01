@@ -7,7 +7,8 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated"); } catch (e) {}
+    const PV_BUILD = "pv-20261001c";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // video-ui 原流水线 UI（agent 驱动时展示）。客户包不装本插件。
     const VIEW_URL = "http://127.0.0.1:8765/";
@@ -138,7 +139,7 @@ window.__ModuleLoader__.load({
               .catch(() => {});                                        // video-ui 没起/跨源失败：不弹，不崩
           } catch (e) { /* 忽略，下次再试 */ }
         }
-        let hypitSeenOpen = false;   // 本进程内是否已自动弹过一次（弹过又被关掉=人主动关的，就不再骚扰）
+        let hypitArmed = true;   // 上升沿才弹：studio「没起→起了」才自动开页签；人主动关掉后不再骚扰，直到它重新起一次
         function syncHypitTab(sid) {
           // 触发信号 = **本会话**自己 claim 过的 studio 活着（8100 代探 + 按会话主人过滤）。
           // studio 只有一个端口、也没有 DSH 会话概念 ⇒ 主人由 agent 起 studio 前登记
@@ -146,12 +147,15 @@ window.__ModuleLoader__.load({
           // 不传/不匹配 session 一律不弹（否则 omni 会话会被弹出 Hypit 工作台，2026-10-01 踩过）。
           try {
             if (!sid) return;
-            const open = !!document.querySelector('iframe[src*="5179"]');
-            if (open) { hypitSeenOpen = true; return; }
-            if (hypitSeenOpen) return;
             fetch(HYPIT_PROBE + "?session=" + encodeURIComponent(sid))
               .then(r => r.ok ? r.json() : null)
-              .then(j => { if (j && j.up) ctx.sidebarRight.openTab(HKEY, { revealIfOpened: true }); })
+              .then(j => {
+                if (!j || !j.up) { hypitArmed = true; return; }          // 没在跑：重新上膛
+                if (document.querySelector('iframe[src*="5179"]')) return;  // 已经开着
+                if (!hypitArmed) return;                                // 弹过后被人为关掉：本次不再重开
+                hypitArmed = false;
+                ctx.sidebarRight.openTab(HKEY, { revealIfOpened: true });
+              })
               .catch(() => {});
           } catch (e) { /* 忽略，下次再试 */ }
         }
