@@ -47,7 +47,10 @@ python gateway.py test                                   # 各 route 真探活
 
 ### HTTP 契约（同一 call() 再包一层·供 hypit provider / 外部工具 / 未来服务端）
 **宿主 = 常驻管理进程 `backend/model_admin.py`（127.0.0.1:8100，计划任务 `WeeksirModelAdmin` 开机自启），不是 8090。**
-端点：`POST /api/model/call {capability,purpose,account,params}`、`GET /api/model/caps`、`GET /api/model/resolve?capability=&purpose=`、`GET /api/model/health`。
+端点：`POST /api/model/call {capability,purpose,account,params}`、`GET /api/model/caps`、`GET /api/model/resolve?capability=&purpose=`、`GET /api/model/health`（**并发探 21 条·实测 3.2s**）、
+`GET /api/model/prices` + `POST /api/model/prices`（改价/改默认路由，校验后原子写）、`GET /api/model/credits`（余额+按路由审计+流水）、
+**管理台专用**：`GET /api/model/board`（按能力聚合：入口/模型/密钥就绪/单价/默认/是否已接适配器/上次探活状态与延迟）、`GET /api/model/test?capability=&purpose=`（**单条点测**）。
+探活结果在服务端缓存（`_HEALTH`，单条测也合并进去）→ 面板秒开、刷新不丢状态。
 
 - 为什么同源 8100：管理面（写 .env / 测通 / 价目）与调用面（`/api/model/call`）**共用同一份 `gateway.ROUTES` 与同一把 key**，天然不分叉；8100 已常驻且已 `import gateway`，加路由零新依赖。
 - 为什么**不挂 8090**：8090 是流水线任务服务器，模型端点挂它就得为激活而重启（丢内存态任务）、并把"统一 API"绑死在一个临时宿主上。原 `backend/model_router.py`（FastAPI 版）已删、`app.py` 的 `include_router` 已撤 → **8100 是唯一 HTTP 入口**，8090 只留流水线 + `/api/health/models`（8100 的 health 顺带读它）。
