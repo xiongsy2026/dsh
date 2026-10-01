@@ -24,7 +24,7 @@ DEFAULT_CONFIG = {
     "zexapi_image_model": "nano_banana_pro-2K",
     "doubao_model": "Seedream 4.5",
     "video_model": "omni_flash-hd-10s",
-    "script_model": "gemini-3.5-flash",
+    "script_model": "agnes-3.0-flash",   # zexapi 的 gemini 分组无可用上游通道(2026-10-01 全 503)，别拿它兜底
     "video_size": "1080x1920",
     "fallback_size": "720x1280",
     "fallback_model": "omni_flash-10s",

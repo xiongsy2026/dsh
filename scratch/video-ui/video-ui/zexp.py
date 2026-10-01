@@ -121,7 +121,7 @@ def _get(path, timeout=60):
     return r.json()
 
 
-def chat(messages, model="gemini-3.5-flash", temperature=0.85, max_tokens=8000):
+def chat(messages, model="agnes-3.0-flash", temperature=0.85, max_tokens=8000):
     """统一入口：默认走原直连；VIDEO_UI_VIA_GATEWAY=1 时改走模型网关（积分/审计/去抖都在网关侧）。
     契约不变（返回文本），调用方无感。默认关 = 与现在一模一样，零风险。"""
     if os.getenv("VIDEO_UI_VIA_GATEWAY") == "1":
@@ -143,7 +143,7 @@ def _chat_via_gateway(messages, model, temperature, max_tokens):
     return (j.get("result") or {}).get("text")
 
 
-def _chat_direct(messages, model="gemini-3.5-flash", temperature=0.85, max_tokens=8000):
+def _chat_direct(messages, model="agnes-3.0-flash", temperature=0.85, max_tokens=8000):
     """Stage 1 剧本 / Stage 4 运镜用。524 与 5xx 重试（实测网关会偶发 524）。
     模型名以 agnes 开头时打到 agnes 端点（key/base 来自 D:\\video-skill\\.env）。"""
     payload = {"model": model, "messages": messages, "temperature": temperature,

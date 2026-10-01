@@ -32,6 +32,9 @@ app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
 PORT = int(os.environ.get("VIDEO_UI_PORT", "8765"))
 
+# 剧本/运镜/产品卡/翻译等文本咽喉的默认模型：一处定义，值来自 store.DEFAULT_CONFIG（现为 agnes-3.0-flash）。
+DEFAULT_SCRIPT_MODEL = store.DEFAULT_CONFIG["script_model"]
+
 # VIDEO_UI_DRYRUN=1 -> 全程不调任何烧额度的通道（gflow / zexapi 生图 / chat / omni 出片），
 # 用本地占位帧和 ffmpeg testsrc 占位段把整条链路跑通。测试脚本必须在这个模式下跑。
 DRY_RUN = os.environ.get("VIDEO_UI_DRYRUN") == "1"
@@ -466,7 +469,7 @@ def asset_card(name):
         return jsonify({"error": "资产不存在"}), 400
     if DRY_RUN:
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），不调 chat"}), 400
-    if not zexp.chat_ready(store.load_config().get("script_model", "gemini-3.5-flash")):
+    if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
         return jsonify({"error": "缺少 API Key：特征卡要调多模态模型，先在设置里填 Key"}), 400
     if job(name)["active"]:
         return jsonify({"error": "有任务在跑，稍后再试"}), 409
@@ -492,7 +495,7 @@ def do_asset_card(run_name, aid):
     try:
         text = zexp.chat(prompts.build_asset_card_messages(uri, a.get("kind", "character"),
                                                           a.get("name", "")),
-                         model=cfg.get("script_model") or cfg.get("image_model"),
+                         model=cfg.get("script_model") or DEFAULT_SCRIPT_MODEL,
                          temperature=0.2, max_tokens=3000)
         card = prompts.extract_json(text)
     except Exception as exc:
@@ -589,7 +592,7 @@ def do_translate(run_name):
     log_line(run_name, "待补：%d 条 keyframe_prompt + %d 条 subject_bible" % (len(beats), len(keys)))
     try:
         text = zexp.chat(prompts.build_translate_messages(script, beats, keys),
-                         model=cfg.get("script_model", "gemini-3.5-flash"), temperature=0.2, max_tokens=6000)
+                         model=cfg.get("script_model") or DEFAULT_SCRIPT_MODEL, temperature=0.2, max_tokens=6000)
         data = prompts.extract_json(text)
     except Exception as exc:
         log_line(run_name, "翻译失败：%s" % str(exc)[:400])
@@ -617,7 +620,7 @@ def do_product_card(run_name, notes):
         log_line(run_name, "一起送进模型的产品图：%d 张（%s）" % (
             len(uris), "、".join(str(a.get("name") or a["id"]) for a in group)))
         text = zexp.chat(prompts.build_product_card_messages(uris[0], notes, uris[1:]),
-                         model=cfg.get("script_model", "gemini-3.5-flash"), temperature=0.2, max_tokens=3000)
+                         model=cfg.get("script_model") or DEFAULT_SCRIPT_MODEL, temperature=0.2, max_tokens=3000)
         card = prompts.extract_json(text)
     except Exception as exc:
         log_line(run_name, "提取失败：%s" % str(exc)[:400])
@@ -644,7 +647,7 @@ def product_card(name):
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），不调 chat"}), 400
     if not run.product_group():
         return jsonify({"error": "先上传产品图（主图或细节图任一即可）"}), 400
-    if not zexp.chat_ready(store.load_config().get("script_model", "gemini-3.5-flash")):
+    if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
         return jsonify({"error": "缺 ZEXAPI_API_KEY（提取产品特征要调 1 次多模态 chat）"}), 400
     payload = request.get_json(silent=True) or {}
     ok, msg = submit(name, "product_card", do_product_card, str(payload.get("notes", "")).strip()[:800])
@@ -660,7 +663,7 @@ def translate_script(name):
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），不调 chat"}), 400
     if not run.script:
         return jsonify({"error": "先载入剧本"}), 400
-    if not zexp.chat_ready(store.load_config().get("script_model", "gemini-3.5-flash")):
+    if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
         return jsonify({"error": "缺 ZEXAPI_API_KEY（补中文对照要调 1 次 chat）"}), 400
     beats, keys = prompts.missing_zh(run.script)
     if not beats and not keys:
@@ -864,7 +867,7 @@ def ai_camera(name):
         return jsonify({"error": "关键帧审核门（Stage 3）未过，不能写运镜词"}), 400
     if DRY_RUN:
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），AI 生成已禁用以免烧额度"}), 400
-    if not zexp.chat_ready(store.load_config().get("script_model", "gemini-3.5-flash")):
+    if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
         return jsonify({"error": "缺 ZEXAPI_API_KEY（AI 写运镜每段要调 1 次多模态 chat）"}), 400
     payload = request.get_json(silent=True) or {}
     total = run.state.get("segments") or 0
@@ -874,7 +877,7 @@ def ai_camera(name):
     else:
         targets = sorted(int(t) for t in targets)
     cfg = store.load_config()
-    ok, msg = submit(name, "ai_camera", do_ai_camera, targets, cfg.get("script_model", "gemini-3.5-flash"))
+    ok, msg = submit(name, "ai_camera", do_ai_camera, targets, cfg.get("script_model") or DEFAULT_SCRIPT_MODEL)
     return jsonify({"ok": ok, "msg": msg, "targets": targets})
 
 
@@ -1125,7 +1128,7 @@ def story_outline(name):
         return jsonify({"error": "剧情模式要先在第 0 步上传至少一个角色/道具图（名册为空故事无处安人）"}), 400
     if DRY_RUN:
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），AI 生成已禁用以免烧额度"}), 400
-    if not zexp.chat_ready(store.load_config().get("script_model", "gemini-3.5-flash")):
+    if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
         return jsonify({"error": "缺 ZEXAPI_API_KEY（写故事大纲要调 1 次 chat）"}), 400
     if job(name)["active"]:
         return jsonify({"error": "有任务在跑，稍后再试"}), 409
@@ -1135,7 +1138,7 @@ def story_outline(name):
                      structure,
                      str(payload.get("country", "")).strip(),
                      str(payload.get("extra", "")).strip(),
-                     cfg.get("script_model", "gemini-3.5-flash"))
+                     cfg.get("script_model") or DEFAULT_SCRIPT_MODEL)
     return jsonify({"ok": ok, "msg": msg})
 
 
@@ -1328,7 +1331,7 @@ def ai_script(name):
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），AI 生成已禁用以免烧额度"}), 400
     if run.mode == "story" and not selling:
         selling = draft[:400]
-    if not zexp.chat_ready(store.load_config().get("script_model", "gemini-3.5-flash")):
+    if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
         return jsonify({"error": "缺 ZEXAPI_API_KEY（AI 写剧本要调 1 次 chat）"}), 400
     cfg = store.load_config()
     ok, msg = submit(name, "ai_script", do_ai_script,
@@ -1336,7 +1339,7 @@ def ai_script(name):
                      selling, str(payload.get("platform", "通用")),
                      structure,
                      str(payload.get("extra", "")).strip(),
-                     cfg.get("script_model", "gemini-3.5-flash"),
+                     cfg.get("script_model") or DEFAULT_SCRIPT_MODEL,
                      str(payload.get("country", "")).strip(),
                      draft if run.mode == "story" else "")
     return jsonify({"ok": ok, "msg": msg})
@@ -1511,7 +1514,7 @@ def do_reason_brief(run_name, hint, country, platform):
     try:
         text = zexp.chat(prompts.build_brief_messages(st.get("title", ""), card, country, platform,
                                                      st.get("duration") or 10, st.get("segments") or 1, hint),
-                         model=cfg.get("script_model", "gemini-3.5-flash"), temperature=0.9, max_tokens=3000)
+                         model=cfg.get("script_model") or DEFAULT_SCRIPT_MODEL, temperature=0.9, max_tokens=3000)
         data = prompts.extract_json(text)
     except Exception as exc:
         log_line(run_name, "推理失败：%s" % str(exc)[:400])
@@ -1535,7 +1538,7 @@ def reason_brief(name):
         return run
     if DRY_RUN:
         return jsonify({"error": "当前是 dry-run 模式（VIDEO_UI_DRYRUN=1），不调 chat"}), 400
-    if not zexp.chat_ready(store.load_config().get("script_model", "gemini-3.5-flash")):
+    if not zexp.chat_ready(store.load_config().get("script_model") or DEFAULT_SCRIPT_MODEL):
         return jsonify({"error": "缺 ZEXAPI_API_KEY（推理要调 1 次 chat）"}), 400
     payload = request.get_json(silent=True) or {}
     ok, msg = submit(name, "reason_brief", do_reason_brief,
