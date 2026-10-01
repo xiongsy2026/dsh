@@ -80,6 +80,14 @@ python gateway.py test                                   # 各 route 真探活
 **⚠️ MiniMax H3 语言模型的两条接入前提**（充值后也别当 OpenAI 兼容腿接）：① 它在 `compatible-mode/v1` 回 **404 "Unsupported model for OpenAI compatibility mode"**，只能走 dashscope **原生协议** `POST /api/v1/services/aigc/text-generation/generation`（body `{model, input:{messages}, parameters:{result_format:"message"}}`）→ 网关要单独写一个 `dashscope_native` 适配器，不能复用 `_chat_compat`；② "H3" 这个名字在别的中转全是**视频**模型（manxue `1ren-minimax-h3/-v2`=我们 `video.generate/h3` 在用；zexapi 另有 `minimax-h3-{480p,768p,1080p,max-*}` 六档未接），别把两者混成一个能力。
 **默认脑切换**：面板「默认路由」一键改（`model_prices.json.defaults`），不改代码；正式定稿前建议跑 3 品类 ×2 次同题评测（打分维度=§5.5 合规 + §5.6 反幼稚腔）。
 
+### omni 的首要推理脑 = `mimo-v2.5-pro`（2026-10-01 定，C `72c9096`）
+`store.DEFAULT_CONFIG.script_model` + `config.json` 都指到它（agnes-3.0-flash 退居**看图 `video.analyze` + 兜底**）。接它的三条硬知识，以后动 video-ui 文本咽喉都要记得：
+1. **video-ui 自己也要按模型名分流**：`zexp._chat_direct` 原来只认 `agnes*`、其余全打 zexapi ⇒ 直接把 `script_model` 设成 mimo 会把 mimo 模型名发给**没有这个模型的 zexapi**。现补 `_mimo_conf()` / `chat_backend("mimo")` / mimo 分支；走网关时按前缀映射 purpose（`mimo→mimo`、`gpt-→gpt61`、`gemini-3.7/3.8→gemini38`、`claude-opus-4-8→claude48`、`deepseek→deepseekv4`、`qwen→qwen38max`、未知→`zexapi`＝被屏蔽并明确拒绝），并把**模型名透传**进 `params.model`（不再依赖网关兜底模型名）。
+2. **思考型模型要给足预算**：`_budget()` 对 `mimo/gpt-/deepseek/qwen/gemini-3.7+` 把 `max_tokens` 兜到 **6000**（实测 900~2500 会「HTTP 200 但正文空」）。
+3. **`.env` 要 base+key 齐**：`.env` 原本只有 `MIMO_API_KEY`（base 靠 config.py 默认），而 video-ui 要求两者齐 ⇒ 已把 `MIMO_BASE_URL` 经 8100 管理接口写入 `.env`（不在 video-ui 复制常量，保持单一真相源）。
+
+⚠️ 两点提醒：mimo 爱在正文后附"设计思路"，剧本/运镜的 prompt 要锁死"只出正文/严格 JSON"；生效需**重启 8765**（用户自己终端起的进程，别擅自 kill）。
+
 ## 积分系统（账本适配层·对齐 PRD §6.x）
 
 **原则：单一账本在 weeksir.com，网关只做"调用前预扣 / 成功提交 / 失败回滚"的适配，绝不在 DSH 另建用户/积分表。**（PRD:276/283）
