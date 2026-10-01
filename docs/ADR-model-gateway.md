@@ -74,7 +74,8 @@ python gateway.py test                                   # 各 route 真探活
 | `zexapi` | zexapi | gemini-3.5-flash | — | 1 | 🔒 已屏蔽：503 无渠道（同 key 的 3.7/3.8/opus-4-8 正常 → 别把单条无渠道当整分组坏） |
 
 **踩过的坑（写死在这里防止复发）**：`hub.nocannobb.com` 的 **403 error code: 1010 是 Cloudflare 拦"无 User-Agent 的脚本请求"**，不是 key 坏；网关所有 HTTP 请求现已统一带浏览器 UA。同理：探活路径 `/models` vs `/v1/models` 各家不同、route 无 model 时不能发 null、reasoning 模型小预算会返回空正文——**自家 probe 的现象 ≠ 上游事实，下"坏了"的结论前必须直连复现**。
-**不可用（非代码问题，要你去处理）**：manxue 的 claude 系 410 渠道已撤、manxue gpt-5.5 403 余额不足（该 key 没钱）；dashscope deepseek-v3.2/r1 免费额度用尽、GLM-5.2/MiniMax-M3 需在阿里后台点开通；agnes 2.5-pro 三档 403 额度不足（要充值）。
+**不可用（非代码问题，要你去处理）**：manxue 的 claude 系 410 渠道已撤、manxue gpt-5.5 403 余额不足（该 key 没钱）；dashscope 三种不同原因要分开看——deepseek-v3.2/r1 = **403 免费额度用尽**、`ZHIPU/GLM-5.2` = **400 产品未开通**（后台点一下）、**MiniMax 全系（`MiniMax/MiniMax-H3`、M2.1/M2.5/M2.7/M3）= 400 `code:"Arrearage"` 账户欠费**（同 key 的 qwen 系与 Kimi-K2 正常出词，所以不是模型不存在）；agnes 2.5-pro 三档 403 额度不足（要充值）。
+**⚠️ MiniMax H3 语言模型的两条接入前提**（充值后也别当 OpenAI 兼容腿接）：① 它在 `compatible-mode/v1` 回 **404 "Unsupported model for OpenAI compatibility mode"**，只能走 dashscope **原生协议** `POST /api/v1/services/aigc/text-generation/generation`（body `{model, input:{messages}, parameters:{result_format:"message"}}`）→ 网关要单独写一个 `dashscope_native` 适配器，不能复用 `_chat_compat`；② "H3" 这个名字在别的中转全是**视频**模型（manxue `1ren-minimax-h3/-v2`=我们 `video.generate/h3` 在用；zexapi 另有 `minimax-h3-{480p,768p,1080p,max-*}` 六档未接），别把两者混成一个能力。
 **默认脑切换**：面板「默认路由」一键改（`model_prices.json.defaults`），不改代码；正式定稿前建议跑 3 品类 ×2 次同题评测（打分维度=§5.5 合规 + §5.6 反幼稚腔）。
 
 ## 积分系统（账本适配层·对齐 PRD §6.x）
