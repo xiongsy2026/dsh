@@ -58,7 +58,27 @@ python gateway.py test                                   # 各 route 真探活
 - hypit 侧写**一个** provider 包把 baseUrl 指这里、bindings 把 seedance/wan/… 全绑过来 → hypit 生成也走同一入口（见 [[super-clone-hypit-pipeline]] provider 机制）。
 - ⚠️ 8100 **无鉴权**，只绑 127.0.0.1、只运维自用；一旦要给客户机/公网调，必须先加 token 并整体挪到 weeksir 服务端（3.0）。
 
+## 推理脑注册表（2026-10-01 全中转实测 · `text.complete` 现有 8 条腿）
+模型名集中在 `config.py` 的「文本推理脑注册表」字段（.env 可覆盖），不散在代码里；单价按实测 token 分档（≈100 tok/分）。
+
+| purpose | provider | 模型 | 实测 | 分/次 | 备注 |
+|---|---|---|---|---|---|
+| `agnes`(默认) | agnes 国内站 | agnes-3.0-flash | live-ok 0.9s | 1 | 兼作 `video.analyze` 的眼睛；文案短板见 §5.6 |
+| `mimo` | mimo | mimo-v2.5 | live-ok 1.4s | 1 | |
+| `mimo_pro` | mimo | **mimo-v2.6-pro** | live-ok 2.8s | 3 | 同题样本里最"人味"，推荐当剧本/口播脑 |
+| `gemini38` | zexapi | **gemini-3.8-flash** | live-ok 3.9s | 6 | token 大户（~900） |
+| `claude48` | zexapi | **claude-opus-4-8** | live-ok 3.2s | 2 | 便宜且干净 |
+| `deepseekv4` | zexapi | deepseek-v4-pro | live-ok 2.2s | 7 | **思考型：max_tokens <2000 会"空正文"**（HTTP 200 但 content 空） |
+| `qwen38max` | dashscope | qwen3.8-max | live-ok 1.4s | 2 | ⚠️ chat 必须走 `DASHSCOPE_CHAT_BASE_URL=…/compatible-mode/v1`，不是 `api/v1` |
+| `gpt61` | nocannobb | gpt-6.1-sol | 上游抖（502/503） | 1 | 最省 token（~30）；**必须带浏览器 UA** |
+| `zexapi` | zexapi | gemini-3.5-flash | — | 1 | 🔒 已屏蔽：503 无渠道（同 key 的 3.7/3.8/opus-4-8 正常 → 别把单条无渠道当整分组坏） |
+
+**踩过的坑（写死在这里防止复发）**：`hub.nocannobb.com` 的 **403 error code: 1010 是 Cloudflare 拦"无 User-Agent 的脚本请求"**，不是 key 坏；网关所有 HTTP 请求现已统一带浏览器 UA。同理：探活路径 `/models` vs `/v1/models` 各家不同、route 无 model 时不能发 null、reasoning 模型小预算会返回空正文——**自家 probe 的现象 ≠ 上游事实，下"坏了"的结论前必须直连复现**。
+**不可用（非代码问题，要你去处理）**：manxue 的 claude 系 410 渠道已撤、manxue gpt-5.5 403 余额不足（该 key 没钱）；dashscope deepseek-v3.2/r1 免费额度用尽、GLM-5.2/MiniMax-M3 需在阿里后台点开通；agnes 2.5-pro 三档 403 额度不足（要充值）。
+**默认脑切换**：面板「默认路由」一键改（`model_prices.json.defaults`），不改代码；正式定稿前建议跑 3 品类 ×2 次同题评测（打分维度=§5.5 合规 + §5.6 反幼稚腔）。
+
 ## 积分系统（账本适配层·对齐 PRD §6.x）
+
 **原则：单一账本在 weeksir.com，网关只做"调用前预扣 / 成功提交 / 失败回滚"的适配，绝不在 DSH 另建用户/积分表。**（PRD:276/283）
 接口（1.0 本地 sqlite 桩实现、3.0 换 weeksir.com API，**接口不变**）：
 ```
