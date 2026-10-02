@@ -54,7 +54,7 @@ show(workbench, sid) = 归属 ∧ 存活 ∧ 关口      // 三者缺一即 fals
 | **存活** | 该引擎的工作台现在真能打开 | omni=8765 有本会话的 run；hypit=登记端口探活 up **且 studio 自报的 run == 登记的 run** |
 | **关口** | 值得占右栏了 | omni=`flags.script_approved`（方案批准）；hypit=agent 起了 studio（=明确要给人看）；super-clone=TIMELINE 批准 |
 
-`ops` 类工作台（模型网关）**不参与归属判定**，标 `scope:"ops"` 全局可见，但**必须走同一张表**——不许再写 `openTab` 旁路。
+`ops` 类工作台（模型网关）**不参与归属判定**，标 `scope:"ops"` + `auto:false`：全局可【手动】开（右栏"+"里选得到），但【绝不自动弹】。**"全局可见"不等于"每条会话都弹一次"**——把内部控制台摆进每一条对话，在客户产品里不可接受（2026-10-02 第一版就踩了：照搬旧的"启动即 openTab"，你当场指出"全部对话都出现"）。`auto:false` 的表项完全不进对账循环（不弹也就不关）。
 
 ### 三条硬规矩（缺一条不许合）
 
@@ -70,7 +70,7 @@ show(workbench, sid) = 归属 ∧ 存活 ∧ 关口      // 三者缺一即 fals
 const WORKBENCHES = [
   { key: KEY,   scope: "session", probe: probeOmni  },
   { key: HKEY,  scope: "session", probe: probeHypit },
-  { key: MGKEY, scope: "ops",     probe: probeOps   },
+  { key: MGKEY, scope: "ops", auto: false, probe: probeOps },   // 不自动弹
 ];
 ```
 
@@ -122,6 +122,10 @@ const WORKBENCHES = [
 
 1. `closeIn(sessionId, tabId)` 确认存在（`SidebarRightController.closeIn`，注释写明"store 未 adopt 的会话什么都不做"），**但 tabId 是 dock store 生成的**：`placeTab → actions.openContent(sessionId,{kind,contentId:pageAddress(kind),…}, cb(tabId))`，插件面拿不到那个 id。⇒ 对账循环仍然**尽力调 `closeIn`**，但**正确性不依赖它**：页签体（`WorkbenchBody`）自己每 6 秒重算同一个谓词，判假就渲染**门禁**（显示 `not-owner`/`run-mismatch`/`studio-down` 等原因）而不是 iframe。所以"关不掉"最坏也只是留一个空页签，**绝不会把别人的引擎露在这个会话里**。
 2. **`$DSH_SESSION_ID` 只有 DSH 自带 agent 执行时才由内核注入**（`_setup/dsh-harness/.agents/notes/archived/feature/2026-07-10-agent-session-identity-and-log-location.md:22`）。Qoder/ops 会话里 `env` 一个 DSH 变量都没有 ⇒ 契约改为：**拿不到就别 claim**（空 session 服务端直接拒），确实要让某个 DSH 会话看到，就从运维视图 `seen[]` 取它的 id 显式登记。omni 不受影响（总是 DSH agent 驱动），hypit 经常是 ops 会话驱动，所以只有 hypit 会踩。
+
+3. **测试脚手架自己也会骗人**：第一版假 React 的 `createElement` 只生成描述符、不递归渲染函数组件 ⇒
+   断言 8「body 未绑定渲染门禁」是**因为压根没进组件才通过**的假阳性。修成真递归渲染后补了反向断言
+   10「拥有时 body 必须出 iframe、且端口来自 presence 口」——**单向断言能过的，双向都要过**。
 
 **落地后的线上表现**：`.gateway_studio.json` 里那两个 9-30/10-02 留下的僵尸主人已随旧格式判无主而消失（release 到空表会整个删文件）；三条正在轮询的 DSH 会话全部拿到 `not-owner` ⇒ **此刻没有任何会话弹 Hypit 页签**，直到有人按新契约 claim。这是有意的 fail-closed。
 

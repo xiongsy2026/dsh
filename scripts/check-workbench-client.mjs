@@ -15,12 +15,27 @@ const check = (name, got, want) => {
   if (a !== b) fails.push([name, a, b]);
 };
 
-// ── 假 React（够跑 useState/useEffect 的初值分支）────────────────────────────────
+// ── 假 React：useState 真的存住状态；createElement 遇函数组件要【真递归渲染】——
+//    只生成描述符的话，body 断言会假阳性（压根没进 WorkbenchBody 就"通过"了）
+const hookState = new Map();
+let hookKey = "", hookIdx = 0;
 const React = {
-  createElement: (tag, props, ...kids) => ({ tag: tag && tag.name ? tag.name : String(tag), props: props || {}, kids: kids.flat(3).filter(Boolean) }),
-  useState: init => [init, () => { }],
-  useEffect: fn => { try { fn(); } catch (e) { } },
+  createElement: (tag, props, ...kids) => {
+    if (typeof tag === "function") {
+      hookKey = ((props && props.__wbKey) || tag.name || "?") + "|" + ((props && props.sessionId) || "");
+      hookIdx = 0;
+      return tag(props);
+    }
+    return { tag: String(tag), props: props || {}, kids: kids.flat(3).filter(Boolean) };
+  },
+  useState: init => {
+    const slot = hookKey + "#" + (hookIdx++);
+    if (!hookState.has(slot)) hookState.set(slot, init);
+    return [hookState.get(slot), v => hookState.set(slot, v)];
+  },
+  useEffect: fn => { try { fn(); } catch (e) { console.log("effect err", e.message); } },
 };
+const render = (Comp, props) => Comp(props);
 
 // ── 假 fetch：按 URL 前缀返回可编程结果 ─────────────────────────────────────────
 let routes = {};
@@ -77,7 +92,7 @@ const hypit = j => ({ "/api/hypit/studio?session=": j });
   const { ctx, calls } = makeCtx(sid);
   mod.apply(ctx);
   calls.tick(); await settle(); calls.tick(); await settle();
-  check("1 omni 会话只弹流水线+运维台，绝不弹 Hypit", calls.open.map(o => o[0]).sort(), [KEY, MGKEY].sort());
+  check("1 omni 会话只弹流水线，运维台绝不自动弹", calls.open.map(o => o[0]), [KEY]);
 
   // 2) hypit 起来了（假→真）⇒ 上升沿弹一次
   routes = { ...omni(true), ...hypit({ up: true, port: 5179, run: "productions/hypit-e2e/assemble.svrun" }) };
@@ -100,7 +115,7 @@ const hypit = j => ({ "/api/hypit/studio?session=": j });
   routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
   mod.apply(b.ctx);
   b.calls.tick(); await settle();
-  check("6 未过关口不弹（新会话只拿到运维台）", b.calls.open.map(o => o[0]), [MGKEY]);
+  check("6 未过关口不弹（新会话一条都不弹）", b.calls.open.map(o => o[0]), []);
 
   // 7) 换会话 = 记忆清零重新判定，不把上一个会话的边沿带过来
   const c = makeCtx(sid);
@@ -110,11 +125,26 @@ const hypit = j => ({ "/api/hypit/studio?session=": j });
   c.calls.subs.forEach(fn => fn()); await settle();
   check("7 切会话后按新会话重新弹一遍", c.calls.open.filter(o => o[0] === HKEY).length, 2);
 
-  // 8) 页签体默认是门禁，不是 iframe —— 关不掉页签时也不能把别人的引擎露在这个会话里
-  const regs = captured;
-  const hypitBody = regs[HKEY + "|body"];
+  // 8) 页签体冷启动是门禁，不是 iframe —— 关不掉页签时也不能把别人的引擎露出来
+  const hypitBody = captured[HKEY + "|body"];
   check("8 未绑定时 body 渲染门禁、不渲染 iframe",
-    hypitBody ? JSON.stringify(hypitBody({ sessionId: "" })).includes('"tag":"iframe"') : null, false);
+    hypitBody ? JSON.stringify(render(hypitBody, { sessionId: "" })).includes('"tag":"iframe"') : null, false);
+
+  // 9) 运维台不自动弹，但手动打开必须能用（body 自己判 show=true → 渲染 iframe）
+  routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
+  const mgBody = captured[MGKEY + "|body"];
+  render(mgBody, { sessionId: "session-ANY" });        // 第一帧：effect 触发 probe
+  await new Promise(r => setTimeout(r, 10));
+  check("9 运维台手动打开仍出控制台（冷启动后落到 iframe）",
+    JSON.stringify(render(mgBody, { sessionId: "session-ANY" })).includes('"tag":"iframe"'), true);
+
+  // 10) 反向：本会话真拥有 studio 时，同一个 body 要出 iframe，且端口用 presence 口给的那个
+  //     （没有这条，8 就只是"body 永远不出 iframe"的假阳性）
+  routes = { ...omni(false), ...hypit({ up: true, port: 5179, run: "productions/hypit-e2e/assemble.svrun" }) };
+  render(hypitBody, { sessionId: "session-MINE" });
+  await new Promise(r => setTimeout(r, 10));
+  check("10 拥有时 body 出 iframe，且端口来自 presence 口",
+    JSON.stringify(render(hypitBody, { sessionId: "session-MINE" })).includes("localhost:5179"), true);
 
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);

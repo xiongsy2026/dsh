@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261002a";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261002b";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // 右栏工作台契约 = C:\dsh\docs\ADR-workbench-presence.md
@@ -50,9 +50,11 @@ window.__ModuleLoader__.load({
     }
 
     const WORKBENCHES = [
-      { key: KEY,   scope: "session", label: "流水线",      srcHint: "8765", probe: probeOmni },
-      { key: HKEY,  scope: "session", label: "Hypit Studio", srcHint: "5179", probe: probeHypit },
-      { key: MGKEY, scope: "ops",     label: "模型网关",     srcHint: "8100", probe: probeOps },
+      { key: KEY,   scope: "session", auto: true,  label: "流水线",      srcHint: "8765", probe: probeOmni },
+      { key: HKEY,  scope: "session", auto: true,  label: "Hypit Studio", srcHint: "5179", probe: probeHypit },
+      // 运维台：全局可【手动】开（右栏"+"里能选到），但【绝不自动弹】——
+      // 它跟会话无关，自动弹等于把内部控制台摆进每一条对话，包括客户会话。
+      { key: MGKEY, scope: "ops",     auto: false, label: "模型网关",     srcHint: "8100", probe: probeOps },
     ];
     const byKey = {};
     for (const w of WORKBENCHES) byKey[w.key] = w;
@@ -132,6 +134,7 @@ window.__ModuleLoader__.load({
         const mem = {};
         function reconcile(sid) {
           for (const w of WORKBENCHES) {
+            if (!w.auto) continue;              // 不自动弹的（运维台）完全不参与对账：不弹也不关
             const st = mem[w.key] || (mem[w.key] = { armed: true, show: false });
             let mine = sid;
             w.probe(w.scope === "ops" ? null : sid).then(r => {
