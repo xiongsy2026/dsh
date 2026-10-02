@@ -38,8 +38,9 @@ whenToUse: >
 ## 驱动序列（细节见 monitor-contract §2）
 ```
 0 doctor 就绪 + 网关在跑(8100) → 1 在 hypit_runs 里 authoring .svml/.svrun（看参考片→写结构）
-   → 1.5 挂右栏（长活建议）：先 `python D:\video-skill\backend\hypit_bridge.py studio-claim "$DSH_SESSION_ID" <run> 5179`
-     再起 `hypit studio --run X --port 5179`；**不 claim 右栏不会弹**（presence 按会话主人过滤，monitor-contract §4）
+   → 1.5 挂右栏（长活建议）：先 `python D:\video-skill\backend\hypit_bridge.py studio-claim "$DSH_SESSION_ID" <run源文件路径> 5179`
+     再起 `hypit studio --run X --port 5179`；**登记的是「这个 run 属于哪个会话」，不是「谁起过服务」**——
+     `$DSH_SESSION_ID` 为空（非 DSH 自带 agent 驱动）就别 claim，presence 还会拿 studio 自报的 `source.path` 交叉核对（monitor-contract §4 / docs/ADR-workbench-presence.md）
    → 2 hypit check <src>（lint）→ 3 hypit plan <src>（看结构·不花钱·确认生成腿落在 weeksir.gateway）
    → 关口A【方案+预算批准】hypit pricing <src> 出成本（读的是网关 /rates），build 花钱前把 plan+pricing 摆给人，人批才继续
    → 4 hypit runtime up → hypit build <src> --follow（异步·花钱·长）→ hypit status/builds/logs 看进度

@@ -51,8 +51,8 @@ WeekSir 薄编排层驱动 **hypit 原生 CLI**（全局 `@hypit/hypit` v0.2.9�
 0 hypit doctor → 就绪？否→ auth login / runtime up
   （网关侧：8100 常驻 + MODEL_GATEWAY_TOKEN 已配 + weeksir.gateway 凭据已 login）
 1 在 C:\dsh\hypit_runs 里 authoring：看参考片→写 .svml/.svrun（结构、素材槽、时间轴）
-1.5 挂右栏（可选，做长活时建议）：studio-claim <本会话id> <run> 5179 → hypit studio --run <x>.svrun --port 5179
-    ⚠️ 不 claim 就别起：presence 口按主人过滤，没登记的 studio 不会弹页签；登记错了会话会在别的会话乱弹（见 §4）
+1.5 挂右栏（可选，做长活时建议）：studio-claim "$DSH_SESSION_ID" <run源文件路径> 5179 → hypit studio --run <x>.svrun --port 5179
+    ⚠️ 三条：① `$DSH_SESSION_ID` 为空（=不是 DSH 自带 agent 在驱动）就**别 claim**，那种 studio 只给 ops 看；② run 要传**源文件路径**，presence 会拿 studio 自报的 `source.path` 交叉核对；③ 不用 release，claim 有 30 分钟 TTL（细则见 §4）
 2 hypit check <src>            过 lint
 3 hypit plan <src>             看结构（免费）；确认生成腿落到 weeksir.gateway
 ── 关口A 方案+预算批准 ──  hypit pricing <src> 出成本；plan+pricing 摆给人，批了才 build（铁律1）
@@ -79,13 +79,15 @@ studio 是 hypit 自带的 SVML 工作台：**左库 源文件(Source：Run+Auth
 2. **presence 信号走 8100 代探**：studio 自己的只读口 `GET /__studio/library?section=tasks` 虽然回 200，但 Vite 的 CORS **只回显白名单 origin**（实测给 `http://localhost:8765`、不给 `dsh-app://…`/`null`/外部 origin）⇒ DSH 渲染层 fetch 不到。改由 **8100 `GET /api/hypit/studio`**（服务端代探 5179，回 `{up,port,tasks,running,artifacts}`，带 `ACAO:*`、只读、不要 Bearer；端口不开放给查询参数，免得变成给本机网页用的端口探测器）。插件 `syncHypitTab` 每 4s 轮它，`up:true` 才 `openTab`。
 3. **预览区那条 `编译失败 · Studio projection is unresolved: @hypit/seedance@1#seedance-2-mini` 是设计如此**：studio 编辑期只做确定性 Producer + Runtime 显式许可的 **transient** Need，而 transient 执行**只注册 immediate 端点、异步端点声明 transient 会直接抛错**（`runtime-local/src/config.ts:599`）⇒ 我们这条 `lifecycle:"asynchronous"` 的网关腿进不了预览执行。**别为此去 `runtime up` 或改 provider**；成片只能在 `hypit build` 后从 任务/产物 面板看。
 - ⚠️ 安全边界：studio 是 **可写的本地无鉴权工作台**（`PUT /__studio/source` 直接改工程文件、`POST /__studio/mutation`）⇒ 只 ops 自用；给客户看只能给对话 + `hypit get` 导出的成片，或 `hypit snapshot --studio <url>` / `/__studio/visual.html` 的只读快照。
-- **🔴 起 studio 前必须登记主人（否则右栏会在每个会话乱弹，2026-10-01 真踩过：omni 会话被弹出 Hypit 工作台）**：
+- **🔴 归属登记：登记的是「这个 run 属于哪个会话」，不是「谁起过服务」**（契约=`C:\dsh\docs\ADR-workbench-presence.md`；2026-10-01/10-02 三次复发的根因就是登记在了服务上、还只增不减）：
   ```
-  python D:\video-skill\backend\hypit_bridge.py studio-claim "$DSH_SESSION_ID" <run名> 5179   # 起 studio 前
+  python D:\video-skill\backend\hypit_bridge.py studio-claim "$DSH_SESSION_ID" productions/<工程>/<x>.svrun 5179
   hypit studio --run <x>.svrun --port 5179 &
-  python D:\video-skill\backend\hypit_bridge.py studio-release                                  # 停 studio 后
   ```
-  studio 自己没有 DSH 会话概念，8100 的 presence 口按这条登记过滤（`?session=` 不匹配就 `up:false reason:not-owner`）⇒ **只有起它的那个会话会弹页签**。查：`studio-status <会话id>`。
+  - **`$DSH_SESSION_ID` 只有 DSH 自带 agent 才有**（内核按每次 bash 调用注入，见 `_setup/dsh-harness/.agents/notes/archived/feature/2026-07-10-agent-session-identity-and-log-location.md:22`）。**在 Qoder/ops 会话里它是空的 ⇒ 别 claim**（空 session 会被直接拒），也别指望右栏弹：那种 studio 只给 ops 自己看。确实要让某个 DSH 会话看到，就从运维视图取它的 id 再显式 claim：`curl "http://127.0.0.1:8100/api/hypit/studio"` → `seen[]`。
+  - **run 参数给源文件路径**（不是裸工程名）：presence 会拿 studio 自报的 `source.path` 做交叉核对，工程目录对不上直接判死。
+  - **不需要 release**：claim 带 30 分钟 TTL，右栏每 4 秒的探测就是心跳，没人看就自动失效（旧版"只增不减"就是永久产权那个 bug）。要立刻收口就 `studio-release <会话id>`。
+  - 谓词 = **归属 ∧ 存活 ∧ 交叉核对**，缺一即不弹：`?session=` 不匹配→`not-owner`；studio 自报的 run 与登记不符→`run-mismatch`；studio 探不到→`studio-down`；**不带 session 的请求只回 `reason:"ops-view"`、永不回 `up`**（专门堵死"端口活着"再被当成跨会话信号）。查：`studio-status <会话id>`。
 - 部署事实：插件 `client.js` 经 `AppData\Roaming\dsh-desktop\harness\profiles\web\node_modules\ops-gateway` **符号链接**指回 `C:\dsh\plugins\ops-gateway` ⇒ 改完**不用 pnpm install，重载 DSH 窗口即生效**；8100 改码则要重启计划任务 `WeeksirModelAdmin`（Stop-ScheduledTask → Stop-Process 旧 PID → Start-ScheduledTask）。
 
 ## §5 会话/任务绑定
