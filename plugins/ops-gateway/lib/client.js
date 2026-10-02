@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261002f";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261002g";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // ── 右栏工作台规则（docs/ADR-workbench-presence.md）────────────────────────────
@@ -54,7 +54,8 @@ window.__ModuleLoader__.load({
         if (!j) return { known: false, intent: false, up: false, url: "", reason: "gateway-silent" };
         const s = (j || {})[w.skill] || {};
         return { known: true, intent: !!s.intent, up: !!s.up, url: s.url || "", port: s.port, run: s.run || "",
-                 reason: s.reason || "", how: s.how_to_start || w.start || "", idle: s.idle_age };
+                 reason: s.reason || "", how: s.how_to_start || w.start || "", idle: s.idle_age,
+                 progress: s.progress || null };
       });
     }
 
@@ -112,10 +113,51 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // 进度台：hypit 生成工程的默认视图。数据来自网关账本（永久、0 分），studio 起没起都能出内容。
+    function ProgressPanel(props) {
+      const p = props.p || {}, sm = p.summary || {};
+      const chip = (txt, bg, fg) => h("span", { key: txt, style: { padding: "1px 7px", borderRadius: 10,
+        fontSize: 11, background: bg, color: fg || "#e6e9ef", marginRight: 5 } }, txt);
+      const col = { succeeded: "#3fb950", failed: "#ff7b72", running: "#d29922", queued: "#6b7280" };
+      const rows = (p.segments || []).slice(0, 12).map(s =>
+        h("div", { key: s.id, style: { padding: "5px 0", borderBottom: "1px solid #1d222c", fontSize: 12 } },
+          h("span", { style: { color: col[s.state] || "#8b949e", fontWeight: 600, marginRight: 6 } },
+             s.state === "succeeded" ? "完成" : s.state === "failed" ? "失败" : s.state === "running" ? "进行中" : "排队"),
+          h("span", { style: { color: "#e6e9ef" }, title: s.id }, (s.label || s.id.slice(0, 8)) + " · " + s.model),
+          h("span", { style: { color: "#6b7280", marginLeft: 6 } },
+             s.seconds + "s" + (s.ago < 3600 ? " · " + s.ago + "秒前" : "") + (s.credits ? " · " + s.credits + "分" : "")),
+          s.error ? h("div", { style: { color: "#ff7b72", marginTop: 2, lineHeight: 1.5 } },
+            s.error.slice(0, 130),
+            s.upstream ? h("span", null, " 上游任务 ", h("code", { title: s.upstream }, s.upstream.slice(0, 16) + "…")) : null) : null
+        ));
+      return h("div", { style: { padding: "12px 14px", lineHeight: 1.7, fontSize: 13, color: "#9aa4b2",
+                                 overflow: "auto", flex: 1 } },
+        h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 4 } }, "生成进度"),
+        h("div", { style: { fontSize: 12, marginBottom: 8 } },
+          chip("成功 " + (sm.ok || 0), "#12261a", "#3fb950"),
+          chip("失败 " + (sm.failed || 0), "#2a1315", "#ff7b72"),
+          chip("进行中 " + (sm.running || 0), "#2a2314", "#d29922"),
+          chip("排队 " + (sm.queued || 0), "#1b1f27", "#8b949e"),
+          chip("已扣 " + (sm.credits || 0) + " 分", "#1b1f27"),
+          h("span", { style: { color: "#6b7280", fontSize: 11, marginLeft: 4 } },
+             "来源：网关账本（永久，不依赖 studio）")),
+        (p.projects || []).length ? h("div", { style: { fontSize: 12, color: "#6b7280", marginBottom: 8 } },
+          "工程 " + p.projects.join("、")) : null,
+        rows.length ? h("div", null, rows) : h("div", { style: { color: "#6b7280" } }, "本会话还没有生成腿。"),
+        h("div", { style: { marginTop: 12, fontSize: 12, color: "#6b7280" } },
+          props.studio
+            ? h("button", { style: { padding: "3px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+                border: "1px solid #3a4250", background: "#1b1f27", color: "#e6e9ef" }, onClick: props.onFrame },
+                "打开导演台视图（时间轴/成片预览）")
+            // 故意不再印命令行：起引擎是 agent/按钮的活，给人抄命令就是"该弹的东西没人执行"的老坑
+            : "要看时间轴或成片预览，让 agent 起 studio 就行（可选，不影响这里的进度）。")
+      );
+    }
+
     function WorkbenchBody(props) {
       const w = byKey[props && props.__wbKey];
       const sid = props && props.sessionId ? String(props.sessionId) : "";
-      const s = React.useState({ st: null, forced: false, silent: false });
+      const s = React.useState({ st: null, forced: false, silent: false, frame: false });
       const cur = s[0], setCur = s[1];
       React.useEffect(() => {
         let alive = true;
@@ -161,9 +203,20 @@ window.__ModuleLoader__.load({
         return shell(h("iframe", { src: w.fallback, title: w.label,
           style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } }));
       }
+      // ②′ hypit 生成工程的默认视图 = 进度台（账本里有腿就出，不等 studio 起）
+      const backBar = (cur.frame && st.progress && st.progress.known)
+        ? h("div", { style: { padding: "6px 10px", borderBottom: "1px solid #232833", background: "#151821" } },
+            h("button", { style: ghost, onClick: () => setCur(x => Object.assign({}, x, { frame: false })) },
+              "← 返回进度台"))
+        : null;
+      if (w.skill === "hypit" && st.progress && st.progress.known && !cur.frame) {
+        return h(ProgressPanel, { p: st.progress, studio: !!st.up,
+          onFrame: () => setCur(x => Object.assign({}, x, { frame: true })) });
+      }
       // ② 有意图但引擎没起：台要在，里面说清楚怎么起——"进程不在"从来不是藏掉台的理由
       if (!st.up) {
         return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
+          backBar,
           h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } }, w.label + "：引擎没在跑"),
           h("div", null, "状态：", h("code", null, st.reason || "down"),
              st.idle == null ? null : h("span", null, "（" + st.idle + "s 前还有人看）")),
@@ -173,7 +226,7 @@ window.__ModuleLoader__.load({
       }
       // ③ 有意图 + 引擎活着：正常出台（hypit 的端口由 presence 口给，换端口不用改这里）
       const url = w.skill === "hypit" ? (st.url || "http://localhost:" + (st.port || 5179) + "/") : (st.url || w.fallback);
-      return shell([w.key === HKEY ? h(ExportBar, { key: "bar", run: st.run }) : null,
+      return shell([backBar, w.key === HKEY ? h(ExportBar, { key: "bar", run: st.run }) : null,
         h("iframe", { key: "frame", src: url, title: w.label,
           style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })]);
     }

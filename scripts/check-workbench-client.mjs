@@ -239,6 +239,40 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   check("14 哑时沿用上一次判定：还是出 iframe，不切成门禁", keepOld.includes('"tag":"iframe"'), true);
   SILENT = false;
 
+  // 15) 🔴 生成工程的默认视图 = 进度台：studio 没起也出内容，不给人命令行提示
+  const PROG = { known: true, source: "gateway-jobs", projects: ["productions/nose-cream"],
+                 summary: { total: 2, ok: 1, failed: 1, running: 0, queued: 0, credits: 50 },
+                 segments: [{ id: "aaaa1111bbbb2222", model: "seedance-2-mini", state: "succeeded",
+                              label: "request-video-generate", credits: 50, seconds: 312, ago: 900, error: "", upstream: "" },
+                            { id: "cccc3333dddd4444", model: "seedance-2-mini", state: "failed",
+                              label: "request-audio-render", credits: 0, seconds: 1800, ago: 120,
+                              error: "轮询超时 1800s（上游任务 d909fa86e1bf43f484c2e20aa106bd34，可据此查）",
+                              upstream: "d909fa86e1bf43f484c2e20aa106bd34" }] };
+  payload = { omni: omni(false, false), hypit: Object.assign(hypit(true, false), { progress: PROG }) };
+  const panel = await bodyJson(HKEY, "session-PROG");
+  check("15 studio 没起 + 有生成腿 ⇒ 出进度台", panel.includes("生成进度"), true);
+  check("15b 汇总/扣分/段名/上游任务号都在",
+        [panel.includes("已扣 50 分"), panel.includes("request-audio-render"), panel.includes("d909fa86e1bf")],
+        [true, true, true]);
+  check("15c 不再把命令行提示丢给人", panel.includes("hypit studio --run"), false);
+  check("15d 进度态不渲染 iframe（生成工程的 studio 页会 500）", panel.includes('"tag":"iframe"'), false);
+  // 16) 有意图 + 引擎活着 ⇒ 进度台仍优先，但给"打开导演台"的出口；点了才出 iframe
+  payload = { omni: omni(false, false), hypit: Object.assign(hypit(true, true), { progress: PROG }) };
+  render(captured[HKEY + "|body"], { sessionId: "session-FRAME" });
+  await settle5();
+  const withPanel = render(captured[HKEY + "|body"], { sessionId: "session-FRAME" });
+  check("16 studio 活着也先给进度台", JSON.stringify(withPanel).includes("打开导演台视图"), true);
+  const btn = findBtns(withPanel).find(x => JSON.stringify(x.kids).includes("打开导演台视图"));
+  btn.props.onClick();
+  const afterFrame = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-FRAME" }));
+  check("16b 点「打开导演台」才切 iframe（并给返回入口）",
+        [afterFrame.includes('"tag":"iframe"'), afterFrame.includes("返回进度台")], [true, true]);
+  // 17) 没有生成腿的会话不受影响：照旧是"引擎没在跑/怎么起"
+  payload = { omni: omni(false, false), hypit: hypit(true, false) };
+  const nog = await bodyJson(HKEY, "session-NO-LEGS");
+  check("17 账本里没腿 ⇒ 不硬编进度台，仍显示引擎没在跑", [nog.includes("生成进度"), nog.includes("引擎没在跑")],
+        [false, true]);
+
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);
   process.exit(fails.length ? 1 : 0);

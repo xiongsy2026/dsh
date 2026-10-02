@@ -19,8 +19,13 @@ os.environ["HYPIT_JOBS_DB"] = DB
 os.environ["HYPIT_WORKSPACE"] = WS
 os.environ["HYPIT_INTENT_MARK"] = os.path.join(SCRATCH, "progress_intent.json")
 os.environ["HYPIT_STUDIO_MARK"] = os.path.join(SCRATCH, "progress_studio.json")
+# 账本路径在 gateway 导入时就定死了 ⇒ 必须在 import 之前设好，测试一笔真钱都不碰生产账本
+os.environ["GATEWAY_LEDGER"] = os.path.join(SCRATCH, "progress_ledger.sqlite")
+sys.path.insert(0, r"D:\video-skill")
 sys.path.insert(0, r"D:\video-skill\backend")
 import hypit_bridge as hb                                       # noqa: E402
+import subprocess                                               # noqa: E402
+import time                                                     # noqa: E402
 
 SID = "session-PROGRESS-1"
 NEED = ("need:author%3AC%3A%5Cdsh%5Chypit_runs%5Cproductions%5Cnose-cream%5Cnose.svml"
@@ -94,7 +99,45 @@ check("4b 进度里能看到段状态", sorted(x["state"] for x in v["progress"]
 check("4c 意图仍是唯一触发器（无登记的会话不带进度）",
       hb.workbench_presence("session-PROGRESS-OTHER")["hypit"]["intent"], False)
 
-for f in (DB, hb.INTENT_MARK, hb.STUDIO_MARK):
+# ── ⑤ 孤儿预扣：只列 + 指名回收（绝不自动退，自动退会伤到别的进程在途的花费）────────
+LEDGER = os.environ["GATEWAY_LEDGER"]
+if os.path.exists(LEDGER):
+    os.remove(LEDGER)
+import gateway as gw                                            # noqa: E402  （已带隔离路径）
+
+led = gw.ledger()
+h1 = led.preauth("hypit", "video.generate", "seedance-2.0", 50)["hold_id"]
+h2 = led.preauth("hypit", "video.generate", "seedance-2.0", 50)["hold_id"]
+led.preauth(" somebody-else", "video.generate", "omni-t2v", 40)
+pend = hb.holds_pending("hypit")
+check("5 只列本泳道的未结算预扣", [len(pend), sum(p["amount"] for p in pend)], [2, 100])
+check("5b 全量列出来时包含别人的（所以不能盲退）", len(hb.holds_pending()), 3)
+rb = hb.holds_rollback(h1)
+check("5c 指名回滚一笔（走 Ledger，退款流水一起写）", [rb.get("ok"), rb.get("refunded")], [True, 50])
+check("5d 剩两笔：另一条 hypit + 别人的", [p["hold_id"] for p in hb.holds_pending("hypit")], [h2])
+check("5e 重复回收同一笔会被拒（不双退）", hb.holds_rollback(h1).get("ok"), False)
+hb.holds_rollback(h2)
+
+# ── ⑥ preflight：重启 8100 前必查的那个数（2026-10-02 我就是没查它，带着 3 条在途腿把服务杀了）
+con = hb._db()
+con.execute("INSERT INTO jobs(id,model,state,route,created,updated)"
+            " VALUES('j-live','seedance-2-mini','running','x/y',?,?)", (time.time(), time.time()))
+con.commit(); con.close()
+out = subprocess.run([sys.executable, r"D:\video-skill\backend\hypit_bridge.py", "preflight"],
+                     capture_output=True, text=True, encoding="utf-8", errors="replace",
+                     cwd=r"D:\video-skill", env={**os.environ, "HYPIT_JOBS_DB": DB,
+                                                 "GATEWAY_LEDGER": LEDGER}).stdout
+check("6 有在途腿 ⇒ preflight 说不许重启", json.loads(out)["safe_to_restart"], False)
+con = hb._db(); con.execute("DELETE FROM jobs WHERE id='j-live'")
+con.execute("DELETE FROM jobs WHERE state IN ('queued','running')")   # 前面步骤留下的排队行也清掉
+con.commit(); con.close()
+out2 = json.loads(subprocess.run([sys.executable, r"D:\video-skill\backend\hypit_bridge.py", "preflight"],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                 cwd=r"D:\video-skill", env={**os.environ, "HYPIT_JOBS_DB": DB,
+                                                             "GATEWAY_LEDGER": LEDGER}).stdout)
+check("6b 清空后放行，且把遗留预扣数也报出来", [out2["active_jobs"], out2["safe_to_restart"]], [0, True])
+
+for f in (DB, LEDGER, hb.INTENT_MARK, hb.STUDIO_MARK):
     try:
         os.remove(f)
     except OSError:

@@ -275,6 +275,46 @@ run 文件不会自己过期 ⇒ 这条会话以后每次切回来都弹，跟�
 但这是个脚枪 ⇒ **已修（同日）**：`studio_release()` 无参不再"整条作废"，必须显式 `all_sessions=True`（CLI 写 `--all`），否则回 `error` + 当前归属清单，一份登记都不动。线上实测：裸跑被拒、自测 claim 原样保留、按会话释放后复原为空。
 顺带修掉另一个静默入口：`set_intent` 的 `os.replace` 在 Windows 上会被索引器/杀软撞到 `WinError 5`（实测一次绿一次炸），现在重试 4 次、最终失败明确回 error——这份登记决定台弹不弹，撞锁不许当没事。回归 +7 条（A8b–A8f + 8/8b）⇒ intent-rule 29 · presence 45 · 五套合计 140。
 
+## 第五次修订（2026-10-02）：生成腿的身份进**数据面**，UI 不再要求人先起引擎
+
+触发问题：复刻会话右栏只会说「引擎没在跑 / 起它：hypit studio --run <工程>.svrun」——动作留给了人敲。
+根因不在 UI，在**数据没有身份**：
+
+- `hypit.runtime.sqlite` 的 `hypit_builds/operations/executions` 实测 **0 行** ⇒ 盘上没有可读的任务史；
+- 网关账本 `jobs` 只有 `id,model,state,route,credits,output,error,request,created,updated`，**没有工程也没有会话** ⇒ 生成腿无法分组；
+- 唯一带 `run` 的口是活着的 studio（`/__studio/library?section=tasks` 实测 23 条、23/23 带 run；
+  而 `/__studio/session` 对生成工程回 **500**）⇒ 进度被迫绑死"必须有人起 studio"。
+
+定案：**归属盖章写进提交路径**，不写进按钮。
+
+```
+provider POST /videos  →  多带 project / need / session
+      project 从 need.id 摘（实测形状：
+      need:author%3AC%3A...nose.svml%3A%3Acomponent%3A%3Afinal:request-audio-render）
+      session 取 $HYPIT_SESSION_ID（agent 跑 build 前导出，与 omni 给 run 打会话标同一机制）
+jobs.run = productions/<工程>   jobs.label = 段名   jobs.session = 会话
+presence.hypit.progress = {known, projects, segments[{state,seconds,credits,error,upstream}], summary{...}}
+右栏 hypit 台第四态 = 进度台（默认视图）；studio 变成可选的「导演台视图」按钮
+```
+
+边界，写进代码注释而非口头：
+
+- 客户端**自报**的 project/session 只用于显示分组；鉴权与扣费依据仍只有 token + 服务端路由。
+  服务端先归一再收：realpath 后不在工作区 `productions/` 下的一律丢弃（越界、`../` 穿越都不入库）。
+- 历史数据没有这两列 ⇒ 老工程在进度台上显示"还没有生成腿"，**不回填**（回填只能拿 prompt 猜，等于回到猜意图老路）。
+- 判定层没动：**弹不弹仍只看显式意图**（第四次修订）；进度属于"台里显示什么"，不是新触发器。
+- 孤儿预扣：启动时 reconcile 只把在途 job 判死，**不回滚预扣**（8100 重启杀不掉 8765 在途的调用，盲退会退掉别人正在花的分）；
+  改成 `holds-pending` 列出来 + `holds-rollback <id>` 指名退，启动时把笔数打进日志。
+- 回归：`check-hypit-progress.py` 27 条 + `check-workbench-client.mjs` 35 条（新增 15~17 进度台）。五套合计 **174 条**。
+
+## 运维教训（同日·我自己犯的错）
+
+把"查在途"和"杀进程"写进**同一条命令** = 没查。我在 `在途: 3` 已打印的情况下仍继续重启，
+切断了一条正在跑的复刻（3 段 `GATEWAY_RESTARTED`，预扣自动回滚、0 分损失，但白跑十几分钟）。
+⇒ 前置检查必须独立一次调用、看到结论再动手；已做成命令：
+`hypit_bridge.py preflight` → `{active_jobs, active_exports, pending_holds, pending_credit, safe_to_restart}`，
+并写进 `AGENTS.md` 的模型调用轨一节。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）
