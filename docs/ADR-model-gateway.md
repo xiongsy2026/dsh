@@ -136,6 +136,7 @@ resolve → 计价(注册表 price，或 skill manifest 声明的预估积分)
   - 仍留的口子：`meter()` 的 `estimated` 还是拍脑袋的整条价（3.0 应改成 `token 预算 × 费率 + 上游单价表`）；上游不返 usage 的适配器会走 `flat`。
 - **1.0 本机**：`ledger:"STUB"` 本地记账即可（PRD:458 本机阶段不接网站），但**接口就是上面四个**，3.0 平移到 weeksir.com 不改调用方。
 - **与生成关口咬合**：omni/hypit 的"build 前预算批准"直接读 `resolve` 的 `credits.estimated`（[[omni-delivery-contract]] §9 预算护栏、[[super-clone-hypit-pipeline]] pricing 闸）。
+- **上游真实价格·第一个实测硬证据（2026-10-02）**：`video.generate/omni-t2v`（zexapi `omni_flash-10s`）提交被拒，回 `insufficient_user_quota：用户剩余额度 ¥0.045460，需要预扣费额度 ¥0.722500` ⇒ **一次 omni 视频段上游要价 ≈ ¥0.72**，而我们内部记 **40 分** ⇒ 隐含锚 **1 元 ≈ 55 分**（此前"1 元=几分"完全未定，这是第一个来自上游账单口径的数据点，不是公开牌价）。⚠️ 只此一条、单次采样，**别当定价表用**；要定价得按各路由各时长多测几点。同时说明：**"扣积分"目前仍是本地记账，真金白银在上游账户里**（zexapi 没钱就出片失败，与客户余额无关）。
 
 ## 待补适配器（P0）
 `call()` 现缺：`text.complete`（各 purpose）、`image.generate`（default/detail/generic）。对着 ROUTES 里 `client.fn`（gpt_client.complete / agnes_image_client.create_image / runninghub_client / image2_client）补参数映射，返回归一 result。补完 `test_models()` 全绿即算底座通。
