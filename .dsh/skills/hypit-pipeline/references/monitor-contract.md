@@ -95,7 +95,7 @@ studio 是 hypit 自带的 SVML 工作台：**左库 源文件(Source：Run+Auth
 ## §6 前置与坑
 1. **build 要两样凭据/服务**：① HypiHub（`hypihub.default`，若用官方 Provider 才需要，OAuth、agent 不能替登）；② 我们的 `weeksir.gateway` apiKey（`hypit auth login weeksir.gateway --from`）。缺了 `hypit doctor` 报 `RUNTIME_CREDENTIAL_MISSING`，只能 check/plan。
 2. **build 长且花钱**：可到 1h、按 Need 计费；pricing 未批绝不 build（铁律1）。
-3. **studio 未 build 也能开**（看 源文件/任务/产物，只是 预览 空）；端口固定 5179 便于右栏挂。⚠️ 未 build 的 run 在 预览 区会显示 `编译失败 · Studio projection is unresolved: @hypit/seedance@1#seedance-2-mini`——**这是设计如此**（生成腿是 asynchronous，studio 的编辑期 transient 执行不注册异步端点，见 §4），不是接线坏了，也别为此去 `runtime up`。
+3. **studio 未 build 也能开**（看 源文件/任务/产物，只是 预览 空）；端口固定 5179 便于右栏挂。⚠️ 打开**含异步生成腿**的 run（如 `seedance:ReferenceVideo`）时，预览区会显示 `编译失败 · Studio projection is unresolved: @hypit/seedance@1#seedance-2-mini`，**并且 源文件 面板也是空的**（`GET /__studio/session` 回 500）——这是设计如此：studio 编辑期只做确定性 Producer + Runtime 许可的 transient Need，而 transient 执行**不注册异步端点**（异步端点声明 transient 会直接抛错，`runtime-local/src/config.ts:599`）。**已验证的解法**：把工程改成零生成腿（成功段用 `<media:Video>` 引用，见 §8），同一台 studio 打开后 `/__studio/session` 由 500 → **200**、源文件与预览都有内容。⇒ **想在 studio 里看片/看结构，就开"装配工程"（assemble），不要开"生成工程"（clone）**；也别为此去 `runtime up` 或改 provider。
 4. **runtime up 才出片**：只 init 不 up，build 无 Worker（`hypit runtime status` 实测停着时 `Worker stopped`）。
 5. **D 的边界=只走 HTTP 契约**：生成腿经 `http://localhost:8100/api/hypit`（这**是**允许且要求的）；但 `:8090/:8000`、`hypit_workspace.py`、`D:\video-skill\hypit-workspace`、import D 的 Python 都不要再出现在本流程里（那是旧的 D 封装，已弃用）。
 6. **上游 skill 会被 npx 覆盖**：authoring 语法参考在 `.dsh/skills/hypit/`（只读）；本驱动契约只在 `hypit-pipeline/`，别写进上游。

@@ -1,0 +1,42 @@
+<?svml using="@hypit/markup@1"?>
+<svml>
+  <import as="media" from="@hypit/media@1"/>
+  <import as="pipeline" from="@hypit/media-pipeline@1"/>
+  <import as="time" from="@hypit/timeline-author@1"/>
+  <import as="media-track" from="@hypit/media-track@1"/>
+  <import as="space" from="@hypit/spatial@1"/>
+  <import as="program" from="@hypit/program-space@1"/>
+  <import as="film" from="@hypit/film@1"/>
+  <import as="render" from="@hypit/render-hyperframes@1"/>
+  <import as="look" source="../futie-replica/look.svs"/>
+
+  <space:Canvas id="canvas" width="1080" height="1920"/>
+  <program:Clock id="clock" frame-rate="30"/>
+  <space:Frame id="full" within={canvas} left="0%" top="0%" right="100%" bottom="100%"/>
+
+  <!-- 四段都已生成成功 ⇒ 全部按素材引用，本工程 0 个付费生成请求 -->
+  <media:Video id="s1" src="../../assets/seg1.mp4"/>
+  <media:Video id="s2" src="../../assets/seg2.mp4"/>
+  <media:Video id="s3" src="../../assets/seg3.mp4"/>
+  <media:Video id="s4" src="../../assets/seg4.mp4"/>
+
+  <pipeline:Normalize id="n1" source={s1} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+  <pipeline:Normalize id="n2" source={s2} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+  <pipeline:Normalize id="n3" source={s3} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+  <pipeline:Normalize id="n4" source={s4} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+
+  <time:Timeline id="tl" clock={clock} end="20s"/>
+
+  <media-track:Track id="pic" timeline={tl.timeline} canvas={canvas}>
+    <media-track:Item id="t1" media={n1.media} frame={full} appearance={look.media.full} at="0s" for="5s"/>
+    <media-track:Item id="t2" media={n2.media} frame={full} appearance={look.media.full} at="5s" for="5s"/>
+    <media-track:Item id="t3" media={n3.media} frame={full} appearance={look.media.full} at="10s" for="5s"/>
+    <media-track:Item id="t4" media={n4.media} frame={full} appearance={look.media.full} at="15s" for="5s"/>
+  </media-track:Track>
+
+  <film:Film id="main" canvas={canvas} timeline={tl.timeline} appearance={look.film.main}>
+    <film:Track source={pic.visual}/>
+  </film:Film>
+
+  <render:Video id="final" composition={main.composition} timeline={tl.timeline}/>
+</svml>
