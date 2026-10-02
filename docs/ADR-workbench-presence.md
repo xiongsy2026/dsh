@@ -1,6 +1,6 @@
 # ADR：右栏工作台归属与 presence 契约
 
-状态：待批准
+状态：P0 已落地（#31 服务端 / #32 插件 / #33 回归），P1/P2 未做
 日期：2026-10-02
 影响面：`plugins/ops-gateway/lib/client.js`、`D:\video-skill\backend\hypit_bridge.py`、`D:\video-skill\backend\model_admin.py`、`.dsh/skills/*/references/monitor-contract.md`
 不动：video-ui(:8765)、hypit 引擎本身、DSH 内核
@@ -113,6 +113,19 @@ const WORKBENCHES = [
 | **P0** | presence 契约 + 双向对账 + claim 改 run 归属 + TTL + 验收脚本 | `client.js`、`hypit_bridge.py`、`model_admin.py`、新增 `scripts/check-workbench-presence.py`；8100 重启一次（**已查 `.gateway_jobs.sqlite` 无 queued/running，最近 5 条全 succeeded ⇒ 当前是安全窗口**） |
 | P1 | super-clone 接同一张表（task 带 session + TIMELINE 关口） | 同上 + super-clone skill 契约 |
 | P2 | 每会话 studio 端口租约（`5179+n`），presence 口回 `port`，iframe URL 由它拼 | `hypit_bridge.py`、`client.js` |
+
+## 实施记录（2026-10-02 · P0）
+
+**跑法**：`PYTHONIOENCODING=utf-8 python scripts/check-workbench-presence.py`（22 条：A 函数层 15 + B 真 8100/真 studio 的 HTTP 层 7）、`node scripts/check-workbench-client.mjs`（9 条：假 ctx 驱动对账循环）。当前 **31/31 全绿**。
+
+**两处与设计不同，都记下来：**
+
+1. `closeIn(sessionId, tabId)` 确认存在（`SidebarRightController.closeIn`，注释写明"store 未 adopt 的会话什么都不做"），**但 tabId 是 dock store 生成的**：`placeTab → actions.openContent(sessionId,{kind,contentId:pageAddress(kind),…}, cb(tabId))`，插件面拿不到那个 id。⇒ 对账循环仍然**尽力调 `closeIn`**，但**正确性不依赖它**：页签体（`WorkbenchBody`）自己每 6 秒重算同一个谓词，判假就渲染**门禁**（显示 `not-owner`/`run-mismatch`/`studio-down` 等原因）而不是 iframe。所以"关不掉"最坏也只是留一个空页签，**绝不会把别人的引擎露在这个会话里**。
+2. **`$DSH_SESSION_ID` 只有 DSH 自带 agent 执行时才由内核注入**（`_setup/dsh-harness/.agents/notes/archived/feature/2026-07-10-agent-session-identity-and-log-location.md:22`）。Qoder/ops 会话里 `env` 一个 DSH 变量都没有 ⇒ 契约改为：**拿不到就别 claim**（空 session 服务端直接拒），确实要让某个 DSH 会话看到，就从运维视图 `seen[]` 取它的 id 显式登记。omni 不受影响（总是 DSH agent 驱动），hypit 经常是 ops 会话驱动，所以只有 hypit 会踩。
+
+**落地后的线上表现**：`.gateway_studio.json` 里那两个 9-30/10-02 留下的僵尸主人已随旧格式判无主而消失（release 到空表会整个删文件）；三条正在轮询的 DSH 会话全部拿到 `not-owner` ⇒ **此刻没有任何会话弹 Hypit 页签**，直到有人按新契约 claim。这是有意的 fail-closed。
+
+**插件生效条件**：`client.js` 经符号链接进 DSH，**改完要重载 DSH 窗口（Ctrl+R）**；服务端改完要重启计划任务 `WeeksirModelAdmin`（重启前先查 `.gateway_jobs.sqlite` 有无 queued/running）。
 
 ## 相关
 

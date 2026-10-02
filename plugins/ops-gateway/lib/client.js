@@ -7,168 +7,156 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261001c";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261002a";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
-    // video-ui 原流水线 UI（agent 驱动时展示）。客户包不装本插件。
-    const VIEW_URL = "http://127.0.0.1:8765/";
+    // 右栏工作台契约 = C:\dsh\docs\ADR-workbench-presence.md
+    //   show(工作台, 会话) = 归属 ∧ 存活 ∧ 关口，缺一即不弹。
+    //   归属一律来自【资源带主人】（omni=run.session / hypit=studio 正在服务的 run 的登记），
+    //   绝不拿"端口活着"当跨会话信号——那是 2026-10-01/10-02 三次复发的根因。
+    const GW = "http://127.0.0.1:8100";
+    const VIEW_URL = "http://127.0.0.1:8765/";     // video-ui 原流水线 UI
     const KEY = "weeksir-pipeline-view";
-    // hypit 官方工作台 = `hypit studio`（Vite dev server）。实测两件事决定了这里的写法：
-    //   ① 它**只监听 IPv6 回环** [::1]:5179（netstat 实证），写 127.0.0.1 连不上 ⇒ 必须用 localhost；
-    //   ② 它有只读口 GET /__studio/library?section=tasks（一卡一条 Build 的状态/失败原因），
-    //      但 Vite 的 CORS 只回显白名单 origin（实测 dsh-app://、null 都不给 ACAO）⇒ 本插件 fetch 不到，
-    //      所以探活走 8100 的代探只读口 /api/hypit/studio（那边带 ACAO:*）。
-    //   不再挂 D 控制台（:8090/:8000 已弃用于 hypit）。
-    const HYPIT_STUDIO_URL = "http://localhost:5179/";
-    const HYPIT_PROBE = "http://127.0.0.1:8100/api/hypit/studio";
     const HKEY = "weeksir-hypit-view";
-    // 模型网关管理台 = model_admin(:8100)：列能力/改价/看健康/写 .env 密钥。运维专用、非会话绑定、客户包不含。
-    const MGMT_URL = "http://127.0.0.1:8100/";
     const MGKEY = "weeksir-model-gateway";
 
-    function ViewTitle() {
-      return h("span", { title: "流水线视图（运维）" }, "流水线");
+    function getJson(url) {
+      return fetch(url).then(r => (r && r.ok ? r.json() : null)).catch(() => null);
     }
 
-    function HypitTitle() {
-      return h("span", { title: "Hypit 官方工作台（agent 起 hypit studio --run X --port 5179；未 build 也能开，看 Source/Tasks/Artifacts）" }, "Hypit Studio");
+    // ── 每个工作台一个 probe：吃 sessionId，吐 {show, url, note} ────────────────────
+    function probeOmni(sid) {
+      if (!sid) return Promise.resolve({ show: false, note: "no-session" });
+      return getJson(VIEW_URL + "api/runs?session=" + encodeURIComponent(sid)).then(runs => {
+        // 关口 = 本会话有 run 且已过 Gate1.5 方案批准（立项/选方向/写剧本阶段不占右栏）
+        const ok = Array.isArray(runs) && runs.some(r => r.flags && r.flags.script_approved);
+        return { show: ok, url: VIEW_URL + "?session=" + encodeURIComponent(sid), note: ok ? "" : "no-approved-run" };
+      });
     }
 
-    function IFrameBody(url, label) {
+    function probeHypit(sid) {
+      if (!sid) return Promise.resolve({ show: false, note: "no-session" });
+      // 8100 代探：studio 只绑 [::1]:5179（Vite）且 CORS 只回显白名单 origin，浏览器直连必白屏。
+      // presence 口按【会话 ↔ run】过滤，端口也由它给（换端口不用改这里）。
+      return getJson(GW + "/api/hypit/studio?session=" + encodeURIComponent(sid)).then(j => {
+        if (!j || !j.up) return { show: false, note: (j && j.reason) || "probe-failed" };
+        return { show: true, url: "http://localhost:" + (j.port || 5179) + "/", note: j.run || "" };
+      });
+    }
+
+    function probeOps() {
+      // 运维台是全局面，不参与会话归属判定；但仍走同一张表、同一个对账循环（不许再写 openTab 旁路）。
+      return Promise.resolve({ show: true, url: GW + "/" });
+    }
+
+    const WORKBENCHES = [
+      { key: KEY,   scope: "session", label: "流水线",      srcHint: "8765", probe: probeOmni },
+      { key: HKEY,  scope: "session", label: "Hypit Studio", srcHint: "5179", probe: probeHypit },
+      { key: MGKEY, scope: "ops",     label: "模型网关",     srcHint: "8100", probe: probeOps },
+    ];
+    const byKey = {};
+    for (const w of WORKBENCHES) byKey[w.key] = w;
+
+    function titleOf(w) {
+      return function Title() {
+        return h("span", { title: w.scope === "ops" ? w.label + "（运维·全局）" : w.label + "（按会话归属弹出）" }, w.label);
+      };
+    }
+
+    // 关不掉就降级：tabId 是 dock store 生成的，插件面只给了 closeIn(sessionId, tabId)，
+    // 拿不到可靠 id ⇒ 尽力关，关不掉时由页签体自己变门禁（绝不把别人的引擎露在这个会话里）。
+    function tryClose(ctx, sid, w) {
+      try {
+        const c = ctx.sidebarRight;
+        if (c && typeof c.closeIn === "function") c.closeIn(sid, w.key);
+        if (c && typeof c.closeTab === "function") c.closeTab(w.key);
+      } catch (e) { /* 关不掉也要继续对账 */ }
+    }
+
+    function WorkbenchBody(props) {
+      const key = props && props.__wbKey;
+      const w = byKey[key];
+      const sid = props && props.sessionId ? String(props.sessionId) : "";
+      const state = React.useState({ show: false, url: "", note: "cold" });
+      const st = state[0], setSt = state[1];
+      React.useEffect(() => {
+        let alive = true;
+        const tick = () => w.probe(sid).then(r => { if (alive) setSt({ show: !!r.show, url: r.url || "", note: r.note || "" }); });
+        tick();
+        const t = setInterval(tick, 6000);
+        return () => { alive = false; clearInterval(t); };
+      }, [sid]);
+      if (!st.show) {
+        return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
+          h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } }, w.label + "：本会话未绑定"),
+          h("div", null, "原因：", h("code", null, st.note || "unknown")),
+          h("div", { style: { marginTop: 8 } },
+            "右栏按「这个会话当前拥有哪个工作台资源」弹页签；跑过一次不等于永久拥有。",
+            "契约见 docs/ADR-workbench-presence.md")
+        );
+      }
       return h("div", { style: { width: "100%", height: "100%", display: "flex", flexDirection: "column" } },
-        h("iframe", {
-          src: url,
-          title: label,
-          style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" }
-        })
+        h("iframe", { src: st.url, title: w.label, style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })
       );
     }
 
-    function ViewBody(props) {
-      // 会话级绑定：sidebar.right.pane.tab 是 scope:"session" 槽，body 组件从 props 拿到当前会话 sessionId
-      const sid = props && props.sessionId ? String(props.sessionId) : '';
-      const src = sid ? (VIEW_URL + '?session=' + encodeURIComponent(sid)) : VIEW_URL;
-      return IFrameBody(src, "流水线视图");
+    function bodyOf(w) {
+      return function Body(props) {
+        const p = Object.assign({}, props, { __wbKey: w.key });
+        return h(WorkbenchBody, p);
+      };
     }
 
-    function HypitBody() {
-      // hypit 官方工作台：agent 跑 `hypit studio --run <x>.svrun --port 5179` 后 iframe 即有内容。
-      // 一个 studio 只开一个 run（--run 绑死），多工程时要换端口/换进程重启。
-      return IFrameBody(HYPIT_STUDIO_URL, "Hypit Studio");
-    }
-
-    function MgmtTitle() {
-      return h("span", { title: "模型网关管理台 model_admin:8100（运维）" }, "模型网关");
-    }
-
-    function MgmtBody() {
-      // 全局运维台，非会话绑定：列 ROUTES/改价/看健康/写 .env。8100 没起则白屏（手动起 model_admin）。
-      return IFrameBody(MGMT_URL, "模型网关管理台");
-    }
-
-    // 声明需要的服务：slots（页签 body/title）+ sidebarRightTabs（页签类型注册表）+ sidebarRight（控制器，用来 openTab）
-    // "timer" 必须声明，否则 ctx.setInterval 被 guard 拒（"cannot get property setInterval without inject"）
-    const inject = ["slots", "sidebarRightTabs", "sidebarRight", "timer", "sessions"];
     function apply(ctx) {
+      try { window.__OPS_GW_APPLY__ = true; } catch (e) {}
       try {
-        window.__OPS_GW_APPLY__ = true;
-        console.log("[pipeline-view] apply ran; slots=", !!ctx.slots, "tabs=", !!ctx.sidebarRightTabs, "ctrl=", !!ctx.sidebarRight);
-      } catch (e) {}
+        for (const w of WORKBENCHES) {
+          ctx.effect(() => ctx.sidebarRightTabs.register({
+            id: w.key, kind: w.key, priority: "extension", title: () => w.label
+          }), "workbench type " + w.key);
+          ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab", () =>
+            ctx.slots.register({ name: "sidebar.right.pane.tab", key: w.key }, bodyOf(w))
+          ), "workbench body " + w.key);
+          ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () =>
+            ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: w.key }, titleOf(w))
+          ), "workbench title " + w.key);
+        }
 
-      try {
-        // ① 注册页签【类型】（extension band）——这是之前缺的关键一步
-        ctx.effect(() => ctx.sidebarRightTabs.register({
-          id: KEY,
-          kind: KEY,
-          priority: "extension",
-          title: () => "流水线"
-        }), "pipeline-view: tab type");
-
-        // ② 注册页签 body（iframe）
-        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab", () =>
-          ctx.slots.register({ name: "sidebar.right.pane.tab", key: KEY }, ViewBody)
-        ), "pipeline-view: body");
-
-        // ③ 注册页签 title
-        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () =>
-          ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: KEY }, ViewTitle)
-        ), "pipeline-view: title");
-
-        // ③'. Hypit Studio tab：类型 + body(iframe→native studio :5179) + title
-        ctx.effect(() => ctx.sidebarRightTabs.register({
-          id: HKEY,
-          kind: HKEY,
-          priority: "extension",
-          title: () => "Hypit Studio"
-        }), "pipeline-view: hypit tab type");
-        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab", () =>
-          ctx.slots.register({ name: "sidebar.right.pane.tab", key: HKEY }, HypitBody)
-        ), "pipeline-view: hypit body");
-        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () =>
-          ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: HKEY }, HypitTitle)
-        ), "pipeline-view: hypit title");
-
-        // ③''. 模型网关管理台 tab（运维·全局·非会话门控）：类型 + body(iframe→:8100) + title
-        ctx.effect(() => ctx.sidebarRightTabs.register({
-          id: MGKEY,
-          kind: MGKEY,
-          priority: "extension",
-          title: () => "模型网关"
-        }), "pipeline-view: model-gateway tab type");
-        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab", () =>
-          ctx.slots.register({ name: "sidebar.right.pane.tab", key: MGKEY }, MgmtBody)
-        ), "pipeline-view: model-gateway body");
-        ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () =>
-          ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: MGKEY }, MgmtTitle)
-        ), "pipeline-view: model-gateway title");
-        // 运维台常驻：启动即开一次（关了可从右栏页签带再点开）
-        try { if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === "function") ctx.sidebarRight.openTab(MGKEY, { revealIfOpened: true }); } catch (e) {}
-
-        // ④ 只在"当前会话真的有 omni run"时才弹页签（新会话 / 不做 omni 的会话不弹；页签开关是 per-seat）
         function curSession() {
           try { return (ctx.sessions && ctx.sessions.list && ctx.sessions.list.getSnapshot().current) || ""; } catch (e) { return ""; }
         }
-        function syncOmniTab(sid) {
-          try {
-            if (!sid) return;                                          // 还没会话绑定
-            if (document.querySelector('iframe[src*="8765"]')) return; // 本会话已开着，别重复弹
-            fetch(VIEW_URL + "api/runs?session=" + encodeURIComponent(sid))
-              .then(r => r.ok ? r.json() : [])
-              // 触发点 = 本会话有 run 且【已过 Gate1.5 方案批准】(flags.script_approved)——立项/选方向/写剧本阶段不弹，创意方案确认后才弹
-              .then(runs => { if (Array.isArray(runs) && runs.some(r => r.flags && r.flags.script_approved)) ctx.sidebarRight.openTab(KEY, { revealIfOpened: true }); })
-              .catch(() => {});                                        // video-ui 没起/跨源失败：不弹，不崩
-          } catch (e) { /* 忽略，下次再试 */ }
+
+        // 双向对账：每个工作台记住自己上一次判定，只在边沿动手。
+        //   假→真 且上了膛 → openTab；真→假 → closeIn 并重新上膛（下次再真才弹）。
+        //   "只开不关"就是第三次复发的机制来源，这里从结构上堵掉。
+        const mem = {};
+        function reconcile(sid) {
+          for (const w of WORKBENCHES) {
+            const st = mem[w.key] || (mem[w.key] = { armed: true, show: false });
+            let mine = sid;
+            w.probe(w.scope === "ops" ? null : sid).then(r => {
+              const show = !!r.show;
+              if (show === st.show) return;
+              const was = st.show;
+              st.show = show;
+              if (show && !was && st.armed) {
+                st.armed = false;
+                try { ctx.sidebarRight.openTab(w.key, { revealIfOpened: true }); } catch (e) {}
+              } else if (!show && was) {
+                st.armed = true;
+                tryClose(ctx, mine, w);
+              }
+            }).catch(() => {});
+          }
         }
-        let hypitArmed = true;   // 上升沿才弹：studio「没起→起了」才自动开页签；人主动关掉后不再骚扰，直到它重新起一次
-        function syncHypitTab(sid) {
-          // 触发信号 = **本会话**自己 claim 过的 studio 活着（8100 代探 + 按会话主人过滤）。
-          // studio 只有一个端口、也没有 DSH 会话概念 ⇒ 主人由 agent 起 studio 前登记
-          //   python D:\video-skill\backend\hypit_bridge.py studio-claim "$DSH_SESSION_ID" <run>
-          // 不传/不匹配 session 一律不弹（否则 omni 会话会被弹出 Hypit 工作台，2026-10-01 踩过）。
-          try {
-            if (!sid) return;
-            fetch(HYPIT_PROBE + "?session=" + encodeURIComponent(sid))
-              .then(r => r.ok ? r.json() : null)
-              .then(j => {
-                if (!j || !j.up) { hypitArmed = true; return; }          // 没在跑：重新上膛
-                if (document.querySelector('iframe[src*="5179"]')) return;  // 已经开着
-                if (!hypitArmed) return;                                // 弹过后被人为关掉：本次不再重开
-                hypitArmed = false;
-                ctx.sidebarRight.openTab(HKEY, { revealIfOpened: true });
-              })
-              .catch(() => {});
-          } catch (e) { /* 忽略，下次再试 */ }
-        }
-        function syncTab() {
-          const sid = curSession();
-          syncOmniTab(sid);
-          syncHypitTab(sid);
-        }
+        // 换会话 = 换一整套判定：把记忆清掉重新上膛，别把上一个会话的边沿带过来
+        function resetAndReconcile() { for (const k of Object.keys(mem)) delete mem[k]; reconcile(curSession()); }
+
         if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === "function" &&
             typeof ctx.setInterval === "function" && ctx.sessions && ctx.sessions.list) {
-          try { ctx.sessions.list.subscribe(() => syncTab()); } catch (e) {}
-          ctx.setInterval(syncTab, 4000);
-          syncTab();
+          try { ctx.sessions.list.subscribe(() => resetAndReconcile()); } catch (e) {}
+          ctx.setInterval(() => reconcile(curSession()), 4000);
+          resetAndReconcile();
         }
       } catch (e) {
         // 绝不因运维面板拖垮 DSH
@@ -177,7 +165,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply;
-    exports.inject = inject;
+    exports.inject = ["slots", "sidebarRightTabs", "sidebarRight", "timer", "sessions"];
     return module.exports;
   }
 });
