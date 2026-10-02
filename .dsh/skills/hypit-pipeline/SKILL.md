@@ -37,9 +37,10 @@ whenToUse: >
 
 ## 驱动序列（细节见 monitor-contract §2）
 ```
+-1 🔴 本 skill 被显式调用后的第一个动作（早于 doctor、早于 authoring）：登记意图
+     `python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" hypit <任务名>`
+     —— 没登记就没有右栏台；登记是**排他**的（同时只挂 hypit 一个台）。`studio-claim` 也会顺手钉上
 0 doctor 就绪 + 网关在跑(8100) → 1 在 hypit_runs 里 authoring .svml/.svrun（看参考片→写结构）
-   → 1.2 🔴 登记意图（铁律，AGENTS.md「右栏 UI 铁律」）：`python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" hypit <任务名>`
-     —— 没登记就没有右栏台；登记了 hypit 就排他（omni 台不再挂）。`studio-claim` 也会顺手钉上
    → 1.5 挂右栏（长活建议）：先 `python D:\video-skill\backend\hypit_bridge.py studio-claim "$DSH_SESSION_ID" <run源文件路径> 5179`
      再起 `hypit studio --run X --port 5179`；**登记的是「这个 run 属于哪个会话」，不是「谁起过服务」**——
      `$DSH_SESSION_ID` 为空（非 DSH 自带 agent 驱动）就别 claim，presence 还会拿 studio 自报的 `source.path` 交叉核对（monitor-contract §4 / docs/ADR-workbench-presence.md）

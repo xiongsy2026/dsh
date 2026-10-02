@@ -43,7 +43,7 @@ whenToUse: >
 你收到附件落盘 → `POST /api/run`(建) + `/product` + `/assets` 把图喂进引擎（见契约 §1）。
 **建 run 必须带 `session=$DSH_SESSION_ID`**（form 字段，Bash 里读环境变量）：这条 run 就绑到当前会话，右栏流水线页签只显示本会话的 run、不串台。⚠️ **omni 必须在主会话驱动**——subagent 是子会话 id，run 会打子 id、跟主会话页签对不上。
 
-🔴 **确认走 omni 之后、建 run 之前，先登记意图**（铁律，见 `AGENTS.md`「右栏 UI 铁律」）：
+🔴 **本 skill 被显式调用后的第一个动作**（早于建 run、早于任何引擎调用；铁律见 `AGENTS.md`「右栏 UI 铁律」）：
 `python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" omni <任务名>`
 —— 新会话不登记就不该出现任何 UI；登记 omni 是**排他**的（hypit 台同时不再挂）。回归：`scripts/check-intent-rule.py`。
 

@@ -1,27 +1,32 @@
 # Agent 工作约定
 
-本工作区给 DSH Desktop 用。先走电商闭环路由，再加载单环 skill。框架见 `docs/AGENT-FRAMEWORK.md`。
+本工作区给 DSH Desktop 用。**不做自动路由**：谁被显式调用就干谁的活。框架见 `docs/AGENT-FRAMEWORK.md`。
 
-## 路由
+## 路由：以显式调用为准（🔴 不猜意图）
 
-新会话先 `/weeksir`。没有绑号时先 `/session-bind`。目录里没有的 skill 不要假装会做。
+**2026-10-02 用户定：路由一定会理解错，所以不路由——以"调用技能"为准。**
 
-- 换产品、换脸、超级复刻 → `/super-clone`（上架后）
-- 抽帧、原声时间轴、BRIEF/TIMELINE 落盘 → `/hypit`（上架后）
-- Omni 视频生成 → `/omni`（上架后）
-- 策划 / 采爆款 / 分析 / 千川 / 客服 → **本阶段不路由**；只处理视频制作三条
+- 用户敲了 `/omni`、`/hypit-pipeline`、`/ai-film-router`… ⇒ 就按那个 skill 走，**第一步先登记意图**（见下节铁律），再干活。
+- 用户**没点 skill**、只描述需求（"帮我设计一个短剧带货的钩子"）⇒ **不要猜**。只做两件事：
+  1. 正常回答能直接回答的部分（文案、分析、建议本身不需要引擎）；
+  2. 需要进引擎时，把候选列出来让他点，一句话就够：
+     `要出片的话点一下：/omni（电商产品视频）· /hypit-pipeline（video-as-code 工程化）· /ai-film-router（影视短片）`
+- **禁止**因为"这句话像某条流水线"就擅自进入某个 skill、擅自建 run、擅自起引擎。
+- 目录里没有的 skill 不要假装会做。未上架的（`/super-clone`、`/cs-*`）不接管。
 
-不要把 Hypit 当成复刻主合同。
+> 为什么这么定：`omni` / `hypit-pipeline` / `product-video-pipeline` 三个 skill 的描述都含"剧本→关键帧→出片"，
+> 电商带货与影视创作又天然重叠（2026-10-02 实测：一句"短剧带货钩子"被漂到 omni）。
+> 靠描述匹配去路由必然反复错，所以判定权交回给用户。
 
 ## 🔴 右栏 UI 铁律：先明确意图，才有 UI
 
-**新会话一条 UI 都不许出现。** 只有确认了"这条会话在做哪条流水线"之后，才允许挂对应的台，且**排他**——同时只挂一个。
+**新会话一条 UI 都不许出现。** 只有**用户显式点了某个 skill**之后，才允许挂对应的台，且**排他**——同时只挂一个。
 
-确认意图之后、任何引擎动作之前，先登记（这一条和"花钱前必须报价"同级）：
+被调用后的**第一个动作**、任何引擎操作之前，登记意图（这一条和"花钱前必须报价"同级）：
 
 ```
 python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [任务名]
-#   skill ∈ omni | hypit | super-clone | product-video | film（= 你刚跟用户确认的那个）
+#   <skill> = 用户刚点的那个：omni | hypit | super-clone | product-video | film
 #   换产品线 = 再登记一次覆盖；做完可 intent-clear <会话id>
 ```
 
@@ -36,7 +41,8 @@ python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [
 - 引擎动作会自己钉意图：`studio-claim` 会自动把该会话登记成 `hypit`。但**别依赖它**——确认完就显式登记。
 - 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。
 - 回归：`PYTHONIOENCODING=utf-8 python scripts/check-intent-rule.py`（13 条）。改这条逻辑必须先过它。
-- ⚠️ 未决（等用户拍板）：电商出片目前 `omni` / `hypit-pipeline` / `product-video-pipeline` 三个 skill 都自称管"剧本→关键帧→出片"，划界规则待写；`product-video-pipeline` 还直连 zexapi 未走网关，**在改造前不得路由过去**。
+- ⚠️ 未接入网关的 skill **不得调用**：`product-video-pipeline` 目前直连 `https://zexapi.com`（`SKILL.md:81`、`scripts/poll_task.ps1:3`），绕开统一网关的预扣/结算/审计，且那条 key 实测欠费。改造到 `gateway.py call` 之前，即使被显式调用也要先告知用户这一条、不要直接花钱。
+- 因为"以调用为准"，**不再需要写电商/影视的划界规则**——判定权在用户点的 `/skill`，agent 不猜。
 
 ## 批准粒度
 
