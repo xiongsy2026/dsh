@@ -57,7 +57,7 @@ WeekSir 薄编排层驱动 **hypit 原生 CLI**（全局 `@hypit/hypit` v0.2.9�
 3 hypit plan <src>             看结构（免费）；确认生成腿落到 weeksir.gateway
 ── 关口A 方案+预算批准 ──  hypit pricing <src> 出成本；plan+pricing 摆给人，批了才 build（铁律1）
 4 hypit runtime up             Worker 不起 build 不跑（实测停着时报 stopped）
-5 hypit build <src> --follow   花钱、长；**build 前先 `export HYPIT_SESSION_ID="$DSH_SESSION_ID"`**（provider 会把它连同工程身份一起报给网关 ⇒ 右栏进度台按「会话+工程」分组，见 §2.5）；轮询 hypit status <id> / builds / logs
+5 hypit build <src> --follow   花钱、长；**不用做任何额外步骤**：provider 会自己读 DSH 注入的 $DSH_SESSION_ID（子进程继承）连同工程身份一起报给网关 ⇒ 右栏进度台按「会话+工程」分组，见 §2.5；轮询 hypit status <id> / builds / logs
 ── 关口B 抽帧 QA ──  hypit studio --run <x>.svrun --port 5179（右栏）或 media frames 出图核对
 6 hypit get <id> --output <name> --to productions/<task>/   导出成片
 ── 关口C 成片验收 ──  对话里 present，人点头
@@ -67,7 +67,7 @@ WeekSir 薄编排层驱动 **hypit 原生 CLI**（全局 `@hypit/hypit` v0.2.9�
 
 ## §2.5 生成腿的身份是【数据面盖章】，不靠人起点按钮（2026-10-02 定）
 
-provider `@weeksir/provider-gateway` 每次 POST `/videos` 带三样：`project`（从 `need.id` 摘出的工程源文件路径）、`need`（原样 need id，尾段当段名）、`session`（`$HYPIT_SESSION_ID`）。服务端 `hypit_bridge.handle_submit` 落进 `jobs.run / jobs.label / jobs.session`。
+provider `@weeksir/provider-gateway` 每次 POST `/videos` 带三样：`project`（从 `need.id` 摘出的工程源文件路径）、`need`（原样 need id，尾段当段名）、`session`（`$HYPIT_SESSION_ID`，为空则回落读 `$DSH_SESSION_ID`——agent 起 build 的 shell 本来就有，无需额外导出）。服务端 `hypit_bridge.handle_submit` 落进 `jobs.run / jobs.label / jobs.session`。
 
 - 于是 `presence.hypit.progress` **不依赖 studio**：账本里有腿就出进度（每段状态/耗时/扣分/失败原因/上游任务号 + 汇总）。- 右栏默认视图 = 进度台；studio 降级成可选的「导演台视图」按钮（生成工程的 `/__studio/session` 实测回 500，本来就没法看）。- 🔥 `project/session` 是客户端自报的，只用于显示分组；**鉴权与扣费依据只有 token + 服务端路由**。路径先归一：realpath 后不在 `C:\dsh\hypit_runs\productions\` 里的一律丢弃（越界、目录穿越都不入库）。- 老数据没这两列 ⇒ 历史工程在进度台上显示「本会话还没有生成腿」，属预期，**不回填**（回填只能靠 prompt 猜，等于又开始猜意图）。
 

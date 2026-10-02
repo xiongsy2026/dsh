@@ -134,7 +134,7 @@ export function createVideoProvider(options) {
         body: JSON.stringify({ ...request.input, model, account: ACCOUNT,
                                project: projectFromNeed(context.need?.id),
                                need: String(context.need?.id || ""),
-                               session: String(process.env.HYPIT_SESSION_ID || "") }),
+                               session: String(process.env.HYPIT_SESSION_ID || process.env.DSH_SESSION_ID || "") }),
       });
       const id = text(task.id), handle = { id }, receipt = { id };
       await context.checkpoint?.({ handle, receipt });

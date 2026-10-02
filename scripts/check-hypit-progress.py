@@ -137,6 +137,13 @@ out2 = json.loads(subprocess.run([sys.executable, r"D:\video-skill\backend\hypit
                                                              "GATEWAY_LEDGER": LEDGER}).stdout)
 check("6b 清空后放行，且把遗留预扣数也报出来", [out2["active_jobs"], out2["safe_to_restart"]], [0, True])
 
+# ── ⑦ 回落链：腿没带 session（agent 起 build 前没导出 HYPIT_SESSION_ID）也要能捞到 ──
+hb.studio_claim("session-CLAIM-ONLY", r"C:\dsh\hypit_runs\productions\nose-cream\nose.svrun", 5179)
+p7 = hb.jobs_progress("session-CLAIM-ONLY")
+check("7 无会话标 ⇒ 按 claim 的工程回落，且标明是这么匹配上的",
+      [p7["known"], p7["matched_by"], p7["summary"]["total"]], [True, "project", 2])
+check("7b 既没会话也没工程 ⇒ 老实说没有", hb.jobs_progress("session-完全没关系")["known"], False)
+
 for f in (DB, LEDGER, hb.INTENT_MARK, hb.STUDIO_MARK):
     try:
         os.remove(f)
