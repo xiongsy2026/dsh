@@ -64,3 +64,4 @@ whenToUse: >
 5. **档案层**：每条工程在 `productions/<task>/` 落 `BRIEF/ANALYSIS/TIMELINE/PROGRESS/DELIVERABLES`；产物本体留 hypit_runs，指针进 productions。
 6. **解耦**：hypit 是独立工程化生产引擎，不做换脸超级复刻（super-clone）、不做 omni 竖屏广告。
 7. **commit 有边界**：`hypit_runs` 的 `.hypit/`、`assets/`、`node_modules/` 已 gitignore（state/媒体体积大，别 commit）；但 **`packages/`（自写 provider 源码）、`productions/`（工程文件）、`hypit.runtime.json`、`package*.json` 要入库**——Profile 里只有凭据引用，无明文。
+8. **盯到终态 + 固定下载位**（2026-10-02 用户点名，这两处我漏了）：build 提交后**必须轮询到终态**才交回给人（后台 `--follow`、每轮读日志 + `.gateway_jobs.sqlite`，一轮不够接下一轮，不许"提交完就停下问要不要继续看"）；成片固定导出 **`productions/<task>/outputs/final-*.mp4`（ASCII 文件名）**，再拷一份进 `D:\video-skill\outputs\_hypit_jobs\` 就有可点开的 8100 直链，并抽 1~2 帧贴图（图能内联、视频不能）。详见 monitor-contract §9。

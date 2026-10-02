@@ -134,3 +134,21 @@ studio 是 hypit 自带的 SVML 工作台：**左库 源文件(Source：Run+Auth
 4. **免费校验**：`hypit check <src>` 过语法 → `hypit plan <src>` 看 `Provider requests` 有没有按预期减少（实测 4→2、`Preflight ready`）→ 才 build。
 5. 已验证样例：`hypit_runs\productions\e2e-reuse\rerun.svml`（seg1/seg2 素材、seg3/seg4 生成 ⇒ plan=2）。
 6. 段数与 5s 时长要一致（`media:Track Item for="5s"`），素材本身若不是 5s 就先 `hypit media probe` 看时长，别硬套。
+
+## §9 交付与持续监控（2026-10-02 补：这两点曾漏，用户点名）
+
+### 成片下载位（固定，别让人去翻 `.hypit`）
+```
+hypit get <build-id> --output final.video --to C:\dsh\productions\<task>\outputs\final-20s.mp4
+```
+- 目录 = `productions/<task>/outputs/`（已在 `.gitignore`，成片不入库）。
+- **文件名用 ASCII**（`final-20s.mp4`）：中文名会踩 DSH 预览卡片的短名/路径坑。
+- 交付时对话里给两条入口：① 本地路径（右栏文件预览能播，video 预览补丁已装）；② 可点开的 http 直链 —— 把文件拷进 `D:\video-skill\outputs\_hypit_jobs\` 就能由 8100 出片：`http://localhost:8100/api/hypit/assets/<名字>.mp4`（实测 200 / `video/mp4`）。
+- 顺手抽 1~2 帧（`ffmpeg -ss 1 -i x.mp4 -frames:v 1 f.jpg`）贴进对话：**图能内联、视频不能**，别只丢链接。
+
+### build 必须盯到终态（agent 硬规矩，不许"提交完就交回给人"）
+- 发起 build 后要一直轮询到 `hypit status <build-id>` 进终态（complete / failed / cancelled）为止。
+- 单次工具调用有 10 分钟上限 ⇒ 正确姿势：`hypit build <src> --follow > _build.log 2>&1 &` 后台跑，然后**每轮读日志尾部 + 查 `.gateway_jobs.sqlite` 的 job 状态**；一轮不够就接着下一轮，**中途不要停下来问"要不要继续看"**。
+- 播报节奏：**状态变了才播**（第几段成功／在重试／失败原因），别每 4 秒刷屏；**超过 10 分钟无变化**要主动报"卡在哪个请求、上游任务号是多少"。
+- 到终态立刻做上面的导出 + 抽帧交付，不要等人催。
+- 失败按 §8 只补缺段（属同一次预算范围，但要说清"补第几段、多少分"）。
