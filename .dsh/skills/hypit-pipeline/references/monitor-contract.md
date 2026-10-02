@@ -154,3 +154,26 @@ hypit get <build-id> --output final.video --to C:\dsh\productions\<task>\outputs
 - 播报节奏：**状态变了才播**（第几段成功／在重试／失败原因），别每 4 秒刷屏；**超过 10 分钟无变化**要主动报"卡在哪个请求、上游任务号是多少"。
 - 到终态立刻做上面的导出 + 抽帧交付，不要等人催。
 - 失败按 §8 只补缺段（属同一次预算范围，但要说清"补第几段、多少分"）。
+
+## §10 一键导出（2026-10-02 实装·右栏 Hypit 页签顶部那条，agent 也可以用同一条路）
+
+导出 = `hypit build` + `hypit get --to`（官方 help 原话 "export one Build Output"）。**导演台里没有任何导出按钮**（`/__studio/*` 九个路由里没有 export/render，`studio/README.md:84` 明说浏览器播放不产生导出），所以这个口是我们自己在 8100 上开的，右栏按钮和 agent 走的都是它。
+
+```
+python D:\video-skill\backend\hypit_bridge.py export <run相对路径> [productions下的任务目录名] [文件名.mp4]
+# 或 HTTP（右栏按钮就是这条）：
+POST http://127.0.0.1:8100/api/hypit/export   {"run":…,"task":…,"name":…}   → {"id":…}
+GET  http://127.0.0.1:8100/api/hypit/export?id=…  → state: queued|planning|building|fetching|done|failed
+```
+
+**四道闸（别绕，绕过去就是"没报价就烧钱"）**：
+1. **免费闸**：`hypit plan --json` 的 `providerRequestCount` 必须 **== 0**。有生成腿的工程一律拒（错误里会点名几段付费）⇒ **要新镜头仍走 §关口A 报价+人批 + `hypit build`**，这个按钮只用于"装配工程出片/改结构重出"。`_export_run` 在真正 build 前还会再验一次。
+2. **路径白名单**：`run` 只能是 `C:\dsh\hypit_runs` 下的相对 `.svrun`（拒 `..`／绝对路径／盘符）；`task` 只能是 `C:\dsh\productions` 下**已存在**的一层目录名；文件名只收裸 ASCII `.mp4`，否则回落 `export-<id>.mp4`。
+3. **不走 shell**：`subprocess` 用 argv 列表 + `node <hypit.mjs>`（⚠️ 实测无 shell 直调 npm 的 `hypit` 垫片会 `WinError 2`；且必须 `encoding="utf-8"`，默认 cp936 会把 hypit 的 UTF-8 输出解码崩）。
+4. **单飞互斥**：同时只允许一条导出（409 BUSY）。重启会打断在跑的导出 ⇒ 启动时 `export_reconcile()` 把遗留的判死。
+
+**鉴权**：Bearer 对 ⇒ 放行；没带 token 时**只认本机 Origin**（按 host 放行：`127.0.0.1`/`localhost`/`[::1]`/`dsh-app`，**不按端口**，DSH 渲染层端口每次可能变）。插件里不能嵌 token，所以按钮用 `Content-Type: text/plain` 发（免预检）。外站 Origin 一律 403。
+
+**⚠️ 代价**：渲染是本地无头 Chrome，一次导出实测 **49 个 node/chrome 进程、CPU 100%、2~4 分钟**，期间 **8100 忙到不回包**（右栏 presence 会短暂 `probe-failed`）。别当成服务挂了去重启它。
+
+**验收**：`PYTHONIOENCODING=utf-8 python scripts/check-export-gates.py`（29 条：路径/文件名/origin/免费闸正反两向）。真跑过一次 HTTP 全链：`done`、build id 由 `hypit builds --json` 前后快照差集拿到、文件落进中文任务目录、直链 200 `video/mp4`、**余额不变（0 分）**。

@@ -31,7 +31,7 @@ const React = {
   useState: init => {
     const slot = hookKey + "#" + (hookIdx++);
     if (!hookState.has(slot)) hookState.set(slot, init);
-    return [hookState.get(slot), v => hookState.set(slot, v)];
+    return [hookState.get(slot), v => hookState.set(slot, typeof v === "function" ? v(hookState.get(slot)) : v)];
   },
   useEffect: fn => { try { fn(); } catch (e) { console.log("effect err", e.message); } },
 };
@@ -138,13 +138,22 @@ const hypit = j => ({ "/api/hypit/studio?session=": j });
   check("9 运维台手动打开仍出控制台（冷启动后落到 iframe）",
     JSON.stringify(render(mgBody, { sessionId: "session-ANY" })).includes('"tag":"iframe"'), true);
 
-  // 10) 反向：本会话真拥有 studio 时，同一个 body 要出 iframe，且端口用 presence 口给的那个
+  // 10) 反向：本会话真拥有 studio 时，同一个 body 要出 iframe，且端口来自 presence 口给的那个
   //     （没有这条，8 就只是"body 永远不出 iframe"的假阳性）
   routes = { ...omni(false), ...hypit({ up: true, port: 5179, run: "productions/hypit-e2e/assemble.svrun" }) };
   render(hypitBody, { sessionId: "session-MINE" });
   await new Promise(r => setTimeout(r, 10));
   check("10 拥有时 body 出 iframe，且端口来自 presence 口",
     JSON.stringify(render(hypitBody, { sessionId: "session-MINE" })).includes("localhost:5179"), true);
+
+  // 11/12) 导出条只在"本会话已绑定"时出现（未绑定连按钮都不给，避免误点）
+  const hasBar = () => JSON.stringify(render(hypitBody, { sessionId: "session-MINE" })).includes("导出成片");
+  check("11 绑定了才出现导出条", hasBar(), true);
+  routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
+  render(hypitBody, { sessionId: "session-NOT" });
+  await new Promise(r => setTimeout(r, 10));
+  check("12 未绑定的会话不出现导出条",
+    JSON.stringify(render(hypitBody, { sessionId: "session-NOT" })).includes("导出成片"), false);
 
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);

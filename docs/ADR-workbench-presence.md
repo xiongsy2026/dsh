@@ -131,6 +131,10 @@ const WORKBENCHES = [
 
 **插件生效条件**：`client.js` 经符号链接进 DSH，**改完要重载 DSH 窗口（Ctrl+R）**；服务端改完要重启计划任务 `WeeksirModelAdmin`（重启前先查 `.gateway_jobs.sqlite` 有无 queued/running）。
 
+## 已知代价（导出会打满本机）
+
+`hypit build` 的渲染腿是 hyperframes 无头 Chrome（实测一次导出起 **49 个 node/chrome 进程、CPU 100%**，约 2~4 分钟）。期间 **8100 会忙到不回包**（实测 `curl` 2 秒即失败、listen backlog 溢出）⇒ 右栏 presence 会短暂拿 `probe-failed`。这是本地渲染的固有代价，不是接线坏；**给客户之前必须把渲染挪到服务端或限并发**。导出条上已经把状态文案写成"渲染合成中（本地·约 1~4 分钟）"来提示等待。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）

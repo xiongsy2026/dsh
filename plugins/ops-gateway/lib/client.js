@@ -40,7 +40,7 @@ window.__ModuleLoader__.load({
       // presence 口按【会话 ↔ run】过滤，端口也由它给（换端口不用改这里）。
       return getJson(GW + "/api/hypit/studio?session=" + encodeURIComponent(sid)).then(j => {
         if (!j || !j.up) return { show: false, note: (j && j.reason) || "probe-failed" };
-        return { show: true, url: "http://localhost:" + (j.port || 5179) + "/", note: j.run || "" };
+        return { show: true, url: "http://localhost:" + (j.port || 5179) + "/", note: j.run || "", run: j.run || "" };
       });
     }
 
@@ -75,15 +75,75 @@ window.__ModuleLoader__.load({
       } catch (e) { /* 关不掉也要继续对账 */ }
     }
 
+    // 导出条：一键 build + get（只放"零生成腿"的免费装配工程，服务端四道闸兜底）
+    function ExportBar(props) {
+      const run = props.run || "";
+      const s = React.useState({ phase: "idle", msg: "", link: "", path: "", task: "", busy: false });
+      const st = s[0], setSt = s[1];
+      const timer = React.useRef ? React.useRef(null) : { current: null };
+
+      function poll(id) {
+        getJson(GW + "/api/hypit/export?id=" + encodeURIComponent(id)).then(j => {
+          if (!j || j.error) { setSt(p => Object.assign({}, p, { phase: "failed", msg: (j && j.error && j.error.message) || "查不到这条导出", busy: false })); return; }
+          if (j.state === "done") {
+            setSt(p => Object.assign({}, p, { phase: "done", msg: "已导出 " + (j.bytes || 0) + " 字节", link: j.url || "", path: j.path || "", busy: false }));
+            return;
+          }
+          if (j.state === "failed") {
+            setSt(p => Object.assign({}, p, { phase: "failed", msg: j.error || "导出失败", busy: false }));
+            return;
+          }
+          const txt = { queued: "排队中", planning: "验免费闸（plan）", building: "渲染合成中（本地·约 1~4 分钟）", fetching: "取回成片" }[j.state] || j.state;
+          setSt(p => Object.assign({}, p, { phase: "busy", msg: txt + "…" + (j.elapsed ? " " + j.elapsed + "s" : "") }));
+          timer.current = setTimeout(() => poll(id), 3000);
+        });
+      }
+
+      function start() {
+        if (st.busy || !run) return;
+        setSt(p => Object.assign({}, p, { busy: true, phase: "busy", msg: "提交中…", link: "", path: "" }));
+        // Content-Type 用 text/plain：浏览器不发预检，服务端按本机 Origin 放行（插件里不嵌 token）
+        fetch(GW + "/api/hypit/export", {
+          method: "POST", headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify({ run: run, task: (st.task || "").trim() })
+        }).then(r => r.json().then(j => ({ code: r.status, j: j }))).then(({ code, j }) => {
+          if (code !== 200 || !j || !j.id) {
+            setSt(p => Object.assign({}, p, { phase: "failed", busy: false, msg: (j && j.error && j.error.message) || ("HTTP " + code) }));
+            return;
+          }
+          setSt(p => Object.assign({}, p, { phase: "busy", msg: "已受理 " + j.id + "（0 分·只允许零生成腿工程）" }));
+          poll(j.id);
+        }).catch(e => setSt(p => Object.assign({}, p, { phase: "failed", busy: false, msg: "打不动网关：" + e })));
+      }
+
+      React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+      const btn = { padding: "3px 10px", fontSize: 12, borderRadius: 4, cursor: st.busy ? "default" : "pointer",
+        border: "1px solid #fa6f08", background: st.busy ? "#3a2a1a" : "#fa6f08", color: "#fff" };
+      const inp = { padding: "2px 6px", fontSize: 12, width: 150, background: "#1b1f27", color: "#e6e9ef",
+        border: "1px solid #333a45", borderRadius: 4 };
+      return h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+                                 padding: "6px 8px", borderBottom: "1px solid #232833", fontSize: 12, background: "#151821" } },
+        h("span", { style: { color: "#9aa4b2" }, title: run }, "工程 " + (run.split(/[\\/]/).pop() || "—")),
+        h("input", { style: inp, placeholder: "任务目录（可留空）", value: st.task,
+          onChange: e => setSt(p => Object.assign({}, p, { task: e.target.value })) }),
+        h("button", { style: btn, disabled: st.busy || !run, onClick: start }, st.busy ? "导出中…" : "导出成片（免费）"),
+        st.msg ? h("span", { style: { color: st.phase === "failed" ? "#ff7b72" : "#9aa4b2" } }, st.msg) : null,
+        st.link ? h("a", { href: st.link, target: "_blank", style: { color: "#58a6ff" } }, "下载/播放") : null,
+        st.path ? h("code", { style: { color: "#6b7280", fontSize: 11 } }, st.path) : null
+      );
+    }
+
     function WorkbenchBody(props) {
       const key = props && props.__wbKey;
       const w = byKey[key];
       const sid = props && props.sessionId ? String(props.sessionId) : "";
-      const state = React.useState({ show: false, url: "", note: "cold" });
+      const state = React.useState({ show: false, url: "", note: "cold", run: "" });
       const st = state[0], setSt = state[1];
       React.useEffect(() => {
         let alive = true;
-        const tick = () => w.probe(sid).then(r => { if (alive) setSt({ show: !!r.show, url: r.url || "", note: r.note || "" }); });
+        const tick = () => w.probe(sid).then(r => {
+          if (alive) setSt({ show: !!r.show, url: r.url || "", note: r.note || "", run: r.run || "" });
+        });
         tick();
         const t = setInterval(tick, 6000);
         return () => { alive = false; clearInterval(t); };
@@ -98,6 +158,7 @@ window.__ModuleLoader__.load({
         );
       }
       return h("div", { style: { width: "100%", height: "100%", display: "flex", flexDirection: "column" } },
+        w.key === HKEY ? h(ExportBar, { run: st.run }) : null,
         h("iframe", { src: st.url, title: w.label, style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })
       );
     }
