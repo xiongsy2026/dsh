@@ -23,6 +23,9 @@ import urllib.request
 SCRATCH = r"C:\dsh\_scratch_b"
 os.makedirs(SCRATCH, exist_ok=True)
 os.environ["HYPIT_STUDIO_MARK"] = os.path.join(SCRATCH, "mark_selftest.json")
+# ⚠️ 意图文件也必须隔离：studio_claim 会顺手写意图，早先没隔离时把 5 条假会话写进了线上
+#    .gateway_intent.json（就是"绝不往生产状态写假数据"那条老坑）。
+os.environ["HYPIT_INTENT_MARK"] = os.path.join(SCRATCH, "intent_selftest.json")
 sys.path.insert(0, r"D:\video-skill")
 from backend import hypit_bridge as hb   # noqa: E402
 
@@ -53,6 +56,9 @@ hb._probe_omni = lambda: ALIVE["omni"]
 hb._studio_served_path = lambda port: SERVED["path"]
 
 # omni 的意图来自盘上的 run ⇒ 给一个临时 runs 目录
+for _p in (os.environ["HYPIT_INTENT_MARK"], os.environ["HYPIT_STUDIO_MARK"]):
+    if os.path.exists(_p):
+        os.remove(_p)                # 上一轮残留会让这一轮的排他判定莫名其妙
 FAKE_RUNS = os.path.join(SCRATCH, "fake_video_runs")
 shutil.rmtree(FAKE_RUNS, ignore_errors=True)
 hb.VIDEO_RUNS = FAKE_RUNS
@@ -86,7 +92,11 @@ check("A4 两个主人会话都判 up", [hb.studio_status(s).get("up") for s in 
 check("A5 第三会话无意图", hb.studio_status("session-D")["reason"], "no-intent")
 hb.studio_release("session-A")
 check("A6 release 只摘自己，另一个还在", mark()["productions/hypit-e2e"]["sessions"], ["session-C"])
-check("A7 被摘的那个不再看得到", hb.studio_status("session-A")["reason"], "no-intent")
+# ⚠️ 语义变更（铁律三修）：studio-claim 会顺手把该会话钉成 hypit 意图，而 release 只撤 run 归属、
+#    不撤意图 ⇒ 摘掉 claim 后是 not-claimed（台还挂、提示怎么起），要 no-intent 必须显式 intent-clear。
+check("A7 摘掉 claim 但意图还在 ⇒ not-claimed", hb.studio_status("session-A")["reason"], "not-claimed")
+hb.clear_intent("session-A")
+check("A7b 显式撤销意图后才真的 no-intent", hb.studio_status("session-A")["reason"], "no-intent")
 check("A8 空 session / 空 run 都拒",
       ["error" in hb.studio_claim("", RUN, 5179), "error" in hb.studio_claim("session-X", "", 5179)],
       [True, True])
@@ -157,8 +167,14 @@ ALIVE["omni"] = True
 hb.studio_claim("session-OMNI-1", RUN, 5179)
 both = hb.workbench_presence("session-OMNI-1")
 check("A16 一个口同时回答 omni+hypit", sorted(both), ["hypit", "omni"])
-check("A16b 同会话跨两条流水线都弹（合法）",
-      [both["omni"]["intent"], both["hypit"]["intent"]], [True, True])
+# 🔴 铁律三修推翻了旧断言（原来写"同会话跨两条流水线都弹=合法"）：显式登记是【排他】的，
+#    claim 顺手钉了 hypit 意图 ⇒ omni 必须不挂。要回 omni 就重新 intent omni。
+check("A16b 登记排他：说了 hypit 就不给 omni 台",
+      [both["omni"]["intent"], both["hypit"]["intent"]], [False, True])
+check("A16c omni 侧理由可诊断", both["omni"]["reason"], "intent-is-hypit")
+hb.set_intent("session-OMNI-1", "omni", "切回电商线")
+back = hb.workbench_presence("session-OMNI-1")
+check("A16d 改登记即换台（排他可逆）", [back["omni"]["intent"], back["hypit"]["intent"]], [True, False])
 
 # ══ B HTTP 层（真 8100 + 真 studio）═══════════════════════════════════════════════
 # ⚠️ 这段会真写线上登记文件（8100 读的就是它），用完只摘自己那一条。
@@ -166,7 +182,8 @@ REAL_MARK = r"D:\video-skill\.gateway_studio.json"
 
 
 def cli(*args):
-    env = {k: v for k, v in os.environ.items() if k != "HYPIT_STUDIO_MARK"}   # CLI 要写 8100 读的那份
+    drop = ("HYPIT_STUDIO_MARK", "HYPIT_INTENT_MARK")
+    env = {k: v for k, v in os.environ.items() if k not in drop}   # CLI 要写 8100 读的那两份
     return subprocess.run([sys.executable, r"D:\video-skill\backend\hypit_bridge.py", *args],
                           capture_output=True, text=True, cwd=r"D:\video-skill", env=env)
 
@@ -205,12 +222,15 @@ else:
     check("B5 端口由判定口给", mine.get("port"), 5179)
 
     cli("studio-release", ME)
+    cli("intent-clear", ME)          # release 只撤 run 归属；意图要显式清，否则自测会话留在生产文件里
     after = real_runs()
     left = [k for k, v in after.items() if ME in ([str(x) for x in (v.get("sessions") or [])] + [str(v.get("session" or ""))])]
     check("B6 自测登记已清干净", left, [])
     check("B7 没动到别人的登记", sorted(set(before) - set(after)), [])
 
 shutil.rmtree(FAKE_RUNS, ignore_errors=True)
+if os.path.exists(hb.INTENT_MARK):
+    os.remove(hb.INTENT_MARK)
 if os.path.exists(hb.STUDIO_MARK):
     os.remove(hb.STUDIO_MARK)
 
