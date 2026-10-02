@@ -43,6 +43,10 @@ whenToUse: >
 你收到附件落盘 → `POST /api/run`(建) + `/product` + `/assets` 把图喂进引擎（见契约 §1）。
 **建 run 必须带 `session=$DSH_SESSION_ID`**（form 字段，Bash 里读环境变量）：这条 run 就绑到当前会话，右栏流水线页签只显示本会话的 run、不串台。⚠️ **omni 必须在主会话驱动**——subagent 是子会话 id，run 会打子 id、跟主会话页签对不上。
 
+🔴 **确认走 omni 之后、建 run 之前，先登记意图**（铁律，见 `AGENTS.md`「右栏 UI 铁律」）：
+`python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" omni <任务名>`
+—— 新会话不登记就不该出现任何 UI；登记 omni 是**排他**的（hypit 台同时不再挂）。回归：`scripts/check-intent-rule.py`。
+
 ## 驱动序列（细节见 monitor-contract §2/§3/§5）
 **触发链：拿到一个关口批准 = 自动跑到下一个关口**，关口之间全自动、不逐步请示（agent 自己 poll-wait 到 `job.active=false`）。只有到关口、预算护栏用尽、或需要产品方定事实时才停下找人。
 **商用合规是贯穿线**：创意(选方向)、分镜脚本、口播文案三处都要按契约 §5.5「商用合规清单」过一遍再放行——生成的视频要能商用，这几处是广告法/功效/虚假宣传/版权的高风险雷区，agent 逐条自查、可疑处标出来交人，不擅自放行也不擅自删卖点。

@@ -13,6 +13,31 @@
 
 不要把 Hypit 当成复刻主合同。
 
+## 🔴 右栏 UI 铁律：先明确意图，才有 UI
+
+**新会话一条 UI 都不许出现。** 只有确认了"这条会话在做哪条流水线"之后，才允许挂对应的台，且**排他**——同时只挂一个。
+
+确认意图之后、任何引擎动作之前，先登记（这一条和"花钱前必须报价"同级）：
+
+```
+python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [任务名]
+#   skill ∈ omni | hypit | super-clone | product-video | film（= 你刚跟用户确认的那个）
+#   换产品线 = 再登记一次覆盖；做完可 intent-clear <会话id>
+```
+
+判定规则（`GET 127.0.0.1:8100/api/workbench/presence?session=<id>` 一次回全部）：
+
+| 情况 | 结果 |
+|---|---|
+| 有显式登记 | **只**挂 skill 匹配的那个台，其余一律不挂（理由回 `intent-is-<别的skill>`） |
+| 没登记但有痕迹 | 退到佐证：hypit=该会话 claim 过的 run；omni=盘上有带该会话标的 run |
+| 都没有 | 新会话 | **零 UI** |
+
+- 引擎动作会自己钉意图：`studio-claim` 会自动把该会话登记成 `hypit`。但**别依赖它**——确认完就显式登记。
+- 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。
+- 回归：`PYTHONIOENCODING=utf-8 python scripts/check-intent-rule.py`（13 条）。改这条逻辑必须先过它。
+- ⚠️ 未决（等用户拍板）：电商出片目前 `omni` / `hypit-pipeline` / `product-video-pipeline` 三个 skill 都自称管"剧本→关键帧→出片"，划界规则待写；`product-video-pipeline` 还直连 zexapi 未走网关，**在改造前不得路由过去**。
+
 ## 批准粒度
 
 只在这些地方停：
