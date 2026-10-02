@@ -84,6 +84,10 @@ function makeCtx(sidRef) {
   };
   return { ctx, calls };
 }
+const norm = id => String(id).replace(/^dsh-resource:\/\/(weeksir\/)?/, "");
+// 只看"关了哪些台"，不数 tryClose 的候选 id 条数
+const closedKeys = (calls, sid, from = 0) =>
+  [...new Set(calls.close.slice(from).filter(c => c[0] === sid).map(c => norm(c[1])))].sort();
 const settle = () => new Promise(r => setTimeout(r, 0));
 const settle5 = () => new Promise(r => setTimeout(r, 5));
 // 页签体要渲染两次：第一次触发 effect 拿判定，第二次才看得到结果
@@ -105,6 +109,9 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   mod.apply(a.ctx);
   await run(a.calls, 2);
   check("1 新会话不猜意图：一条页签都不弹", a.calls.open.map(o => o[0]), []);
+  // 1d 🔴 首次判定为"无意图"也要去关 —— 清掉旧版本（hypit 曾弹进每条会话）留下的僵尸页签。
+  //    这条就是用户报"无关会话里出现这个提示"的根因：只等下降沿的话，僵尸页签永远留着。
+  check("1d 首次无意图也会去关僵尸页签（本会话两个台都试）", closedKeys(a.calls, sid.v), [HKEY, KEY].sort());
 
   // 2) 说了做 omni ⇒ 只弹流水线
   payload = { omni: omni(true), hypit: hypit(false, false) };
@@ -124,10 +131,13 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   check("4b 台里显示引擎没在跑 + 怎么起",
     (await bodyJson(HKEY, sid.v)).includes("hypit studio --run"), true);
 
-  // 5) 意图撤销（release 后）⇒ 关台并重新上膛
+  // 5) 意图撤销（release 后）⇒ 只关它自己的台，有意图的那个不动
+  const mark5 = a.calls.close.length;
   payload = { omni: omni(true), hypit: hypit(false, false) };
   await run(a.calls);
-  check("5 意图没了会关台", a.calls.close, [[sid.v, HKEY]]);
+  check("5 意图没了只关它自己的台（有意图的那个不动）", closedKeys(a.calls, sid.v, mark5), [HKEY]);
+
+  // 6) 重新有意图会再弹（已重新上膛）
   payload = { omni: omni(true), hypit: hypit(true) };
   await run(a.calls);
   check("6 重新有意图会再弹（已重新上膛）", a.calls.open.filter(o => o[0] === HKEY).length, 2);
@@ -154,12 +164,16 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   payload = { omni: omni(false, false), hypit: hypit(false, false) };
   c.calls.subs.forEach(fn => fn());
   await run(c.calls);
-  check("9 切到无意图的新会话不会误关别人的台（页签本就按会话存）", c.calls.close, []);
+  // 切到一个新会话：它自己的台会被"首次无意图"清一遍（无害 no-op），但不能碰老会话的台
+  check("9 切会话只动本会话的页签（不碰刚那个老会话）", [...new Set(c.calls.close.map(x => x[0]))],
+        ["session-OTHER"]);
   sid.v = "session-NEW";
   payload = { omni: omni(true), hypit: hypit(false, false) };
   c.calls.subs.forEach(fn => fn());
   await run(c.calls);
-  check("9b 切回老会话、意图已撤 => 关它自己的台", c.calls.close, [["session-NEW", HKEY]]);
+  check("9b 切回老会话、意图已撤 => 关它自己的台（不碰别的会话）",
+        closedKeys(c.calls, "session-NEW", c.calls.close.filter(x => x[0] === "session-OTHER").length)
+          .filter(k => k === HKEY), [HKEY]);
 
   // 10) body 三态：无意图=门禁、有意图+活=iframe、有意图+死=起法
   payload = { omni: omni(false, false), hypit: hypit(false, false) };

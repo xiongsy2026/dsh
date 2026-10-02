@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261002d";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261002e";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // ── 右栏工作台规则（docs/ADR-workbench-presence.md）────────────────────────────
@@ -130,9 +130,10 @@ window.__ModuleLoader__.load({
         if (!cur.forced) {
           return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
             h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } },
-               w.label + "：这条会话还没表明要做哪个流水线"),
-            h("div", null, "原因：", h("code", null, st.reason || "unknown")),
-            h("div", { style: { marginTop: 8 } }, "台跟着技能走：说做 omni 挂 omni 的台，说做 hypit 挂 hypit 的台；新会话不猜意图。"),
+               w.label + "：这个页签不属于当前会话"),
+            h("div", null, "直接关掉这个页签就行（它是旧版本自动打开留下的；当前会话没做过 " + w.skill + " 的任务）。"),
+            h("div", { style: { marginTop: 6, fontSize: 12, color: "#6b7280" } },
+               "判定：", h("code", null, st.reason || "no-intent")),
             h("div", { style: { marginTop: 10 } },
               h("button", { style: ghost, onClick: () => setCur(p => Object.assign({}, p, { forced: true })),
                 title: "只是这一页显示出来，不改归属登记（导出仍要有 run 才能点）" }, "我就是要看，直接显示"))
@@ -169,13 +170,16 @@ window.__ModuleLoader__.load({
       };
     }
 
-    // tabId 由 dock store 生成、插件面拿不到可靠值 ⇒ 尽力关；关不掉由页签体自己的状态兜底
+    // tabId 由 dock store 生成、插件面拿不到可靠值 ⇒ 逐个候选试关（closeIn 对不存在的 id 是无害 no-op），
+    // 关不掉也不致命：页签体自己会显示"不属于当前会话"，不会把引擎内容露出来。
     function tryClose(ctx, sid, w) {
-      try {
-        const c = ctx.sidebarRight;
-        if (c && typeof c.closeIn === "function") c.closeIn(sid, w.key);
-        if (c && typeof c.closeTab === "function") c.closeTab(w.key);
-      } catch (e) { /* 关不掉也要继续对账 */ }
+      const c = ctx.sidebarRight;
+      if (!c) return;
+      const ids = [w.key, "dsh-resource://" + w.key, "dsh-resource://weeksir/" + w.key];
+      for (const id of ids) {
+        try { if (typeof c.closeIn === "function") c.closeIn(sid, id); } catch (e) {}
+      }
+      try { if (typeof c.closeTab === "function") ids.forEach(id => c.closeTab(id)); } catch (e) {}
     }
 
     function apply(ctx) {
@@ -197,28 +201,26 @@ window.__ModuleLoader__.load({
           try { return (ctx.sessions && ctx.sessions.list && ctx.sessions.list.getSnapshot().current) || ""; } catch (e) { return ""; }
         }
 
-        // 对账：只在边沿动手。假→真且上膛才 openTab；真→假就关并重新上膛。
-        // 弹的条件只有 intent —— 引擎没起也要给台（里面显示"引擎没在跑 + 怎么起"）。
-        // auto:false 的（运维台）完全不参与：它只能由人手动开。
-        // ⚠️ 状态按 (会话, 页签) 记，不按页签记：dock 的页签本来就是 per-session 的，
-        //    若切会话时把记忆清掉，"切回老会话时那个该关的台"就再也等不到下降沿了。
+        // 对账：状态按 (会话, 页签) 记。初值是 null（"还不知道"），所以：
+        //   首次就判为无意图 ⇒ 也去关一次 —— 清掉旧版本代码（hypit 曾弹进每条会话）留下的僵尸页签。
+        //   这是本次用户报"无关会话里出现这个提示"的根因：边沿触发等不到边沿，僵尸页签永远留着。
         const mem = {};
         function reconcile(sid) {
           for (const w of WORKBENCHES) {
             if (!w.auto) continue;
             const mk = sid + "|" + w.key;
-            const st = mem[mk] || (mem[mk] = { armed: true, show: false });
+            const st = mem[mk] || (mem[mk] = { armed: true, show: null });
             stateOf(w, sid).then(r => {
               const show = !!r.intent;
               if (show === st.show) return;
               const was = st.show;
               st.show = show;
-              if (show && !was && st.armed) {
+              if (show && st.armed) {
                 st.armed = false;
                 try { ctx.sidebarRight.openTab(w.key, { revealIfOpened: true }); } catch (e) {}
-              } else if (!show && was) {
+              } else if (!show) {
                 st.armed = true;
-                tryClose(ctx, sid, w);
+                tryClose(ctx, sid, w);            // was===null（首次）也要关，别只等下降沿
               }
             }).catch(() => {});
           }
