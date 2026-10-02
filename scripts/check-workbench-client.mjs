@@ -155,6 +155,23 @@ const hypit = j => ({ "/api/hypit/studio?session=": j });
   check("12 未绑定的会话不出现导出条",
     JSON.stringify(render(hypitBody, { sessionId: "session-NOT" })).includes("导出成片"), false);
 
+  // 13) 门禁上的"我就是要看"要真能出台（关口防的是"未经请求就弹"，不该把主动要看的人挡在外面）
+  const findBtn = (node) => {
+    if (!node || typeof node !== "object") return null;
+    if (node.tag === "button" && typeof node.props.onClick === "function") return node;
+    for (const k of (node.kids || [])) { const f = findBtn(k); if (f) return f; }
+    return null;
+  };
+  routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
+  const gate = render(hypitBody, { sessionId: "session-FORCED" });
+  await new Promise(r => setTimeout(r, 10));
+  const btn = findBtn(render(hypitBody, { sessionId: "session-FORCED" }));
+  check("13a 未绑定页签给了「直接显示」出口", !!btn, true);
+  if (btn) btn.props.onClick();
+  const forced = JSON.stringify(render(hypitBody, { sessionId: "session-FORCED" }));
+  check("13b 点下去之后出 iframe（用兜底地址）", forced.includes("localhost:5179"), true);
+  check("13c 但导出条没有 run 时不给点（未登记归属不许烧钱）",
+    /导出成片[^]*"disabled":true/.test(forced) || forced.includes('"disabled":true'), true);
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);
   process.exit(fails.length ? 1 : 0);

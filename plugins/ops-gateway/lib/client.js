@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261002b";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261002c";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // 右栏工作台契约 = C:\dsh\docs\ADR-workbench-presence.md
@@ -50,11 +50,12 @@ window.__ModuleLoader__.load({
     }
 
     const WORKBENCHES = [
-      { key: KEY,   scope: "session", auto: true,  label: "流水线",      srcHint: "8765", probe: probeOmni },
-      { key: HKEY,  scope: "session", auto: true,  label: "Hypit Studio", srcHint: "5179", probe: probeHypit },
+      // fallback = 人主动点开（forced）时没有判定结果可依据，用这个默认地址兜底
+      { key: KEY,   scope: "session", auto: true,  label: "流水线",       srcHint: "8765", fallback: VIEW_URL, probe: probeOmni },
+      { key: HKEY,  scope: "session", auto: true,  label: "Hypit Studio", srcHint: "5179", fallback: "http://localhost:5179/", probe: probeHypit },
       // 运维台：全局可【手动】开（右栏"+"里能选到），但【绝不自动弹】——
       // 它跟会话无关，自动弹等于把内部控制台摆进每一条对话，包括客户会话。
-      { key: MGKEY, scope: "ops",     auto: false, label: "模型网关",     srcHint: "8100", probe: probeOps },
+      { key: MGKEY, scope: "ops",     auto: false, label: "模型网关",     srcHint: "8100", fallback: GW + "/", probe: probeOps },
     ];
     const byKey = {};
     for (const w of WORKBENCHES) byKey[w.key] = w;
@@ -137,29 +138,37 @@ window.__ModuleLoader__.load({
       const key = props && props.__wbKey;
       const w = byKey[key];
       const sid = props && props.sessionId ? String(props.sessionId) : "";
-      const state = React.useState({ show: false, url: "", note: "cold", run: "" });
+      const state = React.useState({ show: false, url: "", note: "cold", run: "", forced: false });
       const st = state[0], setSt = state[1];
       React.useEffect(() => {
         let alive = true;
         const tick = () => w.probe(sid).then(r => {
-          if (alive) setSt({ show: !!r.show, url: r.url || "", note: r.note || "", run: r.run || "" });
+          if (alive) setSt(p => Object.assign({}, p, { show: !!r.show, url: r.url || "", note: r.note || "", run: r.run || "" }));
         });
         tick();
         const t = setInterval(tick, 6000);
         return () => { alive = false; clearInterval(t); };
       }, [sid]);
-      if (!st.show) {
+      // forced = 人自己点开的那个台，判定不该把他挡在外面：关口防的是"未经请求就弹"，不是"人主动要看"
+      const visible = st.show || st.forced;
+      if (!visible) {
         return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
           h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } }, w.label + "：本会话未绑定"),
           h("div", null, "原因：", h("code", null, st.note || "unknown")),
           h("div", { style: { marginTop: 8 } },
-            "右栏按「这个会话当前拥有哪个工作台资源」弹页签；跑过一次不等于永久拥有。",
-            "契约见 docs/ADR-workbench-presence.md")
+            "右栏按「这个会话当前拥有哪个工作台资源」自动弹页签；跑过一次不等于永久拥有。",
+            "自动弹的触发点见 docs/ADR-workbench-presence.md"),
+          h("div", { style: { marginTop: 10 } },
+            h("button", { style: { padding: "3px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
+              border: "1px solid #3a4250", background: "#1b1f27", color: "#e6e9ef" },
+              title: "老会话/老 run 没打会话标时自动判定认不出来；点这里只是这一页显示，不改归属登记",
+              onClick: () => setSt(p => Object.assign({}, p, { forced: true })) }, "我就是要看，直接显示"))
         );
       }
       return h("div", { style: { width: "100%", height: "100%", display: "flex", flexDirection: "column" } },
         w.key === HKEY ? h(ExportBar, { run: st.run }) : null,
-        h("iframe", { src: st.url, title: w.label, style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })
+        h("iframe", { src: st.url || w.fallback, title: w.label,
+          style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })
       );
     }
 

@@ -10,6 +10,7 @@
 import json
 import os
 import subprocess
+import time
 import sys
 import urllib.error
 import urllib.request
@@ -41,14 +42,50 @@ with open(hb.STUDIO_MARK, "w", encoding="utf-8") as f:      # 旧格式=只增�
 check("A1 旧格式一律判无主", hb.studio_status("session-A")["reason"], "not-owner")
 check("A2 不带 session 不回 up", hb.studio_status()["up"], False)
 
+# A 段全程离线：探针桩提前装好，别去撞真的 5179（B 段才打真服务）
+hb._probe_studio = lambda port: {"up": True, "tasks": 0, "running": 0, "artifacts": 0}
+hb._studio_served_path = lambda port: "productions\\hypit-e2e\\assemble.svml"
+
+
 hb.studio_claim("session-A", RUN, 5179)
 check("A3 登记按 run 建索引", sorted(json.load(open(hb.STUDIO_MARK, encoding="utf-8"))["runs"]),
       ["productions/hypit-e2e"])
+# ⚠️ 语义变更（2026-10-02 续）：同一个 run 再 claim = 【加一个观看者】，不是换主人。
+#    旧版"会话级全局只增不减"是 bug 根因，但矫枉过正成"一个 run 只能一个主人"会让
+#    多窗口共看同一台 studio 直接看不到台（实测 3 个会话在轮询）⇒ 归属粒度=（run, 会话）对。
 hb.studio_claim("session-C", RUN, 5179)
-check("A4 同 run 换主人不累积", [v["session"] for v in
-                              json.load(open(hb.STUDIO_MARK, encoding="utf-8"))["runs"].values()],
+check("A4 同 run 多人共看（名单累加）",
+      json.load(open(hb.STUDIO_MARK, encoding="utf-8"))["runs"]["productions/hypit-e2e"]["sessions"],
+      ["session-A", "session-C"])
+check("A4b 两个主人会话都判 up", [hb.studio_status(s).get("up") for s in ("session-A", "session-C")],
+      [True, True])
+check("A4c 第三个会话仍 not-owner", hb.studio_status("session-D")["reason"], "not-owner")
+hb.studio_release("session-A")
+check("A4d release 只摘自己，另一个还在",
+      json.load(open(hb.STUDIO_MARK, encoding="utf-8"))["runs"]["productions/hypit-e2e"]["sessions"],
       ["session-C"])
+check("A4e 被摘的那个不再看得到", hb.studio_status("session-A")["reason"], "not-owner")
+hb.studio_claim("session-C", RUN, 5179)
 check("A5 空 session 直接拒", "error" in hb.studio_claim("", RUN, 5179), True)
+
+# 心跳：右栏每 4 秒的探测要能把 ts 顶上去，否则一条 30 分钟的 build 会被 TTL 误杀
+def age_runs(seconds):
+    rec = json.load(open(hb.STUDIO_MARK, encoding="utf-8"))
+    for v in rec["runs"].values():
+        v["ts"] -= seconds
+    with open(hb.STUDIO_MARK, "w", encoding="utf-8") as f:
+        json.dump({"runs": rec["runs"], "ts": 0}, f)
+
+
+age_runs(600)                                       # 10 分钟没心跳（仍在 30 分钟 TTL 内）
+hb.studio_status("session-C")                       # 打一次 presence = 顶一次心跳
+rec = json.load(open(hb.STUDIO_MARK, encoding="utf-8"))
+check("A5b 探测会把心跳 ts 顶回来（长任务不被 TTL 误杀）",
+      all(time.time() - v["ts"] < 60 for v in rec["runs"].values()), True)
+age_runs(hb.STUDIO_CLAIM_TTL + 1)                   # 真的超过 TTL
+check("A5c 心跳停超 TTL → 判无主", hb.studio_status("session-C")["reason"], "not-owner")
+hb.studio_claim("session-C", RUN, 5179)
+
 
 check("A6 svrun<->svml 同工程算匹配", hb._run_matches(RUN, "productions\\hypit-e2e\\assemble.svml"), True)
 check("A7 裸工程名走 basename 兜底", hb._run_matches("hypit-e2e", "productions\\hypit-e2e\\assemble.svml"), True)

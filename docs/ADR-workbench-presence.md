@@ -135,6 +135,19 @@ const WORKBENCHES = [
 
 `hypit build` 的渲染腿是 hyperframes 无头 Chrome（实测一次导出起 **49 个 node/chrome 进程、CPU 100%**，约 2~4 分钟）。期间 **8100 会忙到不回包**（实测 `curl` 2 秒即失败、listen backlog 溢出）⇒ 右栏 presence 会短暂拿 `probe-failed`。这是本地渲染的固有代价，不是接线坏；**给客户之前必须把渲染挪到服务端或限并发**。导出条上已经把状态文案写成"渲染合成中（本地·约 1~4 分钟）"来提示等待。
 
+
+## 落地后当天回修（2026-10-02 续·用户实测"打开会话什么都不弹"）
+
+三个都是**我把 fail-closed 做得过头**导致的，逐条纠正：
+
+1. **归属粒度错了**：第一版把 claim 做成"一个 run 只能一个主人"（矫枉过正——要修的 bug 是"全局只增不减"，不是"多人共看"）。实测有 2~3 个 DSH 窗口同时轮询 ⇒ 改成**归属 = （run, 会话）对的集合**，`runs:{run:{sessions:[…],port,ts}}`；`claim` 追加观看者、`release <会话>` 只把自己从名单里划掉，名单空了才删那个 run。
+2. **TTL 没接心跳**：第一版 TTL 从 **claim 时刻**起算 ⇒ 一条 30 分钟的 build 会半路自己关页签。改成**探测即心跳**（`studio_status(session)` 顺手把该会话名下 run 的 `ts` 顶到现在，30 秒内不重复落盘）。断言 A5b/A5c 锁住这两条。
+3. **关口不该挡住"人主动要看"**：`script_approved` 这道闸是用户 2026-10-01 定的（commit 5234d90，避免立项/写剧本阶段占右栏），**保留不动**；但历史 run 没打会话标 ⇒ 自动判定永远认不出来。⇒ 门禁里加一个 **「我就是要看，直接显示」**：只翻本地 `forced`，用 `fallback` 地址出台，**不写任何归属登记**（导出条因此仍拿不到 `run`、按钮保持 disabled —— 看可以，烧钱不行）。
+
+顺带纠正我本轮的一个错误结论：我说过"8 个 run 里 0 个有 `script_approved`"，那是**读了 run.json 顶层 `flags`**（不存在该字段）；真值在 `review.script_approved`，由 `stage_flags()` 现算。实际 8 个里 **4 个过了 Gate1.5**，但这 4 个都是打标机制之前的老 run（无会话标），而带标的 2 个还没过闸 ⇒ 交集为空，这才是"omni 什么都不弹"的真实原因（另加 8765 当时没在跑）。
+
+**回归从 33 条涨到 73 条**（presence 28 / client 16 / export gates 29）。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）
