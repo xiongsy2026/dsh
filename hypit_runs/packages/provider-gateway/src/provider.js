@@ -9,6 +9,15 @@ import {
 export const providerModule = { name: "@weeksir/provider-gateway", version: "1" };
 export const capability = { module: { name: "@hypit/seedance", version: "1" }, name: "seedance-2-mini" };
 
+// need id 实测长这样（整串百分号编码，plan --json 里看到的）：
+//   need:author%3AC%3A%5Cdsh%5Chypit_runs%5Cproductions%5Cnose-cream%5Cnose.svml%3A%3Acomponent%3A%3Afinal:request-audio-render
+// 摘出源文件绝对路径给网关当显示归属；越界路径由服务端丢弃。
+export function projectFromNeed(id) {
+  const dec = decodeURIComponent(String(id || ""));
+  const body = dec.startsWith("need:") ? dec.slice(5) : dec;
+  return body.split("::")[0].replace(/^author:/, "").trim();
+}
+
 // 字段名必须与 hypit_bridge 收的一致；视频/音频参考本网关带不过去，仍映射出去、由服务端明确拒绝（不静默丢）。
 export const mapping = {
   capability, result: "video", routes: [
@@ -117,9 +126,15 @@ export function createVideoProvider(options) {
         return address(text(object(await upload.json()).url));
       });
       await context.reportProgress?.({ phase: `提交生成任务: ${model}` });
+      // project/need/session 只给网关做"这条腿属于哪个工程/哪条会话"的显示归属（进度台按它分组）。
+      // session 来自 DSH 注入给 agent 的 $DSH_SESSION_ID，agent 跑 build/studio 时导出 HYPIT_SESSION_ID 传进来；
+      // 路径与自报会话都会被服务端归一/限长，且明确不作为鉴权依据。
       const task = await json("/videos", secret, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...request.input, model, account: ACCOUNT }),
+        body: JSON.stringify({ ...request.input, model, account: ACCOUNT,
+                               project: projectFromNeed(context.need?.id),
+                               need: String(context.need?.id || ""),
+                               session: String(process.env.HYPIT_SESSION_ID || "") }),
       });
       const id = text(task.id), handle = { id }, receipt = { id };
       await context.checkpoint?.({ handle, receipt });
