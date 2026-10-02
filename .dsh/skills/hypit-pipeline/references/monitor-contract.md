@@ -121,3 +121,16 @@ studio 是 hypit 自带的 SVML 工作台：**左库 源文件(Source：Run+Auth
 3. 上游成功一段后**积分才会扣**（失败=rolled_back，实测 0 扣费），所以反复重跑不产生账目，但产生等待时间与真实上游压力。
 4. **重启常驻 8100 前先查有没有在跑的 job**（`SELECT id,state FROM jobs WHERE state IN ('queued','running')`）——我两次重启打断了用户自己的 build。
 5. 未证实项（别当结论用）：同期 Google Flow 的"Image uploads are failing…"公告与我们 `参考图` 类失败**无证据同源**（不同上游，症状同名）；"换参考图托管源"的对照实验用户决定暂不跑。
+
+## §8 段级复用（build 失败后的标准处置·已免费验证，别再整条重跑）
+
+单段成功率 ≈56% ⇒ 4 段全成 ≈10%。**别重掷**：把已成功的段固化成素材，只补缺的那几段。
+
+1. 找成功段：`D:\video-skill\.gateway_jobs.sqlite` 里 `state='succeeded'` 的行，`output` 指向 `D:\video-skill\outputs\_hypit_jobs\<jid>.mp4`；用 `request` 里的 prompt 前 20 字对应回 `segN`。
+2. 拷进工程：`copy ... -> C:\dsh\hypit_runs\assets\segN.mp4`（`assets/` 已被 gitignore，别 commit）。
+3. 改 SVML：把那段整块 `<seedance:ReferenceVideo id="segN-video" …>…</seedance:ReferenceVideo>` **换成一行**
+   `<media:Video id="segN-file" src="../../assets/segN.mp4"/>`
+   ⚠️ 两个坑：① `media:Video` 发布的是**裸 id**（不是 `segN-file.video`），所以下游要写 `pipeline:Normalize … source={segN-file}`；② `src` 按**声明它的源文件**位置解析（`../../assets/` = 相对 `productions/<task>/`）。
+4. **免费校验**：`hypit check <src>` 过语法 → `hypit plan <src>` 看 `Provider requests` 有没有按预期减少（实测 4→2、`Preflight ready`）→ 才 build。
+5. 已验证样例：`hypit_runs\productions\e2e-reuse\rerun.svml`（seg1/seg2 素材、seg3/seg4 生成 ⇒ plan=2）。
+6. 段数与 5s 时长要一致（`media:Track Item for="5s"`），素材本身若不是 5s 就先 `hypit media probe` 看时长，别硬套。

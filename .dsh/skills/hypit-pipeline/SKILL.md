@@ -43,6 +43,8 @@ whenToUse: >
    → 2 hypit check <src>（lint）→ 3 hypit plan <src>（看结构·不花钱·确认生成腿落在 weeksir.gateway）
    → 关口A【方案+预算批准】hypit pricing <src> 出成本（读的是网关 /rates），build 花钱前把 plan+pricing 摆给人，人批才继续
    → 4 hypit runtime up → hypit build <src> --follow（异步·花钱·长）→ hypit status/builds/logs 看进度
+     ⚠️ 部分段失败：**别整条重跑**，按 monitor-contract §8 段级复用（成功段换成 `<media:Video>` 素材引用、只补失败段），
+     改完先 `hypit plan` 看 Provider requests 变少再 build（免费校验，实测 4→2）
    → 关口B【抽帧 QA】看 任务/产物 面板（studio 已挂右栏）或 hypit media frames 出图核对
    → 5 成片：hypit get <build-id> --output <name> --to <路径> 导出
    → 关口C【成片验收】成片在对话交付，人验收

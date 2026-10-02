@@ -1,0 +1,67 @@
+<?svml using="@hypit/markup@1"?>
+<svml>
+  <import as="copy" from="@hypit/text@1"/>
+  <import as="seedance" from="@hypit/seedance@1"/>
+  <import as="media" from="@hypit/media@1"/>
+  <import as="pipeline" from="@hypit/media-pipeline@1"/>
+  <import as="time" from="@hypit/timeline-author@1"/>
+  <import as="media-track" from="@hypit/media-track@1"/>
+  <import as="space" from="@hypit/spatial@1"/>
+  <import as="program" from="@hypit/program-space@1"/>
+  <import as="film" from="@hypit/film@1"/>
+  <import as="render" from="@hypit/render-hyperframes@1"/>
+  <import as="look" source="../futie-replica/look.svs"/>
+
+  <space:Canvas id="canvas" width="1080" height="1920"/>
+  <program:Clock id="clock" frame-rate="30"/>
+  <space:Frame id="full" within={canvas} left="0%" top="0%" right="100%" bottom="100%"/>
+
+  <media:Image id="face-ref" src="../../assets/char-face-ref.jpg"/>
+  <media:Image id="bottle-ref" src="../../assets/main-gummy-bottle.jpg"/>
+
+  <!-- 已成功的两段：直接引用本地素材（不再产生生成请求 = 段级复用） -->
+  <media:Video id="seg1-file" src="../../assets/seg-a.mp4"/>
+  <media:Video id="seg2-file" src="../../assets/seg-b.mp4"/>
+
+  <copy:Value id="dir3">
+    The same young woman now outdoors in natural daylight, noticeably rosier complexion, holding a
+    small white single-serve wrapper, tearing it open and eating one red bear gummy, smiling to the
+    camera. Cool outdoor light, casual handheld selfie angle. No dialogue, no lip movement.
+  </copy:Value>
+  <copy:Value id="dir4">
+    The same young woman sitting in a car, seatbelt across her chest, holding the full amber bottle up
+    toward the camera, smiling confidently, then a final hold with a soft closing smile. Daylight
+    through the car window, handheld selfie angle. No dialogue, no lip movement.
+  </copy:Value>
+
+  <seedance:ReferenceVideo id="seg3-video" model="mini" prompt={dir3}
+    duration="5" resolution="720p" aspect-ratio="9:16" generate-audio="false">
+    <seedance:Reference image={face-ref} person-reference="true"/>
+    <seedance:Reference image={bottle-ref} person-reference="false"/>
+  </seedance:ReferenceVideo>
+  <seedance:ReferenceVideo id="seg4-video" model="mini" prompt={dir4}
+    duration="5" resolution="720p" aspect-ratio="9:16" generate-audio="false">
+    <seedance:Reference image={face-ref} person-reference="true"/>
+    <seedance:Reference image={bottle-ref} person-reference="false"/>
+  </seedance:ReferenceVideo>
+
+  <pipeline:Normalize id="nm1" source={seg1-file} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+  <pipeline:Normalize id="nm2" source={seg2-file} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+  <pipeline:Normalize id="nm3" source={seg3-video.video} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+  <pipeline:Normalize id="nm4" source={seg4-video.video} clock={clock} video="primary-moving" audio="none" span-authority="video"/>
+
+  <time:Timeline id="tl" clock={clock} end="20s"/>
+
+  <media-track:Track id="pic" timeline={tl.timeline} canvas={canvas}>
+    <media-track:Item id="s1" media={nm1.media} frame={full} appearance={look.media.full} at="0s" for="5s"/>
+    <media-track:Item id="s2" media={nm2.media} frame={full} appearance={look.media.full} at="5s" for="5s"/>
+    <media-track:Item id="s3" media={nm3.media} frame={full} appearance={look.media.full} at="10s" for="5s"/>
+    <media-track:Item id="s4" media={nm4.media} frame={full} appearance={look.media.full} at="15s" for="5s"/>
+  </media-track:Track>
+
+  <film:Film id="main" canvas={canvas} timeline={tl.timeline} appearance={look.film.main}>
+    <film:Track source={pic.visual}/>
+  </film:Film>
+
+  <render:Video id="final" composition={main.composition} timeline={tl.timeline}/>
+</svml>
