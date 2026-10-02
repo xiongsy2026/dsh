@@ -10,6 +10,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+# gflow-cli 是控制台程序：不带这个标志，每次调用都会闪一个黑窗（右栏每 2.5 秒轮一次状态时尤其明显）
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 
 
@@ -93,7 +96,7 @@ def gflow_generate(cfg, prompt, refs, out_dir, aspect="9:16", log=None):
             log("gflow %s (%d 张参考图)" % ("i2i" if ref_list else "t2i", len(ref_list)))
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace", timeout=900, env=env)
+                                  errors="replace", timeout=900, env=env, creationflags=_NO_WINDOW)
         except subprocess.TimeoutExpired:
             raise RuntimeError("gflow 900s 超时")
         stdout = (proc.stdout or "") + (proc.stderr or "")

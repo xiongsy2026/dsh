@@ -31,6 +31,9 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 
 PORT = int(os.environ.get("VIDEO_UI_PORT", "8765"))
+# Windows：子进程默认闪控制台窗口。右栏工作台每 2.5 秒轮一次状态接口，
+# 而状态接口会起 gflow.exe（两个进程）⇒ 不禁掉就是满屏黑窗闪。
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # 剧本/运镜/产品卡/翻译等文本咽喉的默认模型：一处定义，值来自 store.DEFAULT_CONFIG（现为 agnes-3.0-flash）。
 DEFAULT_SCRIPT_MODEL = store.DEFAULT_CONFIG["script_model"]
@@ -240,7 +243,22 @@ def doubao_status():
     return st
 
 
+_GFLOW_TTL = 30.0
+_gflow_cache = {}
+
+
 def gflow_status(cfg):
+    """登录态检查带 30 秒缓存：状态接口每 2.5 秒被轮一次，每次都起两个 gflow 进程既闪窗又费机器。"""
+    exe = str(cfg.get("gflow_exe", ""))
+    hit = _gflow_cache.get(exe)
+    if hit and time.time() - hit[0] < _GFLOW_TTL:
+        return hit[1]
+    st = _gflow_status_live(cfg)
+    _gflow_cache[exe] = (time.time(), st)
+    return st
+
+
+def _gflow_status_live(cfg):
     """gflow 登录态：跑 `auth status`（不开浏览器/不烧额度，退出码 0=已登录）+ `auth list --json` 拿账号名。只读，不改登录。"""
     exe = cfg.get("gflow_exe", "")
     st = {"exe_present": bool(exe) and Path(exe).exists(), "logged_in": False,
@@ -249,14 +267,14 @@ def gflow_status(cfg):
         return st
     try:
         r = subprocess.run([exe, "auth", "status"], capture_output=True, text=True,
-                           timeout=30, encoding="utf-8", errors="replace")
+                           timeout=30, encoding="utf-8", errors="replace", creationflags=_NO_WINDOW)
         st["logged_in"] = (r.returncode == 0)
     except Exception as exc:
         st["error"] = str(exc)[:140]
         return st
     try:
         r2 = subprocess.run([exe, "auth", "list", "--json"], capture_output=True, text=True,
-                            timeout=30, encoding="utf-8", errors="replace")
+                            timeout=30, encoding="utf-8", errors="replace", creationflags=_NO_WINDOW)
         profiles = json.loads((r2.stdout or "").strip() or "[]")
         cur = next((p for p in profiles if p.get("is_default")), profiles[0] if profiles else None)
         if cur:

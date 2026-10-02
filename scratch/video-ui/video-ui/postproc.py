@@ -8,10 +8,13 @@ from pathlib import Path
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
 
+# Windows 下子进程默认会闪一个控制台窗口。右栏工作台每 2.5 秒轮一次状态，闪起来没完 ⇒ 一律禁掉。
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def _run(cmd, timeout=1800):
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=timeout)
+                          errors="replace", timeout=timeout, creationflags=_NO_WINDOW)
     return proc
 
 
@@ -205,7 +208,7 @@ def grab_frame(path, at, out, box=None):
     if box:
         cmd += ["-vf", "crop=%d:%d:%d:%d" % (int(box["w"]), int(box["h"]), int(box["x"]), int(box["y"]))]
     cmd += ["-f", "image2pipe", "-vcodec", "png", "-"]
-    proc = subprocess.run(cmd, capture_output=True, timeout=300)
+    proc = subprocess.run(cmd, capture_output=True, timeout=300, creationflags=_NO_WINDOW)
     if proc.returncode != 0 or not proc.stdout:
         return None
     return Image.open(io.BytesIO(proc.stdout)).convert("L")
