@@ -172,6 +172,38 @@ const WORKBENCHES = [
 **新会话**：两条流水线都无意图 ⇒ 一条都不弹。不需要"猜意图"，这正是产品要的行为。
 **老 run 没打会话标**（打标点机制之前那 4 条有进度的 run）⇒ 认不出意图；页签体给一个「我就是要看，直接显示」出口，只翻本地状态、不写登记，所以拿不到 run、导出条也不给。
 
+
+## 🔴 铁律（第三次修订·最终版）：意图是一个显式动作
+
+用户把目标定成铁律：**「新会话不要出现 UI；确认是 omni 还是 hypit 还是后面的别的 skill，明确意图后出现 UI。」**
+
+之前两版都靠**痕迹**推断意图（hypit=claim 过的 run、omni=盘上带会话标的 run），两头都出错：
+**该弹的不弹**（agent 从不执行那个"可选"的 claim）、**不该弹的乱弹**（一条会话同时留着两条流水线的痕迹）。
+⇒ 意图必须是一个**有名字的命令**，而不是一个可选步骤：
+
+```
+python D:/video-skill/backend/hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [任务名]
+python ... intent-clear <会话id>      # 做完了收口
+python ... intent-show                # 运维：现在谁挂着哪条流水线
+```
+
+判定优先级与排他性：
+
+| 情况 | 结果 |
+|---|---|
+| 有显式登记 | **只**挂 `skill` 匹配的那一个台；其余回 `reason:"intent-is-<别的skill>"` |
+| 无登记、有痕迹 | 退到佐证（hypit=claim 过的 run／omni=盘上带该会话标的 run） |
+| 都没有 | 新会话 ⇒ `no-intent` ⇒ **零 UI** |
+
+- **登记了但还没产出也照样挂台**（早期视图可见，不必等已建 run）。
+- `studio-claim` 会顺手把该会话钉成 `hypit`（兜底），但契约要求显式登记。
+- 状态文件 `D:/video-skill/.gateway_intent.json`（已进 .gitignore）；`ops` 视图回 `intents` 清单。
+- 回归：`scripts/check-intent-rule.py`（13 条）。**线上实测**：nose 那条会话登记 `hypit` 后
+  `omni=intent-is-hypit`、`hypit=intent:True, up:False, reason:not-claimed`；未登记会话两台全 `no-intent`。
+- 提交 D `5d5e2f2` / C `56e1056`（`AGENTS.md` 新增「右栏 UI 铁律」节 + omni/hypit 两个 skill 契约同步）。
+
+**教训（写下来防再犯）：标着"可选"的步骤等于不存在的步骤。** 铁律必须落成一条命令 + 一条断言。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）
