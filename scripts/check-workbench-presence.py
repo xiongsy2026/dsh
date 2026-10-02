@@ -101,6 +101,20 @@ check("A8 空 session / 空 run 都拒",
       ["error" in hb.studio_claim("", RUN, 5179), "error" in hb.studio_claim("session-X", "", 5179)],
       [True, True])
 
+# ══ A8b 🔴 裸跑 release 不许抹全局（2026-10-02 实际踩过：漏会话 id ⇒ 归属登记一次清光）══
+hb.studio_claim("session-D", "productions/other/x.svrun", 5179)     # 第二个 run，用来验"不动别人"
+before8 = sorted(mark())
+r0 = hb.studio_release()                                            # 等价于 CLI 裸跑 studio-release
+check("A8b 无参 release 被拒（回 error，不静默清空）", "error" in r0, True)
+check("A8c 拒的时候一份登记都没动", sorted(mark()) == before8, True)
+check("A8d 报错里带当前归属，让人知道该摘谁", "session-C" in json.dumps(r0, ensure_ascii=False), True)
+hb.studio_release("session-D")
+check("A8e 按会话释放照旧生效（名单空了才撤那个 run）", sorted(mark()), ["productions/hypit-e2e"])
+r_all = hb.studio_release(all_sessions=True)      # 清空 = 整份文件删掉（生产里那次"文件不见了"就是这个）
+check("A8f 只有显式 all_sessions 才允许整份清空",
+      [r_all.get("scope"), (not os.path.exists(hb.STUDIO_MARK)) or mark() == {}], ["all", True])
+hb.studio_claim("session-C", RUN, 5179)                             # 还给 A9 用
+
 # ══ A9 意图是持久的：超时只影响"活着"那一层，不再撤销页签 ══════════════════════════
 rec = mark()
 for v in rec.values():

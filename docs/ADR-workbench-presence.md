@@ -272,7 +272,8 @@ run 文件不会自己过期 ⇒ 这条会话以后每次切回来都弹，跟�
 ⚠️ 审计中发现（未定责）：`D:/video-skill/.gateway_studio.json` 整份不见了，里面原本挂着 2 个 assemble 的陈旧 claim。
 可疑入口是 `studio_release(session, run)` 在两个参数都为空时**整条作废**（`hypit_bridge.py:196-201`），
 裸跑 `hypit_bridge.py studio-release`（漏了会话 id）就会走到那一路。现下无实际影响（陈旧 claim 本来就不该弹台），
-但这是个脚枪：待拍板的收口 = 无参数时必须显式带 `--all`，否则报错并提示怎么按会话释放。
+但这是个脚枪 ⇒ **已修（同日）**：`studio_release()` 无参不再"整条作废"，必须显式 `all_sessions=True`（CLI 写 `--all`），否则回 `error` + 当前归属清单，一份登记都不动。线上实测：裸跑被拒、自测 claim 原样保留、按会话释放后复原为空。
+顺带修掉另一个静默入口：`set_intent` 的 `os.replace` 在 Windows 上会被索引器/杀软撞到 `WinError 5`（实测一次绿一次炸），现在重试 4 次、最终失败明确回 error——这份登记决定台弹不弹，撞锁不许当没事。回归 +7 条（A8b–A8f + 8/8b）⇒ intent-rule 29 · presence 45 · 五套合计 140。
 
 ## 相关
 

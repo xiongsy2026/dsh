@@ -109,6 +109,34 @@ view = {r["session"]: r["skill"] for r in hb.intent_view()}
 check("6 运维视图列得出全部会话意图", [view.get("session-A"), view.get("session-B")], ["omni", "hypit"])
 check("6b ops 视角的 omni 判定带 intents 清单", "intents" in hb.omni_status(None), True)
 
+# ── ⑧ 写盘撞锁不许静默丢登记（Windows 上 os.replace 偶发 WinError 5，实测会一次绿一次炸）──
+hb.clear_intent(S)
+real_replace, calls = hb.os.replace, []
+
+
+def flaky(src, dst):
+    calls.append(1)
+    if len(calls) < 3:
+        raise PermissionError(13, "被索引器占用")
+    return real_replace(src, dst)
+
+
+hb.os.replace = flaky
+r = hb.set_intent(S, "omni", "撞锁重试")
+hb.os.replace = real_replace
+check("8 前两次撞锁第三次成功 ⇒ 登记照旧写入（返回里不该有 error）",
+      ["error" in r, len(calls), hb.intent_of(S)], [False, 3, "omni"])
+
+
+def always_locked(src, dst):
+    raise PermissionError(13, "一直占用")
+
+
+hb.os.replace = always_locked
+r2 = hb.set_intent(S, "hypit", "一直撞锁")
+hb.os.replace = real_replace
+check("8b 一直撞锁 ⇒ 明确回 error，不假装成功", ["error" in r2, hb.intent_of(S)], [True, "omni"])
+
 # ── ⑦ 泛化矩阵：规则不针对某条会话，只针对"登记的 skill 名" ────────────────────────
 #    有台的 ⇒ 只弹它那一个；没台的（super-clone/product-video/film 和纯提示词类）⇒ 零台，
 #    绝不许"没有对应台就随便弹一个"，也绝不许同时弹两个。
