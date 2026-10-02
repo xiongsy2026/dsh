@@ -204,6 +204,34 @@ python ... intent-show                # 运维：现在谁挂着哪条流水线
 
 **教训（写下来防再犯）：标着"可选"的步骤等于不存在的步骤。** 铁律必须落成一条命令 + 一条断言。
 
+## 🔴 第四次修订（最终·intent-only）：砍掉"退到佐证"那一档
+
+三修留了个兜底："没登记就退到痕迹佐证（omni=盘上有带本会话标的 run／hypit=claim 过的 run）"。
+**这个兜底本身就是猜意图，而且永不过期。**
+
+2026-10-02 实测事故：用户装了个纯提示词 skill（GPT-5.8 生视频 Prompt 库，没有引擎、不该挂任何台），
+切回那条会话却在弹 omni 工作台。查 presence 服务端：`intent:true, source:"run-tag",
+run:"20261002-174602-SPARK烟花棒30s剧情带货-4362", idle_age:4061s` —
+是 **67 分钟前**跑过的那条 omni run 带着该会话的标，被"佐证"档认成了主人。
+run 文件不会自己过期 ⇒ 这条会话以后每次切回来都弹，跟它现在在做什么完全无关。
+
+定稿规则（只剩两层，且"弹不弹"这一层只有一个来源）：
+
+| 情况 | 结果 |
+|---|---|
+| 显式登记成某 skill | **只**挂那一个台；其余回 `intent-is-<别的skill>`；登记了但还没产出也照样挂（早期视图） |
+| 没有显式登记 | **零 UI**。盘上的 run / 旧 claim 只是**显示用历史**，永不触发页签 |
+
+- 痕迹仍然要可见：hypit 在 `no-intent` 时回 `stale_claim`（告诉你以前 claim 过什么），
+  omni 登记后回 `run` / `ready` / `idle_age`。**可见 ≠ 拥有** — 这一档的边界就在这里。
+- 引擎动作 `studio-claim` 会顺手 `set_intent(…, "hypit")`：它本身就是显式动作，不算猜，保留。
+- `source` 字段只剩 `"explicit"`，`"run-tag"` 作废。
+- **纯提示词 / 知识库类 skill 一律不登记意图**（`.dsh/skills` 里 seedance-* 那 13 个 prompt 库、film-* 写作类）。
+  没有引擎 ⇒ 挂了就是空壳；就算误登记，两台也各回 `intent-is-<它>` 而不弹。
+- 回归：`check-intent-rule.py` **15 条**（新增 5/5b/5c 直接断"清掉意图⇒痕迹不算数"，5d 断未知 skill 不挂台）
+  + `check-workbench-presence.py` **40 条**（A15 整段重写：先断"有 run 没登记⇒不挂"，再登记断"挂"）。
+  改 presence 逻辑必须先过这 55 条。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）

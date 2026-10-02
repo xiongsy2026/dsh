@@ -1,9 +1,9 @@
 """铁律回归：新会话零 UI，明确意图之后才挂台（排他）。
 
-规则（docs/ADR-workbench-presence.md「意图铁律」）：
+规则（docs/ADR-workbench-presence.md「意图铁律」·2026-10-02 定稿 intent-only）：
   有显式登记 ⇒ 只挂 skill 匹配的那一个台，其余一律不挂
-  无显式登记 ⇒ 退到佐证（hypit=run 归属；omni=盘上有属于本会话的 run）
-  两者都没有 ⇒ 新会话，零 UI
+  无显式登记 ⇒ 零 UI。盘上的旧 claim / 带本会话标的 run 只是显示用历史，永不触发页签
+  （旧写法"退到佐证"会删掉一条会话的永久页签：67 分钟前跑过的 run 到现在还在弹）
 跑法：PYTHONIOENCODING=utf-8 python scripts/check-intent-rule.py
 """
 import json
@@ -84,13 +84,23 @@ hb.clear_intent(S)
 hb.studio_claim(S, "productions/nose-cream/nose.svrun", 5179)
 check("4 claim 即钉 hypit 意图", [hb.intent_of(S), both(S)], ["hypit", [False, True]])
 
-# ── ⑤ 退到佐证：意图记录丢了也不至于功能消失 ────────────────────────────────────
+# ── ⑤ intent-only：痕迹永不当触发器（取代旧的"退到佐证"）────────────────────────
+# 为什么要砍：run 带会话标、claim 只增不减，两者都不过期 ⇒ 一条会话"跑过一次"就永久拥有页签。
+# 2026-10-02 实测事故：装了个纯提示词 skill，切回会话却在弹 omni 台，就是这条兜底干的。
 hb.clear_intent(S)
-check("5 清掉意图后两台都靠佐证撑着（omni=3c 造的那条 run、hypit=claim）", both(S), [True, True])
+check("5 清掉意图 ⇒ 零 UI（盘上那条 omni run 和这个会话的旧 claim 都不算数）", both(S), [False, False])
+st = hb.studio_status(S)
+check("5b 旧 claim 不弹台，但要作为 stale_claim 摆给人看（可见≠拥有）",
+      [st["reason"], bool(st.get("stale_claim"))], ["no-intent", True])
 shutil.rmtree(FAKE_RUNS, ignore_errors=True)      # 把 3c 造的 omni run 撤掉
 fresh_runs()
 hb.studio_release(S)
-check("5b 佐证也没了 ⇒ 回到零 UI（不是残留）", both(S), [False, False])
+check("5c 痕迹也清了 ⇒ 依旧零 UI", both(S), [False, False])
+
+# ── ⑤b 纯提示词/知识库类 skill（不挂台的第 14~34 个）：登记了也不许乱挂 ──────────
+hb.set_intent(S, "seedance-prompt-library", "GPT-5.8 生视频 Prompt 库")
+check("5d 未知/无引擎的 skill ⇒ 两台都不挂，理由说清登记的是谁",
+      [both(S), hb.omni_status(S)["reason"]], [[False, False], "intent-is-seedance-prompt-library"])
 
 # ──  运维视图：谁挂着哪条流水线一眼可见 ────────────────────────────────────────
 hb.set_intent("session-A", "omni", "t1")

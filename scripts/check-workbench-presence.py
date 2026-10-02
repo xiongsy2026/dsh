@@ -143,24 +143,30 @@ SERVED["path"] = ""                                          # 生成工程 /__s
 check("A14 拿不到自报 run 时退回只认登记",
       [hb.studio_status("session-B").get(k) for k in ("up", "run_verified")], [True, False])
 
-# ══ A15 omni：意图 = 盘上有属于这条会话的 run ═════════════════════════════════════
+# ══ A15 omni：意图 = 显式登记；盘上的 run 只提供显示字段 ════════════════════════
+# 🔴 2026-10-02 定稿：痕迹不再触发页签。旧写法（"盘上有带本会话标的 run 就算意图"）
+#    因为 run 不过期，会让一条几小时前的 run 永久霸占右栏——实测事故：装了个纯提示词
+#    skill，切回会话却在弹 omni 台。这等于替用户猜意图，砍掉。
 make_run("20261001-aaa", "session-OMNI-1", approved=True)
 time.sleep(0.02)
 make_run("20261001-bbb", "session-OMNI-1")
-make_run("20260930-old", None)                                # 老 run 没打标 = 历史空窗的来源
+make_run("20260930-old", None)                                # 老 run 没打标
 refresh_runs()
+check("A15 有本会话的 run、但没登记 ⇒ 不挂台（痕迹不当触发器）",
+      hb.omni_status("session-OMNI-1")["intent"], False)
+hb.set_intent("session-OMNI-1", "omni", "回归用")
 o = hb.omni_status("session-OMNI-1")
-check("A15 有本会话的 run → 有意图", o["intent"], True)
+check("A15a 登记后挂台", o["intent"], True)
 check("A15b 台地址带上会话过滤", o["url"].endswith("session=session-OMNI-1"), True)
 check("A15c 关口只作为信息（ready），不作为弹的条件", "ready" in o, True)
-check("A15d 取最新的 run", o["run"], "20261001-bbb")
+check("A15d 登记后取最新的 run 显示", o["run"], "20261001-bbb")
 check("A15e 没表过态的会话无意图", hb.omni_status("session-NEVER")["reason"], "no-intent")
-check("A15f 老 run 没打标 ⇒ 认不出来（这就是要回填的原因）",
-      hb.omni_status("session-OMNI-1")["intent"] and "20260930-old" not in
-      [r["run"] for r in hb._runs_of_session("session-OMNI-1")], True)
+check("A15f source 只会是 explicit（run-tag 那档已废）", o["source"], "explicit")
+check("A15g 老 run 没打标 ⇒ 不在本会话的 run 清单里（可见性靠标，不靠猜）",
+      "20260930-old" not in [r["run"] for r in hb._runs_of_session("session-OMNI-1")], True)
 ALIVE["omni"] = False
 o = hb.omni_status("session-OMNI-1")
-check("A15g video-ui 没起：意图在、up 掉", (o["intent"], o["up"]), (True, False))
+check("A15h video-ui 没起：意图在、up 掉", (o["intent"], o["up"]), (True, False))
 ALIVE["omni"] = True
 
 # ══ A16 判定口一次给两台 ══════════════════════════════════════════════════════════

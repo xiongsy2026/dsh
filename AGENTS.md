@@ -6,11 +6,11 @@
 
 **2026-10-02 用户定：路由一定会理解错，所以不路由——以"调用技能"为准。**
 
-- 用户敲了 `/omni`、`/hypit-pipeline`、`/ai-film-router`… ⇒ 就按那个 skill 走，**第一步先登记意图**（见下节铁律），再干活。
+- 用户敲了 `/omni`、`/hypit-pipeline`、`/ai-film-router`、`/short-drama`… ⇒ 就按那个 skill 走，**第一步先登记意图**（见下节铁律），再干活。
 - 用户**没点 skill**、只描述需求（"帮我设计一个短剧带货的钩子"）⇒ **不要猜**。只做两件事：
   1. 正常回答能直接回答的部分（文案、分析、建议本身不需要引擎）；
   2. 需要进引擎时，把候选列出来让他点，一句话就够：
-     `要出片的话点一下：/omni（电商产品视频）· /hypit-pipeline（video-as-code 工程化）· /ai-film-router（影视短片）`
+     `要出片的话点一下：/omni（电商产品视频）· /hypit-pipeline（video-as-code 工程化）· /short-drama（剧情带货短剧，含 RAG 剧本知识库）· /ai-film-router（影视短片单阶段）`
 - **禁止**因为"这句话像某条流水线"就擅自进入某个 skill、擅自建 run、擅自起引擎。
 - 目录里没有的 skill 不要假装会做。未上架的（`/super-clone`、`/cs-*`）不接管。
 
@@ -27,6 +27,7 @@
 ```
 python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [任务名]
 #   <skill> = 用户刚点的那个：omni | hypit | super-clone | product-video | film
+#   只有【带引擎】的流水线才登记；纯提示词/知识库类 skill 不登记、不挂台
 #   换产品线 = 再登记一次覆盖；做完可 intent-clear <会话id>
 ```
 
@@ -35,12 +36,13 @@ python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [
 | 情况 | 结果 |
 |---|---|
 | 有显式登记 | **只**挂 skill 匹配的那个台，其余一律不挂（理由回 `intent-is-<别的skill>`） |
-| 没登记但有痕迹 | 退到佐证：hypit=该会话 claim 过的 run；omni=盘上有带该会话标的 run |
-| 都没有 | 新会话 | **零 UI** |
+| 没有显式登记 | **零 UI**。盘上的痕迹（旧 claim / 带会话标的 run）**永不触发页签**，只当台里的显示信息 |
 
-- 引擎动作会自己钉意图：`studio-claim` 会自动把该会话登记成 `hypit`。但**别依赖它**——确认完就显式登记。
+- 🔴 **不靠痕迹兜底**（2026-10-02 第四次修订）：实测装了个纯提示词 skill，切回会话却在弹 omni 台——因为一条 67 分钟前的 run 带着该会话的标被当成"佐证"。run 不会过期 ⇒ "跑过一次"就成了永久产权，那仍然是在猜意图。
+- **纯提示词 / 知识库类 skill 不登记意图**：`seedance-*`（那 13 个 prompt 库）、`film-*` 写作类都没有引擎，挂了也只是空壳。它们照常干活（产出就是文案/提示词本身），只是不占右栏。
+- 引擎动作会自己钉意图：`studio-claim` 会自动把该会话登记成 `hypit`。但**别依赖它**——点了 skill 就显式登记。
 - 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。
-- 回归：`PYTHONIOENCODING=utf-8 python scripts/check-intent-rule.py`（13 条）。改这条逻辑必须先过它。
+- 回归：`PYTHONIOENCODING=utf-8 python scripts/check-intent-rule.py`（15 条）+ `scripts/check-workbench-presence.py`（40 条）。改这条逻辑必须先过它们。
 - ⚠️ 未接入网关的 skill **不得调用**：`product-video-pipeline` 目前直连 `https://zexapi.com`（`SKILL.md:81`、`scripts/poll_task.ps1:3`），绕开统一网关的预扣/结算/审计，且那条 key 实测欠费。改造到 `gateway.py call` 之前，即使被显式调用也要先告知用户这一条、不要直接花钱。
 - 因为"以调用为准"，**不再需要写电商/影视的划界规则**——判定权在用户点的 `/skill`，agent 不猜。
 
