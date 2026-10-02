@@ -48,9 +48,13 @@ const render = (Comp, props) => Comp(props);
 
 // ── 假 fetch：只认判定口和导出口 ────────────────────────────────────────────────
 let payload = {};
+let SILENT = false;          // true = 判定口没回话（8100 没起 / 抖了）：fetch 直接失败
 globalThis.fetch = url => {
   const u = String(url);
-  if (u.includes("/api/workbench/presence")) return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
+  if (u.includes("/api/workbench/presence")) {
+    if (SILENT) return Promise.reject(new Error("gateway-down"));
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
+  }
   if (u.includes("/api/hypit/export")) return Promise.resolve({ ok: true, json: () => Promise.resolve(payload.__export || {}) });
   return Promise.reject(new Error("no-route " + u));
 };
@@ -205,6 +209,35 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   const dead = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-W" }));
   check("11b 引擎死了：不给导出条", dead.includes("导出成片"), false);
   check("11c 但台还在，并告诉你怎么起", dead.includes("hypit studio --run"), true);
+
+  // 12~13b) 🔴 判定口哑掉（8100 没起/抖了）≠ 这条会话没意图：短哑不关台，长哑才认输，回来能再弹
+  const d = makeCtx({ v: "session-FLAP" });
+  payload = { omni: omni(true), hypit: hypit(true) };
+  mod.apply(d.ctx);
+  await run(d.calls);
+  check("12 有意图 ⇒ 两个台都弹了（后面的哑掉测试的基础）", d.calls.open.map(o => o[0]), [KEY, HKEY]);
+  const closes12 = d.calls.close.length;
+  SILENT = true;
+  await run(d.calls, 3);                       // 30 秒没回话
+  check("12b 判定口哑 30 秒：一个台都不关（旧版在这会把全部台关掉再弹回来=闪断）",
+        d.calls.close.length, closes12);
+  await run(d.calls, 9);                       // 累计 120 秒 > 90 秒容忍窗
+  check("12c 哑过 90 秒 ⇒ 认输关掉（fail-closed，不是永远挂着）",
+        closedKeys(d.calls, "session-FLAP", closes12), [HKEY, KEY].sort());
+  SILENT = false;
+  await run(d.calls);
+  check("13b 判定口回来 ⇒ 重新弹（上膛没坏）", d.calls.open.length, 4);
+
+  // 13) 冷启动就哑（一次判定都没拿到）⇒ 不许谎报"本会话不属于这个台"，要说"判定口没回话"
+  SILENT = true;
+  const coldSilent = await bodyJson(HKEY, "session-COLD-SILENT");
+  check("13 冷启动哑：说判定口没回话", coldSilent.includes("判定口没回话"), true);
+  check("13d 冷启动哑：不谎报成「本会话没意图」的门禁", coldSilent.includes("不属于当前会话"), false);
+  // 14) 哑但手上还有旧判定 ⇒ 沿用旧判定（继续出台，不换成门禁）
+  advance();
+  const keepOld = await bodyJson(HKEY, "session-Z");
+  check("14 哑时沿用上一次判定：还是出 iframe，不切成门禁", keepOld.includes('"tag":"iframe"'), true);
+  SILENT = false;
 
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);

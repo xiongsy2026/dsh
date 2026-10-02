@@ -261,6 +261,27 @@ class Run(object):
         }
 
 
+def _register_intent(session, run_name):
+    """建 run = 这条会话必然在做 omni ⇒ 顺手把右栏台页签的归属钉上（契约见 docs/ADR-workbench-presence.md）。
+
+    为什么不靠 agent 跑 intent 命令：2026-10-02 实测线上登记簿 0 条是 agent 自己登记的，
+    "该弹的不弹"就是这么来的。绑在必然发生的动作上，比写在散文里的铁律可靠。
+    右栏台是附带品 ⇒ 任何失败都不许影响建 run。
+    """
+    if not session:
+        return
+    try:
+        import sys
+        home = os.environ.get("VIDEO_SKILL_HOME", r"D:\video-skill")
+        backend = os.path.join(home, "backend")
+        if backend not in sys.path:
+            sys.path.insert(0, backend)
+        import hypit_bridge
+        hypit_bridge.set_intent(str(session), "omni", run_name)
+    except Exception:
+        pass
+
+
 def create_run(title, duration, mode="product", session=None):
     slug = re.sub(r"[^\w\-.\u4e00-\u9fff]+", "-", title.strip())[:40] or "run"
     name = "%s-%s-%s" % (datetime.now().strftime("%Y%m%d-%H%M%S"), slug, ("%04d" % (int(time.time()) % 10000)))
@@ -290,6 +311,7 @@ def create_run(title, duration, mode="product", session=None):
         "final": {},
     }
     run.save()
+    _register_intent(run.state["session"], run.name)
     return run
 
 

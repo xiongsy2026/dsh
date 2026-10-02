@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261002e";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261002f";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // ── 右栏工作台规则（docs/ADR-workbench-presence.md）────────────────────────────
@@ -37,19 +37,23 @@ window.__ModuleLoader__.load({
     }
 
     // 对账循环和多个页签体共用一次探测（5 秒内不重复打）
-    let cache = { sid: null, at: 0, p: Promise.resolve({}) };
+    let cache = { sid: null, at: 0, p: Promise.resolve(null) };
     function presence(sid) {
       const now = Date.now();
       if (cache.sid === sid && now - cache.at < 5000) return cache.p;
-      cache = { sid: sid, at: now, p: getJson(PRESENCE + encodeURIComponent(sid || "")).then(j => j || {}) };
+      // 回 null = 判定口没回话（8100 没起 / 抖了 / 回了不是判定形状）。
+      // 🔴 绝不能把 null 当"没意图"：那会让 8100 一重启就把每条会话的台全关掉再弹回来。
+      cache = { sid: sid, at: now, p: getJson(PRESENCE + encodeURIComponent(sid || "")).then(j =>
+        (j && (j.omni || j.hypit)) ? j : null) };
       return cache.p;
     }
 
     function stateOf(w, sid) {
-      if (w.scope === "ops") return Promise.resolve({ intent: true, up: true, url: w.fallback, how: "" });
+      if (w.scope === "ops") return Promise.resolve({ known: true, intent: true, up: true, url: w.fallback, how: "" });
       return presence(sid).then(j => {
+        if (!j) return { known: false, intent: false, up: false, url: "", reason: "gateway-silent" };
         const s = (j || {})[w.skill] || {};
-        return { intent: !!s.intent, up: !!s.up, url: s.url || "", port: s.port, run: s.run || "",
+        return { known: true, intent: !!s.intent, up: !!s.up, url: s.url || "", port: s.port, run: s.run || "",
                  reason: s.reason || "", how: s.how_to_start || w.start || "", idle: s.idle_age };
       });
     }
@@ -111,11 +115,16 @@ window.__ModuleLoader__.load({
     function WorkbenchBody(props) {
       const w = byKey[props && props.__wbKey];
       const sid = props && props.sessionId ? String(props.sessionId) : "";
-      const s = React.useState({ st: null, forced: false });
+      const s = React.useState({ st: null, forced: false, silent: false });
       const cur = s[0], setCur = s[1];
       React.useEffect(() => {
         let alive = true;
-        const tick = () => stateOf(w, sid).then(x => { if (alive) setCur(p => Object.assign({}, p, { st: x })); });
+        const tick = () => stateOf(w, sid).then(x => {
+          if (!alive) return;
+          // 判定口没回话：有旧判定就沿用旧判定（别闪），一点判定都没有才承认"不知道"
+          if (x.known) setCur(p => Object.assign({}, p, { st: x, silent: false }));
+          else setCur(p => Object.assign({}, p, { silent: !p.st }));
+        });
         tick();
         const t = setInterval(tick, 5000);
         return () => { alive = false; clearInterval(t); };
@@ -124,6 +133,16 @@ window.__ModuleLoader__.load({
       const ghost = { padding: "3px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer",
         border: "1px solid #3a4250", background: "#1b1f27", color: "#e6e9ef" };
       const shell = (node) => h("div", { style: { width: "100%", height: "100%", display: "flex", flexDirection: "column" } }, node);
+
+      // ⓪ 一次判定都没拿到（8100 没在跑）⇒ 说清是判定口哑了，别谎报"这个会话没意图"
+      if (!cur.st && cur.silent) {
+        return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
+          h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } }, w.label + "：判定口没回话"),
+          h("div", null, "8100（统一网关/判定口）没在跑，所以现在说不出这条会话该挂哪个台。"),
+          h("div", { style: { marginTop: 8 } }, "起它：",
+            h("code", null, "计划任务 WeeksirModelAdmin（schtasks /Run /TN WeeksirModelAdmin）"))
+        );
+      }
 
       // ① 没意图（新会话 / 别的流水线）⇒ 不挂台；人主动点开时给一个出口，但不改归属登记
       if (!st.intent) {
@@ -209,8 +228,19 @@ window.__ModuleLoader__.load({
           for (const w of WORKBENCHES) {
             if (!w.auto) continue;
             const mk = sid + "|" + w.key;
-            const st = mem[mk] || (mem[mk] = { armed: true, show: null });
+            const st = mem[mk] || (mem[mk] = { armed: true, show: null, silentSince: 0 });
             stateOf(w, sid).then(r => {
+              if (!r.known) {
+                // 判定口没回话 ≠ 这条会话没意图：已挂的台保持不动（8100 抖一下不该闪断）。
+                // 一点判定都没有过就维持"不弹"（fail-closed）；哑超过 90 秒才认输关掉。
+                if (st.show === null) return;
+                if (!st.silentSince) st.silentSince = Date.now();
+                if (Date.now() - st.silentSince < 90000) return;
+                st.silentSince = 0; st.show = false; st.armed = true;
+                tryClose(ctx, sid, w);
+                return;
+              }
+              st.silentSince = 0;
               const show = !!r.intent;
               if (show === st.show) return;
               const was = st.show;

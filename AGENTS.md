@@ -40,9 +40,9 @@ python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [
 
 - 🔴 **不靠痕迹兜底**（2026-10-02 第四次修订）：实测装了个纯提示词 skill，切回会话却在弹 omni 台——因为一条 67 分钟前的 run 带着该会话的标被当成"佐证"。run 不会过期 ⇒ "跑过一次"就成了永久产权，那仍然是在猜意图。
 - **纯提示词 / 知识库类 skill 不登记意图**：`seedance-*`（那 13 个 prompt 库）、`film-*` 写作类都没有引擎，挂了也只是空壳。它们照常干活（产出就是文案/提示词本身），只是不占右栏。
-- 引擎动作会自己钉意图：`studio-claim` 会自动把该会话登记成 `hypit`。但**别依赖它**——点了 skill 就显式登记。
-- 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。
-- 回归：`PYTHONIOENCODING=utf-8 python scripts/check-intent-rule.py`（15 条）+ `scripts/check-workbench-presence.py`（40 条）。改这条逻辑必须先过它们。
+- 引擎动作会自己钉意图（**这条现在才是真保险**）：omni = `store.create_run()` 带 session 时自动登记 `omni`；hypit = `studio-claim` 自动登记 `hypit`。显式 `intent` 命令照旧要跑，但**忘了跑不会再导致"该弹的不弹"**——2026-10-02 实测线上登记簿 0 条是 agent 自己登记的，所以把登记绑到了必然发生的动作上。
+- 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。判定口（8100）自己没回话时显示"判定口没回话"，**不许谎报成"这条会话没意图"**。
+- 回归（改这条逻辑必须先过）：`check-intent-rule.py` 15 条 · `check-workbench-presence.py` 40 条 · `check-workbench-client.mjs` 28 条 · `check-intent-anchor.py` 9 条（建 run⇒钉意图的锚点，含"登记炸了也不能让建片失败"）· `check-export-gates.py` 29 条。
 - ⚠️ 未接入网关的 skill **不得调用**：`product-video-pipeline` 目前直连 `https://zexapi.com`（`SKILL.md:81`、`scripts/poll_task.ps1:3`），绕开统一网关的预扣/结算/审计，且那条 key 实测欠费。改造到 `gateway.py call` 之前，即使被显式调用也要先告知用户这一条、不要直接花钱。
 - 因为"以调用为准"，**不再需要写电商/影视的划界规则**——判定权在用户点的 `/skill`，agent 不猜。
 

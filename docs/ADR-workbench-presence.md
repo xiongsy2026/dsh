@@ -232,6 +232,33 @@ run 文件不会自己过期 ⇒ 这条会话以后每次切回来都弹，跟�
   + `check-workbench-presence.py` **40 条**（A15 整段重写：先断"有 run 没登记⇒不挂"，再登记断"挂"）。
   改 presence 逻辑必须先过这 55 条。
 
+## 配套加固（同日·把"该弹的不弹"和"判定口单点"关掉）
+
+砍掉佐证后剩下的风险不在判定层，在它的上下游。两条都落码并实测：
+
+**① 意图登记绑到必然动作上（不再只靠 agent 记性）**
+- 依据：线上登记簿至今 0 条是 agent 自己登记的 ⇒ 铁律写在散文里等于没写（跟"可选步骤=不存在的步骤"同一个坑）。
+- omni：`store.create_run()` 建完 run 顺手 `set_intent(session, "omni", run名)`（`scratch/video-ui/video-ui/store.py`）。
+  只认 `session` 非空；不带 session 的老式调用不凭空登记任何人；`set_intent` 抛异常**也绝不能让建 run 失败**（右栏台是附带品）。
+- hypit：`studio_claim` 早就自登记，两个流水线现在都有锚。
+- 端到端实测：隔离端口 8799 的临时实例 `POST /api/run` ⇒ 登记簿出现 `{"session-E2E-ANCHOR":{"skill":"omni","task":"<run名>"}}`，run.json 的 session 一致。
+
+**② 判定口（8100）单点：三种 verdict 要分清，别把"没回话"当"没意图"**
+- 旧行为：fetch 失败 → `j || {}` → `intent:false` → **8100 一抖，每条会话的台全被关掉**，恢复后再弹（闪断）。
+- 新行为（`client.js` pv-20261002f）：`presence()` 回 `null` = 没回话；对账遇到 `null` 保持上一次判定不动，
+  **只有哑过 90 秒才认输关掉**（仍然 fail-closed，不会永远挂着）；一次判定都没拿到时页签体显示"判定口没回话 + 怎么起 8100"，
+  不再谎报"这条会话不属于这个台"。
+- 常驻服务自愈：`WeeksirModelAdmin` / `WeeksirVideoUI` 各加 **1 分钟重复时间触发器**，启动器加端口守卫（已在监听就 `exit /b 0` ⇒ 触发器幂等），
+  `ExecutionTimeLimit` 置 `PT0S`（原来 72 小时会把常驻进程掐掉）。
+  ⚠️ **`RestartCount=99` 是假保险**：启动器是 `.cmd` 里直接拉 `pythonw`，杀掉 pythonw 后 cmd 以 0 退出 ⇒ 计划任务判定"成功结束"，压根不走失败重启。
+  实测杀掉 8100：`RestartCount` 4 分钟没反应；换 1 分钟触发器后 **60 秒内自己回来**。8765 同样实测（重启 5 秒后自己回来）。
+
+**回归总数 105 → 121**：`check-intent-rule.py` 15 · `check-workbench-presence.py` 40 · `check-workbench-client.mjs` 28（新 12b/12c/13/13d/14 全是哑掉场景）
+· `check-intent-anchor.py` 9（新脚本）· `check-export-gates.py` 29。
+
+⇒ 教训：**判定层的可靠性来自"谁必然执行它"，不来自"规则写得多严"**。规则再严，没人执行就是"什么都不弹"；
+而"取不到判定"和"判定为否"必须分开，否则一个单点抖动会伪装成业务结论。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）
