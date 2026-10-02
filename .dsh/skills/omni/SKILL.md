@@ -55,7 +55,7 @@ Stage0.5 reason_brief(async) → 拿产品卡推理「卖点 + 3 个故事方向
      → 你回后 agent 落定：POST /country（推 COUNTRY_LANG 定台词/口播语言），必要时 run 级 voiceover_language/设置 覆写；**语言没定前不跑 ai_script**
 Stage1 ai_script(async，用你选的方向当 selling_points) 或 script(手工) [可 translate_script 补中文]
 Gate1.5 请示"方案 + 分镜脚本 + 口播文案"：把整张逐拍分镜表(拍号/景别·运镜动机/画面/台词/时长/keyframe要点)摊开贴对话让人逐拍审；**台词=口播文案，先过契约 §5.5「商用合规清单」**(极限词/功效宣称/虚假夸大/比价/版权/需资质→标出交人) **+ §5.6「文案质量红线」**(幼稚腔/翻译腔/空洞→先让 agnes 重写，改不动或涉品牌口吻的摆给人) → 人点头才 POST /gate{script}
-  → **`/gate{script}` 批准后，右栏「流水线」页签才自动弹出**（presence 触发=本会话 run 的 `flags.script_approved`；立项/选方向/写剧本阶段不弹，创意方案确认后才弹）
+  → **建了带本会话标的 run，右栏「流水线」页签就弹**（2026-10-02 定稿：弹出只看意图=盘上有属于本会话的 run，**不再等 `script_approved`**；关口降级为台内信息 `ready` 字段。立项/写剧本阶段台里就是早期视图，不藏台）
 Stage2 frames(async, backend=gflow|zexapi)
   → 监控: 轮询 state.job + state.frames；逐帧读 state.eyes_checks + 看图做语义 QA
   → 不合格按 §4 自愈（改 prompt / 换后端 / 单帧重跑），修到全合格

@@ -1,11 +1,14 @@
 /**
- * 右栏工作台对账逻辑回归（#32）：用假 ctx + 假 fetch 驱动 client.js 的 apply()，
- * 断言"该弹才弹、不该弹就关、换会话重新判定、没有启动即开的旁路"。
+ * 右栏对账逻辑回归（docs/ADR-workbench-presence.md）
+ * 假 ctx + 假 fetch 驱动 client.js 的 apply()，断言：
+ *   弹不弹只看【意图】；引擎死了台还在（里面提示怎么起）；新会话一条都不弹；
+ *   运维台永不自动弹；导出条只在有 run 时可点。
  * 跑法：node scripts/check-workbench-client.mjs
  */
 import { readFileSync } from "node:fs";
 
 const SRC = "C:/dsh/plugins/ops-gateway/lib/client.js";
+const KEY = "weeksir-pipeline-view", HKEY = "weeksir-hypit-view", MGKEY = "weeksir-model-gateway";
 const fails = [];
 let total = 0;
 const check = (name, got, want) => {
@@ -15,8 +18,13 @@ const check = (name, got, want) => {
   if (a !== b) fails.push([name, a, b]);
 };
 
-// ── 假 React：useState 真的存住状态；createElement 遇函数组件要【真递归渲染】——
-//    只生成描述符的话，body 断言会假阳性（压根没进 WorkbenchBody 就"通过"了）
+// 假时钟：presence 有 5 秒缓存，测试里靠推钟跨过去
+const realNow = Date.now;
+let clock = 0;
+Date.now = () => realNow() + clock;
+const advance = () => { clock += 10000; };
+
+// ── 假 React：createElement 遇函数组件必须【真递归渲染】，否则 body 断言是假阳性 ──
 const hookState = new Map();
 let hookKey = "", hookIdx = 0;
 const React = {
@@ -34,144 +42,156 @@ const React = {
     return [hookState.get(slot), v => hookState.set(slot, typeof v === "function" ? v(hookState.get(slot)) : v)];
   },
   useEffect: fn => { try { fn(); } catch (e) { console.log("effect err", e.message); } },
+  useRef: v => ({ current: v }),
 };
 const render = (Comp, props) => Comp(props);
 
-// ── 假 fetch：按 URL 前缀返回可编程结果 ─────────────────────────────────────────
-let routes = {};
+// ── 假 fetch：只认判定口和导出口 ────────────────────────────────────────────────
+let payload = {};
 globalThis.fetch = url => {
-  const hit = Object.keys(routes).find(k => String(url).includes(k));
-  if (!hit) return Promise.reject(new Error("no-route"));
-  const v = routes[hit];
-  return Promise.resolve(typeof v === "function" ? v() : { ok: true, json: () => Promise.resolve(v) });
+  const u = String(url);
+  if (u.includes("/api/workbench/presence")) return Promise.resolve({ ok: true, json: () => Promise.resolve(payload) });
+  if (u.includes("/api/hypit/export")) return Promise.resolve({ ok: true, json: () => Promise.resolve(payload.__export || {}) });
+  return Promise.reject(new Error("no-route " + u));
 };
+const omni = (intent, up = true) => ({ intent: intent, up: up, url: "http://127.0.0.1:8765/?session=s",
+                                       reason: up ? "" : "", ready: true });
+const hypit = (intent, up = true, run = "productions/hypit-e2e/assemble.svrun") =>
+  ({ intent: intent, up: up, port: 5179, run: up ? run : "", reason: up ? "" : "studio-down",
+     how_to_start: up ? "" : "hypit studio --run " + run + " --port 5179", run_verified: up });
 
-// ── 加载插件模块，拿到 apply/inject ────────────────────────────────────────────
+// ── 装载插件 ────────────────────────────────────────────────────────────────────
 let loaded = null;
 globalThis.window = { __ModuleLoader__: { load: m => { loaded = m; } } };
-new Function("window", "require", readFileSync(SRC, "utf8"))(globalThis.window, n => {
-  if (n === "react") return React;
-  throw new Error("unexpected require " + n);
-});
-const mod = loaded.factory(n => (n === "react" ? React : (() => { throw new Error(n); })()));
-
-check("inject 声明含 timer/sessions（否则 setInterval/会话读取会被 guard 拒）",
-  ["slots", "sidebarRightTabs", "sidebarRight", "timer", "sessions"].every(k => mod.inject.includes(k)), true);
-
-// ── 假 ctx（captured 收集 slots.register 进来的组件，供 body 断言用）─────────────
+new Function("window", "require", readFileSync(SRC, "utf8"))(globalThis.window, () => React);
+const mod = loaded.factory(() => React);
 const captured = {};
-function makeCtx(sid) {
+function makeCtx(sidRef) {
   const calls = { open: [], close: [], tick: null, subs: [] };
   const ctx = {
     effect: fn => { fn(); return () => { } },
     slots: {
-      inject: (name, fn) => { try { fn(); } catch (e) { } },   // 真 DSH 会调用它，注册回调里才 register
+      inject: (name, fn) => { try { fn(); } catch (e) { } },
       register: (meta, Comp) => { captured[meta.key + "|" + (String(meta.name).endsWith(".title") ? "title" : "body")] = Comp; },
     },
     sidebarRightTabs: { register: () => { } },
     sidebarRight: {
-      openTab: (key, opts) => calls.open.push([key, !!(opts && opts.revealIfOpened)]),
+      openTab: (key, options) => calls.open.push([key, !!(options && options.revealIfOpened)]),
       closeIn: (sessionId, tabId) => calls.close.push([sessionId, tabId]),
     },
-    sessions: { list: { getSnapshot: () => ({ current: sid.v }), subscribe: fn => calls.subs.push(fn) } },
+    sessions: { list: { getSnapshot: () => ({ current: sidRef.v }), subscribe: fn => calls.subs.push(fn) } },
     setInterval: fn => { calls.tick = fn; return 1; },
   };
   return { ctx, calls };
 }
-const KEY = "weeksir-pipeline-view", HKEY = "weeksir-hypit-view", MGKEY = "weeksir-model-gateway";
 const settle = () => new Promise(r => setTimeout(r, 0));
-
-// routes 的 value 只放【payload】，响应外壳由上面的 fetch stub 统一包（别在这里再包一层）
-const omni = approved => ({ "api/runs?session=": [{ flags: { script_approved: approved } }] });
-const hypit = j => ({ "/api/hypit/studio?session=": j });
+const settle5 = () => new Promise(r => setTimeout(r, 5));
+// 页签体要渲染两次：第一次触发 effect 拿判定，第二次才看得到结果
+const bodyJson = async (key, sid) => {
+  render(captured[key + "|body"], { sessionId: sid });
+  await settle5();
+  return JSON.stringify(render(captured[key + "|body"], { sessionId: sid }));
+};
+const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); calls.tick(); await settle(); } };
 
 (async () => {
-  // 1) omni 会话、hypit 不属于它 ⇒ 只弹流水线，绝不弹 Hypit
-  let sid = { v: "session-OMNI" };
-  routes = { ...omni(true), ...hypit({ up: false, reason: "not-owner" }) };
-  const { ctx, calls } = makeCtx(sid);
-  mod.apply(ctx);
-  calls.tick(); await settle(); calls.tick(); await settle();
-  check("1 omni 会话只弹流水线，运维台绝不自动弹", calls.open.map(o => o[0]), [KEY]);
+  check("inject 声明含 timer/sessions（否则 setInterval/读会话被 guard 拒）",
+    ["timer", "sessions"].every(k => mod.inject.includes(k)), true);
 
-  // 2) hypit 起来了（假→真）⇒ 上升沿弹一次
-  routes = { ...omni(true), ...hypit({ up: true, port: 5179, run: "productions/hypit-e2e/assemble.svrun" }) };
-  calls.tick(); await settle();
-  check("2 studio 起了就弹（上升沿）", calls.open.map(o => o[0]).includes(HKEY), true);
-  const nHypit = calls.open.filter(o => o[0] === HKEY).length;
-  calls.tick(); await settle();
-  check("3 持续为真不重复弹", calls.open.filter(o => o[0] === HKEY).length, nHypit);
+  // 1) 新会话：两台都无意图 ⇒ 一条都不弹
+  let sid = { v: "session-NEW" };
+  payload = { omni: omni(false, false), hypit: hypit(false, false) };
+  const a = makeCtx(sid);
+  mod.apply(a.ctx);
+  await run(a.calls, 2);
+  check("1 新会话不猜意图：一条页签都不弹", a.calls.open.map(o => o[0]), []);
 
-  // 4) 归属掉了（TTL 过期 / 换 run）⇒ 必须关，且重新上膛
-  routes = { ...omni(true), ...hypit({ up: false, reason: "not-owner" }) };
-  calls.tick(); await settle();
-  check("4 真→假会关页签（不再只开不关）", calls.close, [[sid.v, HKEY]]);
-  routes = { ...omni(true), ...hypit({ up: true, port: 5179, run: "r" }) };
-  calls.tick(); await settle();
-  check("5 关掉后重新为真会再弹（已重新上膛）", calls.open.filter(o => o[0] === HKEY).length, nHypit + 1);
+  // 2) 说了做 omni ⇒ 只弹流水线
+  payload = { omni: omni(true), hypit: hypit(false, false) };
+  await run(a.calls);
+  check("2 有 omni 意图 ⇒ 只弹流水线", a.calls.open.map(o => o[0]), [KEY]);
 
-  // 6) 关口没过（还没到方案批准）⇒ 流水线页签也不弹
-  const b = makeCtx({ v: "session-NEW" });
-  routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
+  // 3) 又去跑 hypit ⇒ 两个台都在（同会话跨流水线合法）
+  payload = { omni: omni(true), hypit: hypit(true) };
+  await run(a.calls);
+  check("3 hypit 意图出现 ⇒ 补弹一个", a.calls.open.map(o => o[0]), [KEY, HKEY]);
+
+  // 4) 🔴 关键新语义：studio 死了，台不该消失，只是里面换成"引擎没在跑"
+  const openedBefore = a.calls.open.length;
+  payload = { omni: omni(true), hypit: hypit(true, false) };
+  await run(a.calls, 2);
+  check("4 引擎死了不关台（弹的次数不变）", a.calls.open.length, openedBefore);
+  check("4b 台里显示引擎没在跑 + 怎么起",
+    (await bodyJson(HKEY, sid.v)).includes("hypit studio --run"), true);
+
+  // 5) 意图撤销（release 后）⇒ 关台并重新上膛
+  payload = { omni: omni(true), hypit: hypit(false, false) };
+  await run(a.calls);
+  check("5 意图没了会关台", a.calls.close, [[sid.v, HKEY]]);
+  payload = { omni: omni(true), hypit: hypit(true) };
+  await run(a.calls);
+  check("6 重新有意图会再弹（已重新上膛）", a.calls.open.filter(o => o[0] === HKEY).length, 2);
+
+  // 7) 持续为真不重复弹
+  await run(a.calls, 3);
+  check("7 持续为真不重复弹", a.calls.open.filter(o => o[0] === HKEY).length, 2);
+
+  // 8) 运维台永不自动弹，但手动开要出台
+  const b = makeCtx({ v: "session-OPS" });
+  payload = { omni: omni(true), hypit: hypit(true) };
   mod.apply(b.ctx);
-  b.calls.tick(); await settle();
-  check("6 未过关口不弹（新会话一条都不弹）", b.calls.open.map(o => o[0]), []);
+  await run(b.calls, 2);
+  check("8 运维台不自动弹", b.calls.open.map(o => o[0]), [KEY, HKEY]);
+  check("8b 手动开运维台照常出控制台",
+    (await bodyJson(MGKEY, "session-OPS")).includes("127.0.0.1:8100"), true);
 
-  // 7) 换会话 = 记忆清零重新判定，不把上一个会话的边沿带过来
+  // 9) 切走再切回：状态按 (会话,页签) 记，所以切回来后意图没了仍能等到下降沿把台关掉
   const c = makeCtx(sid);
-  routes = { ...omni(true), ...hypit({ up: true, port: 5179, run: "r" }) };
-  mod.apply(c.ctx); c.calls.tick(); await settle();
+  payload = { omni: omni(true), hypit: hypit(true) };
+  mod.apply(c.ctx);
+  await run(c.calls);
   sid.v = "session-OTHER";
-  c.calls.subs.forEach(fn => fn()); await settle();
-  check("7 切会话后按新会话重新弹一遍", c.calls.open.filter(o => o[0] === HKEY).length, 2);
+  payload = { omni: omni(false, false), hypit: hypit(false, false) };
+  c.calls.subs.forEach(fn => fn());
+  await run(c.calls);
+  check("9 切到无意图的新会话不会误关别人的台（页签本就按会话存）", c.calls.close, []);
+  sid.v = "session-NEW";
+  payload = { omni: omni(true), hypit: hypit(false, false) };
+  c.calls.subs.forEach(fn => fn());
+  await run(c.calls);
+  check("9b 切回老会话、意图已撤 => 关它自己的台", c.calls.close, [["session-NEW", HKEY]]);
 
-  // 8) 页签体冷启动是门禁，不是 iframe —— 关不掉页签时也不能把别人的引擎露出来
-  const hypitBody = captured[HKEY + "|body"];
-  check("8 未绑定时 body 渲染门禁、不渲染 iframe",
-    hypitBody ? JSON.stringify(render(hypitBody, { sessionId: "" })).includes('"tag":"iframe"') : null, false);
+  // 10) body 三态：无意图=门禁、有意图+活=iframe、有意图+死=起法
+  payload = { omni: omni(false, false), hypit: hypit(false, false) };
+  const cold = await bodyJson(HKEY, "session-X");
+  check("10 无意图时不渲染 iframe", cold.includes('"tag":"iframe"'), false);
+  check("10b 但给了「直接显示」出口", cold.includes("我就是要看"), true);
+  payload = { omni: omni(true), hypit: hypit(true) };
+  check("10c 有意图+活着 ⇒ 出 iframe 且端口来自判定口",
+    (await bodyJson(HKEY, "session-Y")).includes("localhost:5179"), true);
 
-  // 9) 运维台不自动弹，但手动打开必须能用（body 自己判 show=true → 渲染 iframe）
-  routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
-  const mgBody = captured[MGKEY + "|body"];
-  render(mgBody, { sessionId: "session-ANY" });        // 第一帧：effect 触发 probe
-  await new Promise(r => setTimeout(r, 10));
-  check("9 运维台手动打开仍出控制台（冷启动后落到 iframe）",
-    JSON.stringify(render(mgBody, { sessionId: "session-ANY" })).includes('"tag":"iframe"'), true);
-
-  // 10) 反向：本会话真拥有 studio 时，同一个 body 要出 iframe，且端口来自 presence 口给的那个
-  //     （没有这条，8 就只是"body 永远不出 iframe"的假阳性）
-  routes = { ...omni(false), ...hypit({ up: true, port: 5179, run: "productions/hypit-e2e/assemble.svrun" }) };
-  render(hypitBody, { sessionId: "session-MINE" });
-  await new Promise(r => setTimeout(r, 10));
-  check("10 拥有时 body 出 iframe，且端口来自 presence 口",
-    JSON.stringify(render(hypitBody, { sessionId: "session-MINE" })).includes("localhost:5179"), true);
-
-  // 11/12) 导出条只在"本会话已绑定"时出现（未绑定连按钮都不给，避免误点）
-  const hasBar = () => JSON.stringify(render(hypitBody, { sessionId: "session-MINE" })).includes("导出成片");
-  check("11 绑定了才出现导出条", hasBar(), true);
-  routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
-  render(hypitBody, { sessionId: "session-NOT" });
-  await new Promise(r => setTimeout(r, 10));
-  check("12 未绑定的会话不出现导出条",
-    JSON.stringify(render(hypitBody, { sessionId: "session-NOT" })).includes("导出成片"), false);
-
-  // 13) 门禁上的"我就是要看"要真能出台（关口防的是"未经请求就弹"，不该把主动要看的人挡在外面）
-  const findBtn = (node) => {
-    if (!node || typeof node !== "object") return null;
-    if (node.tag === "button" && typeof node.props.onClick === "function") return node;
-    for (const k of (node.kids || [])) { const f = findBtn(k); if (f) return f; }
-    return null;
+  // 11) 导出条：有 run 才能点；studio 死了不给 run ⇒ 按钮禁用
+  const findBtns = (node, out = []) => {
+    if (!node || typeof node !== "object") return out;
+    if (node.tag === "button") out.push(node);
+    for (const k of (node.kids || [])) findBtns(k, out);
+    return out;
   };
-  routes = { ...omni(false), ...hypit({ up: false, reason: "not-owner" }) };
-  const gate = render(hypitBody, { sessionId: "session-FORCED" });
-  await new Promise(r => setTimeout(r, 10));
-  const btn = findBtn(render(hypitBody, { sessionId: "session-FORCED" }));
-  check("13a 未绑定页签给了「直接显示」出口", !!btn, true);
-  if (btn) btn.props.onClick();
-  const forced = JSON.stringify(render(hypitBody, { sessionId: "session-FORCED" }));
-  check("13b 点下去之后出 iframe（用兜底地址）", forced.includes("localhost:5179"), true);
-  check("13c 但导出条没有 run 时不给点（未登记归属不许烧钱）",
-    /导出成片[^]*"disabled":true/.test(forced) || forced.includes('"disabled":true'), true);
+  payload = { omni: omni(false, false), hypit: hypit(true) };
+  render(captured[HKEY + "|body"], { sessionId: "session-Z" });
+  await settle5();
+  const live = render(captured[HKEY + "|body"], { sessionId: "session-Z" });
+  const bar = findBtns(live).find(x => JSON.stringify(x.kids).includes("导出成片"));
+  check("11 有 hypit 意图时给导出条", !!bar, true);
+  check("11a 有 run ⇒ 按钮可点", bar.props.disabled, false);
+  // 11b studio 死了走"引擎没在跑"分支 —— 那里根本没有导出条（比"禁用"更强）
+  payload = { omni: omni(false, false), hypit: hypit(true, false) };
+  render(captured[HKEY + "|body"], { sessionId: "session-W" });
+  await settle5();
+  const dead = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-W" }));
+  check("11b 引擎死了：不给导出条", dead.includes("导出成片"), false);
+  check("11c 但台还在，并告诉你怎么起", dead.includes("hypit studio --run"), true);
+
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);
   process.exit(fails.length ? 1 : 0);

@@ -87,7 +87,8 @@ studio 是 hypit 自带的 SVML 工作台：**左库 源文件(Source：Run+Auth
   - **`$DSH_SESSION_ID` 只有 DSH 自带 agent 才有**（内核按每次 bash 调用注入，见 `_setup/dsh-harness/.agents/notes/archived/feature/2026-07-10-agent-session-identity-and-log-location.md:22`）。**在 Qoder/ops 会话里它是空的 ⇒ 别 claim**（空 session 会被直接拒），也别指望右栏弹：那种 studio 只给 ops 自己看。确实要让某个 DSH 会话看到，就从运维视图取它的 id 再显式 claim：`curl "http://127.0.0.1:8100/api/hypit/studio"` → `seen[]`。
   - **run 参数给源文件路径**（不是裸工程名）：presence 会拿 studio 自报的 `source.path` 做交叉核对，工程目录对不上直接判死。
   - **不需要 release**：claim 带 30 分钟 TTL，右栏每 4 秒的探测就是心跳，没人看就自动失效（旧版"只增不减"就是永久产权那个 bug）。要立刻收口就 `studio-release <会话id>`。
-  - 谓词 = **归属 ∧ 存活 ∧ 交叉核对**，缺一即不弹：`?session=` 不匹配→`not-owner`；studio 自报的 run 与登记不符→`run-mismatch`；studio 探不到→`studio-down`；**不带 session 的请求只回 `reason:"ops-view"`、永不回 `up`**（专门堵死"端口活着"再被当成跨会话信号）。查：`studio-status <会话id>`。
+  - 🔴 **2026-10-02 定稿：弹不弹只看【意图】，一条合取都没有**。claim 就是意图登记、**持久不撤销**（旧版 30 分钟 TTL 会撤销 ⇒ 老会话回来什么都不弹，是错的）；studio 死了台照样在，里面显示「引擎没在跑 + 怎么起」。判定统一走 `GET /api/workbench/presence?session=`（一次回 omni + hypit 两台），别再单独打 `/api/hypit/studio`。登记封顶 20 个 run、只裁最旧。
+  - 旧谓词 = **归属 ∧ 存活 ∧ 交叉核对**，缺一即不弹：`?session=` 不匹配→`not-owner`；studio 自报的 run 与登记不符→`run-mismatch`；studio 探不到→`studio-down`；**不带 session 的请求只回 `reason:"ops-view"`、永不回 `up`**（专门堵死"端口活着"再被当成跨会话信号）。查：`studio-status <会话id>`。
 - 部署事实：插件 `client.js` 经 `AppData\Roaming\dsh-desktop\harness\profiles\web\node_modules\ops-gateway` **符号链接**指回 `C:\dsh\plugins\ops-gateway` ⇒ 改完**不用 pnpm install，重载 DSH 窗口即生效**；8100 改码则要重启计划任务 `WeeksirModelAdmin`（Stop-ScheduledTask → Stop-Process 旧 PID → Start-ScheduledTask）。
 
 ## §5 会话/任务绑定
