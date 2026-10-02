@@ -109,6 +109,27 @@ view = {r["session"]: r["skill"] for r in hb.intent_view()}
 check("6 运维视图列得出全部会话意图", [view.get("session-A"), view.get("session-B")], ["omni", "hypit"])
 check("6b ops 视角的 omni 判定带 intents 清单", "intents" in hb.omni_status(None), True)
 
+# ── ⑦ 泛化矩阵：规则不针对某条会话，只针对"登记的 skill 名" ────────────────────────
+#    有台的 ⇒ 只弹它那一个；没台的（super-clone/product-video/film 和纯提示词类）⇒ 零台，
+#    绝不许"没有对应台就随便弹一个"，也绝不许同时弹两个。
+MATRIX = [
+    ("omni", ["流水线"]), ("hypit", ["Studio"]),
+    ("super-clone", []), ("product-video", []), ("film", []),
+    ("seedance-prompt-library", []), ("ai-film-router", []), ("short-drama", []),
+]
+for sk, want in MATRIX:
+    hb.set_intent(S, sk, "矩阵")
+    got = [("流水线" if hb.omni_status(S)["intent"] else None),
+           ("Studio" if hb.studio_status(S)["intent"] else None)]
+    check("7 [%s] 只弹 %s（排他 + 没台就不弹）" % (sk, want or "零台"),
+          [x for x in got if x], want)
+# 换 skill = 覆盖：连续切换不能留下两个台
+for sk in ("omni", "hypit", "film", "omni"):
+    hb.set_intent(S, sk, "切换")
+    live = sum(1 for f in (hb.omni_status, hb.studio_status) if f(S)["intent"])
+    check("7x 切到 %s 后台数正好 1 或 0（不漏旧的）" % sk, live if sk != "film" else 0,
+          1 if sk != "film" else 0)
+
 shutil.rmtree(FAKE_RUNS, ignore_errors=True)
 for p in (hb.INTENT_MARK, hb.STUDIO_MARK):
     if os.path.exists(p):

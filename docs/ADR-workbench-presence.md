@@ -259,6 +259,21 @@ run 文件不会自己过期 ⇒ 这条会话以后每次切回来都弹，跟�
 ⇒ 教训：**判定层的可靠性来自"谁必然执行它"，不来自"规则写得多严"**。规则再严，没人执行就是"什么都不弹"；
 而"取不到判定"和"判定为否"必须分开，否则一个单点抖动会伪装成业务结论。
 
+## 活会话审计（把"严格匹配"变成可复查的动作，不是针对某条会话调出来的）
+
+`scripts/audit-presence-live.py`：枚举 DSH 真实会话目录（`%APPDATA%/dsh-desktop/harness/sessions/<工作区>/session-*`），
+逐条打判定口，同时列出三份独立证据源（意图登记簿 / `video_runs` 的 run 标 / studio claim 名单），
+按三条不变量核对：**弹台 == 登记**、**没登记 ⇒ 零台（痕迹不算）**、**任何会话最多一个台**。
+
+2026-10-02 实测：29 条真会话全部一致（登记簿 1 条 = 复刻会话 ⇒ 只弹 Studio；4 个会话有 omni run 痕迹但无登记 ⇒ 全部不弹，
+正是四修要的效果）。泛化由 `check-intent-rule.py` 的 ⑦ 矩阵锁住：`omni/hypit` 只弹各自那一个，
+`super-clone / product-video / film / 纯提示词类`（还没台或本来不该有台）⇒ **零台**，连续切换不漏旧台。回归 27 条。
+
+⚠️ 审计中发现（未定责）：`D:/video-skill/.gateway_studio.json` 整份不见了，里面原本挂着 2 个 assemble 的陈旧 claim。
+可疑入口是 `studio_release(session, run)` 在两个参数都为空时**整条作废**（`hypit_bridge.py:196-201`），
+裸跑 `hypit_bridge.py studio-release`（漏了会话 id）就会走到那一路。现下无实际影响（陈旧 claim 本来就不该弹台），
+但这是个脚枪：待拍板的收口 = 无参数时必须显式带 `--all`，否则报错并提示怎么按会话释放。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）
