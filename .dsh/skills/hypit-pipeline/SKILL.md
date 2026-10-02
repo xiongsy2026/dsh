@@ -54,7 +54,7 @@ whenToUse: >
 - 成片：`hypit get` 导出到 `productions/<task>/` 后 present。
 
 ## 铁律
-1. **build 前必过 pricing 预算批准**：hypit 按 Need 付费、build 一旦跑就花钱且耗时长（可到 1 小时）。pricing 成本 + plan 结构未经人批，绝不 build。
+1. **build 前必过 pricing 预算批准**：hypit 按 Need 付费、build 一旦跑就花钱且耗时长（可到 1 小时）。pricing 成本 + plan 结构未经人批，绝不 build。**失败别盲目重跑整条多段 build**：单段实测成功率约 3/10 ⇒ 4 段全成 ≈1%，先按 monitor-contract §7 读 detail/jobs 判断，验链改用 1 段最小工程 `hypit_runs\productions\e2e-one\`。
 2. **工程在 C:\dsh\hypit_runs、账在网关**：工程文件、产物、`.hypit` 状态都在 hypit_runs；生成腿一律经 `http://localhost:8100/api/hypit` → `gateway.invoke` 扣积分。**不 import D 的 Python、不点 D 的控制台、不碰 :8090/:8000**，也绝不让 hypit 绕开网关直连厂商。凭据只进 hypit 平台凭据存储，明文不落项目。
 3. **右栏 = native studio 工作台，不是 D 控制台**：`hypit studio --run X --port 5179` 是 hypit 官方 SVML 工作台（源文件/任务/产物 + 预览/属性），**未 build 也能开**；iframe 必须写 `http://localhost:5179/`（Vite 只听 `[::1]`，写 127.0.0.1 必白屏）。它 per-run、Ctrl+C 停，且**能写回工程文件**⇒ 只 ops 自用、不给客户。细节与 presence 见 monitor-contract §4。
 4. **会话绑定**：一条工程对应一个 `C:\dsh\hypit_runs` 下的 run 目录；在 `productions/<task>/` 记当前 run（跨会话靠档案，不靠 D）。

@@ -1,0 +1,50 @@
+<?svml using="@hypit/markup@1"?>
+<svml>
+  <import as="copy" from="@hypit/text@1"/>
+  <import as="seedance" from="@hypit/seedance@1"/>
+  <import as="media" from="@hypit/media@1"/>
+  <import as="pipeline" from="@hypit/media-pipeline@1"/>
+  <import as="time" from="@hypit/timeline-author@1"/>
+  <import as="media-track" from="@hypit/media-track@1"/>
+  <import as="space" from="@hypit/spatial@1"/>
+  <import as="program" from="@hypit/program-space@1"/>
+  <import as="film" from="@hypit/film@1"/>
+  <import as="render" from="@hypit/render-hyperframes@1"/>
+  <import as="look" source="../futie-replica/look.svs"/>
+
+  <space:Canvas id="canvas" width="1080" height="1920"/>
+  <program:Clock id="clock" frame-rate="30"/>
+  <space:Frame id="full" within={canvas} left="0%" top="0%" right="100%" bottom="100%"/>
+
+  <media:Image id="face-ref" src="../../assets/char-face-ref.jpg"/>
+  <media:Image id="bottle-ref" src="../../assets/main-gummy-bottle.jpg"/>
+
+  <copy:Value id="dir1">
+    A close mirror-selfie view of a young Chinese woman with an oval face, straight black center-parted
+    hair, minimal makeup, sitting at a home dressing table. She looks tired and pale, resting her chin
+    on her hand, then reaches out and opens the red cap of a dark amber glass bottle with a red printed
+    label. Soft warm indoor light, slight handheld vlog wobble. No dialogue, no lip movement.
+  </copy:Value>
+
+  <seedance:ReferenceVideo id="seg1-video" model="mini" prompt={dir1}
+    duration="5" resolution="720p" aspect-ratio="9:16" generate-audio="false">
+    <seedance:Reference image={face-ref} person-reference="true"/>
+    <seedance:Reference image={bottle-ref} person-reference="false"/>
+  </seedance:ReferenceVideo>
+
+  <pipeline:Normalize id="seg1-media" source={seg1-video.video} clock={clock}
+    video="primary-moving" audio="none" span-authority="video"/>
+
+  <time:Timeline id="tl" clock={clock} end="5s"/>
+
+  <media-track:Track id="pic" timeline={tl.timeline} canvas={canvas}>
+    <media-track:Item id="seg1" media={seg1-media.media} frame={full}
+      appearance={look.media.full} at="0s" for="5s"/>
+  </media-track:Track>
+
+  <film:Film id="main" canvas={canvas} timeline={tl.timeline} appearance={look.film.main}>
+    <film:Track source={pic.visual}/>
+  </film:Film>
+
+  <render:Video id="final" composition={main.composition} timeline={tl.timeline}/>
+</svml>

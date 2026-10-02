@@ -119,7 +119,7 @@ export function createVideoProvider(options) {
       await context.reportProgress?.({ phase: `提交生成任务: ${model}` });
       const task = await json("/videos", secret, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...request, model, account: ACCOUNT }),
+        body: JSON.stringify({ ...request.input, model, account: ACCOUNT }),
       });
       const id = text(task.id), handle = { id }, receipt = { id };
       await context.checkpoint?.({ handle, receipt });

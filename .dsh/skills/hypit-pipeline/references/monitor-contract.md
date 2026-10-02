@@ -99,3 +99,22 @@ studio 是 hypit 自带的 SVML 工作台：**左库 源文件(Source：Run+Auth
 4. **runtime up 才出片**：只 init 不 up，build 无 Worker（`hypit runtime status` 实测停着时 `Worker stopped`）。
 5. **D 的边界=只走 HTTP 契约**：生成腿经 `http://localhost:8100/api/hypit`（这**是**允许且要求的）；但 `:8090/:8000`、`hypit_workspace.py`、`D:\video-skill\hypit-workspace`、import D 的 Python 都不要再出现在本流程里（那是旧的 D 封装，已弃用）。
 6. **上游 skill 会被 npx 覆盖**：authoring 语法参考在 `.dsh/skills/hypit/`（只读）；本驱动契约只在 `hypit-pipeline/`，别写进上游。
+
+## §7 e2e 实测结论（2026-10-02·已花钱·别当成"链路坏了"去重跑）
+
+**✅ 全链已跑穿一次**：1 段最小工程 `hypit_runs\productions\e2e-one\e2e.svrun` → `hypit build` 6 步完成、出 `final.video`，付费段资产与 hypit 结果库文件**同大小同哈希**（2,392,271 字节 / sha1 `f5c49119a89a`，`result.json` 里输出名 `seg1-video.video`）。全程 ~30 分钟，其中 **~25 分钟只在等那一段付费生成** —— 排期要按这个数报给人。
+**这一段是被重试救回来的**：账本 `preauth→rollback→preauth→rollback→preauth→done`（3 次尝试、`MAX_ATTEMPTS=3` 用满）。所以**上游抖的时候，一次失败≠链路坏**；先看 detail 的错误类别再决定重跑。
+
+**链路是通的**，硬证据：网关侧资产 `D:\video-skill\outputs\_hypit_jobs\f5731b02….mp4`（1,870,530 字节 / sha1 `50520bfef489`）与 hypit 结果库 `.hypit\results\<日期>\<build>\files\file-0001.mp4` **同大小同哈希** ⇒ `gateway.invoke`→记账 50 分→`/api/hypit/assets`→**hypit collect**→Result Repository 无损耗。
+
+真实数字（5s·720p·seedance-2-mini，走 `video.generate/seedance-2.0`=vinted.cam）：
+- **单段耗时 305 / 359 / 373 / 405 秒**；上游约 400s 自判 `生成超时，请稍后重试（积分已退回）`。我们轮询上限现为 **1800s**（旧 900s 会把快成的片误杀）。
+- 失败集中在**上游抖参考图**：`503 参考图下载繁忙…请稍后使用同样的请求重试`、`400 参考图解析失败`、`生成超时`（都带 vinted `request_id`）。bridge 已按上游原话自动重试（同样请求、30/60s、最多 3 次）；**"轮询超时"不重试**（我们等够了≠上游没出片，重试=重复花费）。
+- **算式**：一条 build 要 N 段**全成**才过。实测单段成功率 3/10 ⇒ 4 段 ≈1%。所以"连跑 8 次全灭"= 上游稳定性 × 组合概率，**不是接线问题**。
+
+操作规矩（省钱省时）：
+1. **验链用 1 段最小工程**，别拿 4 段正片试：`hypit_runs\productions\e2e-one\e2e.svrun`（6 请求 / 5 个本地免费 / 只 1 段付费 ≈50 分）。
+2. build 失败先看 `hypit status <build-id>` 的 detail + `D:\video-skill\.gateway_jobs.sqlite` 的 `error`（含上游任务号可回溯），**不要直接重跑整条多段 build**。
+3. 上游成功一段后**积分才会扣**（失败=rolled_back，实测 0 扣费），所以反复重跑不产生账目，但产生等待时间与真实上游压力。
+4. **重启常驻 8100 前先查有没有在跑的 job**（`SELECT id,state FROM jobs WHERE state IN ('queued','running')`）——我两次重启打断了用户自己的 build。
+5. 未证实项（别当结论用）：同期 Google Flow 的"Image uploads are failing…"公告与我们 `参考图` 类失败**无证据同源**（不同上游，症状同名）；"换参考图托管源"的对照实验用户决定暂不跑。

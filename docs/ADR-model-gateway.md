@@ -58,14 +58,22 @@ python gateway.py test                                   # 各 route 真探活
 - hypit 侧写**一个** provider 包把 baseUrl 指这里、bindings 把 seedance/wan/… 全绑过来 → hypit 生成也走同一入口（✅ 已实装，见下面「hypit 生成腿接网关」节）。
 - ⚠️ 鉴权现状（实测）：8100 只绑 127.0.0.1；**`/api/hypit/*` 已验 `Authorization: Bearer $MODEL_GATEWAY_TOKEN`**（`.env` 里非空即生效，无 token=401），**`/api/model/*` 与面板 `/` 仍是裸的**（本机运维自用）。要给客户机/公网调，必须把校验铺到全部写端点并整体挪到 weeksir 服务端（3.0）。
 
-## hypit 生成腿接网关（2026-10-01 实装·未花钱验证）
+## hypit 生成腿接网关（2026-10-01 实装 · 2026-10-02 端到端实测）
 
 hypit 的 Provider 协议只认 HTTP（`POST /uploads`、`POST /videos`、`GET /videos/{id}`、`GET /rates`），不吃 Python 函数 ⇒ 它是统一网关的**唯一 HTTP 客户端**，不是第二条轨。
 
 - **服务端** = `backend/hypit_bridge.py`（挂在 8100 的 `/api/hypit/*`）：模型白名单 `HYPIT_MODELS`→网关 `(capability,purpose)`；`handle_submit` 建 sqlite jobs 行 + 守护线程跑 `gateway.invoke`（**预扣/结算/回滚全复用**），成功把 mp4 移到 `D:\video-skill\outputs\_hypit_jobs\<jid>.mp4` 并以 `/api/hypit/assets/<f>` 出片（jobs 状态存 `.gateway_jobs.sqlite`）；`check_support` 对超 10s、非 720p、视频/音频参考**明确拒绝**（不静默丢弃）。
 - **客户端** = 自写包 `C:\dsh\hypit_runs\packages\provider-gateway`（`@weeksir/provider-gateway`），Profile 里 endpoint `weeksir.gateway` + binding `@hypit/seedance@1#seedance-2-mini`；凭据 `weeksir.gateway` 走 hypit 平台凭据存储（`{store,platform,key}` 引用，明文不落盘）。
 - **三条硬约束**（都踩过）：① hypit 的 Profile 校验只收 https 或**主机名写作 `localhost`** 的 http，填 `127.0.0.1` 被拒 ⇒ baseUrl/PUBLIC_BASE 一律 `http://localhost:8100`（解析到 127.0.0.1，`::1` 不通）；② `pricing.kind="page"` 要求 https ⇒ 不声明 `pricing`，改 `readPricing()` 拉 `/rates`；③ 上游要能自己抓参考图 ⇒ `/uploads` 必须回**公网 URL**（现走 imgbb）。
-- **实测到哪一步**：`hypit plan` 显示生成腿 `→ weeksir.gateway (@weeksir/provider-gateway), bound in the Profile`；`hypit pricing` 读到我们的 /rates；鉴权 401/200、支持上限拒绝语义都验过。**`hypit build` 真花钱那条没跑**（需批准）。
+- **实测到哪一步（2026-10-02 端到端·已花钱）**：
+  - **回传链路确证通过**：网关侧资产 `outputs\_hypit_jobs\f5731b02….mp4`（1,870,530 字节 · sha1 前缀 `50520bfef489`）与 hypit 自己结果库 `.hypit\results\2026-10-01\bld_…8CE40F93B3\files\file-0001.mp4` **同大小同哈希** ⇒ `gateway.invoke` → 记账 50 分 → `/api/hypit/assets` → hypit collect → 落进 Result Repository 全程无损耗。`hypit plan/pricing` 也确认生成腿 `weeksir.gateway (@weeksir/provider-gateway)`、价目读我们的 `/rates`。
+  - **✅ 2026-10-02 全链首次跑穿（1 段最小工程 `hypit_runs\productions\e2e-one\`）**：`hypit build` 完成 6 步、产出 `final.video`；付费段资产 `a9d37276….mp4`（2,392,271 字节 · sha1 `f5c49119a89a`）与结果库 `file-0001.mp4` 同大小同哈希，且 `result.json` 里它的输出名就是 `seg1-video.video` ⇒ **生成→扣费→回传→收片→归一化→渲染→成片** 闭合。全程 ~30 分钟，其中 ~25 分钟在等那一段付费生成。
+  - **重试实测有效（这次正是被它救回来的）**：账本流水为 `preauth → rollback(5a58a48247da) → preauth → rollback(63a63c0be978) → preauth → done(15916d9a0d4c)` = 前两次上游失败、第 3 次成功（`MAX_ATTEMPTS=3` 刚好用满）。⇒ 上游抖的时候，**没有重试的旧版必然整条失败**（此前 8 连败含这种情况），别把它判成"我们接线坏了"。
+  - **单段真实延迟 305 / 359 / 373 / 405 秒**（5s·720p·seedance-2-mini）；上游自己会在 ~400s 判 `生成超时，请稍后重试（积分已退回）`。⇒ 我们轮询上限已从 900s 提到 **1800s**（900s 曾把正在成的片误判超时）。
+  - **失败几乎全在上游抖动**，实测三类（都带 vinted 的 `request_id`）：`503 参考图下载繁忙…请稍后使用同样的请求重试`、`400 参考图解析失败`、`生成超时（退积分）`。bridge 现按上游原话自动重试：**同样请求、退避 30/60s、最多 3 次**；⚠️ **刻意不重试"轮询超时"**——那是我们等够了、上游可能还在出片，重试等于重复花费。
+  - **一条 build 要 4 段全成才过**：按实测单段成功率 3/10 ⇒ 整条成功率 ≈1%。所以"8 次 build 全灭"是**上游稳定性 + 组合概率**问题，不是接线问题 ⇒ 结论：**别盲目重跑多段 build**；先拿"1 段最小工程"（`hypit_runs\productions\e2e-one\`，6 请求里 5 个本地免费、只 1 段付费）验链，再谈多段。
+  - 我方曾犯的错也记着：**422「请填写提示词」的真因在 provider 侧**——`POST /videos` 送的是 `{model, input:{字段}}` 信封（`{...request}` 没摊平），而服务端只读平铺字段 ⇒ prompt 传空。修法两处：`provider.js` 提交改成 `{...request.input, model, account}`（根因），`hypit_bridge._normalize()` 再把两种形状都摊平（兜底，已用两条真实请求回放验证）；另外**重启常驻 8100 会打断在途生成**（现在启动时把上个进程遗留的 `queued/running` 判死、遗留 `pending` 预扣回滚）。
+  - **未证实**：同期 Google Flow 公告（"Image uploads are failing for some users"）与我们的 `参考图` 类失败**没有证据表明同源**——vinted 与 Google Flow 是不同上游，只是症状同名；对照实验（同一条 1 段工程只换参考图托管源）用户决定暂不跑。
 - **license 边界**：hypit = *Apache-2.0 with conditions*（非纯开源）。自用、以及用它是给我们自己客户出片（产物归我们）可走；**把 hypit 打包分发给客户、或多租户对外服务，需 Hypit.AI 书面授权**（sales）。3.0 服务端化前先把这条谈定。
 
 ## 推理脑注册表（2026-10-01 全中转实测 · `text.complete` 现有 8 条腿）
