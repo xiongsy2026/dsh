@@ -101,6 +101,65 @@ finally:
 check("3 连续 6 次问不上才判死", [res2.get("success"), "连接失败" in str(res2.get("error"))], [False, True])
 check("3b 判死仍保留上游任务号", res2.get("job_id"), "up-stream-999")
 
+# ── ④ agnes-v（Flash·上游免费额度）分发契约：全程假客户端，一次网络都不碰 ──────────
+import types                                                 # noqa: E402,F401
+from backend.services import agnes_video_client as av        # noqa: E402
+
+seen = {}
+
+
+async def fake_create(prompt, *, seconds="5", aspect_ratio="9:16", images=None, seed=None):
+    seen["create"] = {"prompt": prompt, "seconds": seconds, "ratio": aspect_ratio, "images": images}
+    return {"data": [{"id": "vid-777"}]}                    # 故意用嵌套形状，测 _dig 能不能挖到
+
+
+async def fake_wait(vid, **kw):
+    seen["wait"] = vid
+    return {"status": "completed", "data": [{"video_url": "http://up/a.mp4"}]}
+
+
+async def fake_dl(url, dest):
+    seen["dl"] = [url, dest]
+    return dest
+
+
+real_av = (av.create_flash_task, av.wait_flash_task, av.download_file)
+av.create_flash_task, av.wait_flash_task, av.download_file = fake_create, fake_wait, fake_dl
+try:
+    res = gw.call("video.generate", "agnes-v", prompt="一条自测段", duration=5,
+                  image_urls=["http://i/1.jpg"], output_path="C:/tmp/a.mp4")
+    check("4 提交→轮询→落盘全通（id 从嵌套 data[0].id 里挖到）",
+          [res.get("success"), res.get("job_id"), res.get("path")], [True, "vid-777", "C:/tmp/a.mp4"])
+    check("4b 参数按标准名转给客户端（duration→seconds、image_urls→images）",
+          [seen["create"]["seconds"], seen["create"]["images"]], ["5", ["http://i/1.jpg"]])
+    check("4c 下载用的是轮询回来的 url", seen["dl"], ["http://up/a.mp4", "C:/tmp/a.mp4"])
+
+    async def boom_wait(vid, **kw):
+        raise RuntimeError("失败: 内容不合规")
+
+    av.wait_flash_task = boom_wait
+    r2 = gw.call("video.generate", "agnes-v", prompt="x")
+    check("4d 失败仍带 job_id + 说清可据此查上游（不让人重新盲跑）",
+          [r2.get("success"), r2.get("job_id"), "可据此查" in str(r2.get("error"))], [False, "vid-777", True])
+
+    async def no_id(prompt, **kw):
+        return {"status": "queued"}
+
+    av.create_flash_task, av.wait_flash_task = no_id, fake_wait
+    r3 = gw.call("video.generate", "agnes-v", prompt="x")
+    check("4e 上游没给 id 就明说，不假装在跑", [r3.get("success"), "video_id" in str(r3.get("error"))], [False, True])
+
+    r4 = gw.call("video.generate", "agnes-v", prompt="x", video_urls=["http://v/1.mp4"])
+    r5 = gw.call("video.generate", "agnes-v", prompt="x", first_frame="http://i/f.png")
+    check("4f Flash 不收参考视频/首尾帧：本地就拒、不发请求（不支持的字段绝不静默丢）",
+          ["不支持参考视频" in str(r4.get("error")), "没有首尾帧模式" in str(r5.get("error"))], [True, True])
+    check("4g 已登记为『已接线』（管理台不再显示成空头路由）", gw.is_adapted("video.generate", "agnes-v"), True)
+    # 只取 model/价格两项断言，绝不打印 resolve()（它会连 api_key 一起回显，今天已经泄过一次）
+    check("4h 模型名来自配置、单价在册（上游免费 ≠ 我们不记账）",
+          [bool(gw.resolve("video.generate", "agnes-v").get("model")),
+           gw.unit_price("video.generate", "agnes-v")], [True, 30])
+finally:
+    av.create_flash_task, av.wait_flash_task, av.download_file = real_av
 print("\n=== %d 条断言，失败 %d ===" % (total[0], len(fails)))
 for n, g, w in fails:
     print("  FAIL", n, "got", g, "want", w)
