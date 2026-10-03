@@ -71,6 +71,8 @@ provider `@weeksir/provider-gateway` 每次 POST `/videos` 带三样：`project`
 `need`（原样 need id，尾段当段名）、`session`（`$HYPIT_SESSION_ID`，空则回落读 `$DSH_SESSION_ID`——agent 起 build 的
 shell 本来就有这个变量，**不需要额外导出**）。服务端 `hypit_bridge.handle_submit` 落进 `jobs.run / label / session`。
 
+登记意图即出界面：`hypit_bridge.py intent <会话> hypit [工程或任务名]` 会顺手 `studio_up` —— 解析这条会话的工程（claim → 意图任务路径 → 最近生成腿的 run）→ 已有查看器就复用、否则从 5179 往上找空闲口起一个并 claim 给它。**agent 不需要再单独起 studio，人也不需要。**
+
 - 于是 `presence.hypit.progress` 不依赖 studio：账本里有腿就出进度（每段状态/耗时/扣分/失败原因/上游任务号 + 汇总）。
 - 右栏视图顺序（2026-10-03 更正）：**studio 活着 ⇒ 默认官方界面**（任务页 = 左栏第三个 tab）；查看器没起但有腿 ⇒ 进度台，
   抬头写「正在生成 · studio 查看器没起，但引擎在工作」；两者都没有 ⇒ 只说「查看器没起，不影响生成」，**不印命令行**。

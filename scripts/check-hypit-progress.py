@@ -6,6 +6,7 @@
 import io
 import json
 import os
+import shutil
 import sys
 
 SCRATCH = r"C:\dsh\_scratch_b"
@@ -98,6 +99,29 @@ check("4b 进度里能看到段状态", sorted(x["state"] for x in v["progress"]
       ["failed", "succeeded"])
 check("4c 意图仍是唯一触发器（无登记的会话不带进度）",
       hb.workbench_presence("session-PROGRESS-OTHER")["hypit"]["intent"], False)
+
+# ── ④b「选了就给界面」：工程解析与端口分配（不起真进程）────────────────────────
+os.makedirs(os.path.join(WS, "productions", "demo-a"), exist_ok=True)
+with io.open(os.path.join(WS, "productions", "demo-a", "build.svrun"), "w", encoding="utf-8") as f:
+    f.write("<run/>")
+with io.open(os.path.join(WS, "productions", "demo-a", "demo.svml"), "w", encoding="utf-8") as f:
+    f.write("<doc/>")
+check("4b 给工程目录也能解析到 .svrun",
+      hb._pick_svrun("productions/demo-a").replace(chr(92), "/").endswith("productions/demo-a/build.svrun"), True)
+check("4c 给 .svml 也能跳到同名 .svrun",
+      hb._pick_svrun(os.path.join(WS, "productions", "demo-a", "demo.svml")).endswith("build.svrun"), True)
+check("4d 越界路径不解析", hb._pick_svrun("C:" + chr(92) + "Windows" + chr(92) + "x.svrun"), "")
+check("4e 不存在的工程不解析", hb._pick_svrun("productions/nope-xyz"), "")
+check("4f 没工程/没会话时明说，不去起进程",
+      [hb.studio_up("session-NO-PROJECT-AT-ALL")["reason"], hb.studio_up("")["reason"]], ["no-project", "no-session"])
+busy = hb._free_studio_port()
+import socket as _sk
+_hole = _sk.socket(_sk.AF_INET6, _sk.SOCK_STREAM)
+_hole.bind(("::1", busy))
+_hole.listen(1)
+check("4g 已被占的端口不会再分配（不抢别人正在服务的查看器）", hb._free_studio_port() != busy, True)
+_hole.close()
+shutil.rmtree(os.path.join(WS, "productions", "demo-a"), ignore_errors=True)
 
 # ── ⑤ 孤儿预扣：只列 + 指名回收（绝不自动退，自动退会伤到别的进程在途的花费）────────
 LEDGER = os.environ["GATEWAY_LEDGER"]

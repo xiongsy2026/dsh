@@ -351,6 +351,24 @@ studio 只是它的一个查看窗口（`/__studio/library?section=tasks` 与 `/
 
 ⇒ 教训：**"符合规则"不等于"正常"。** 用户连续追问同一个提示，就是把规则当面向他解释之前，先去看它是不是在谎报现实。
 
+### 配套（2026-10-03）：`intent hypit` 顺手把查看器起起来
+
+用户目标就一句：
+
+> 我的目标很简单，我选了这个 hypit，ui 就要给我出来。
+
+所以第三步不是"再点一个按钮"，而是把启动绑在已经必然发生的那一步上：`hypit_bridge.py intent <会话> hypit` 里调 `studio_up()` ——
+解析该会话的工程（claim → 意图任务里的路径 → 该会话最近生成腿的 `jobs.run`）→ 已有查看器在服务就复用它的端口 →
+否则从 5179 往上找空闲 IPv6 环回口，`node hypit.mjs studio --workspace <ws> --run <abs.svrun> --port <p>`
+（无 shell、`CREATE_NO_WINDOW`、路径必须在工作区 `productions/` 内、stderr 落 `_studio_<port>.log`），探到应答后 `studio_claim` 给这条会话。
+15 秒不起应答返回 `not-listening` 并指向日志；没有工程返回 `no-project`。
+
+- 🔴 边界：起进程的触发者是 **agent 执行 intent 这条命令**（CLI 进程内），所以**没有新增 HTTP 执行端点**——那是 Gate0 要鉴权的面（见 ADR-pipeline-server），能不加就不加。
+- 不抢别人的查看器：端口用 `bind` 试探分配，别的会话占着 5179 就用 5180/5181…（实测三个实例并存互不干扰）。
+- 线上实测：给复刻会话起完之后，判定口从 `not-claimed` 变成 `state=viewer-up, up=True, port=5181, run=productions/replica-1790666616/build.svrun`。
+- 顺带修掉自己暴露的缺口：`.svml` 原先只按同名找 `.svrun`，但真实复刻工程是 `clone.svml` + `build.svrun` ⇒ 加同目录兜底（断言 4c 钉住）。
+- 回归 29→35：4b~4g（解析／越界丢弃／不存在不解析／没工程不起进程／被占端口不抢）。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）

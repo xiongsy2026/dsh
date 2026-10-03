@@ -27,7 +27,9 @@
 ```
 python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [任务名]
 #   <skill> = 用户刚点的那个：omni | hypit | super-clone | product-video | film
-#   只有【带引擎】的流水线才登记；纯提示词/知识库类 skill 不登记、不挂台
+#   short-drama 与 ai-film-router 都归 "film" 档（登记 film）；它俩是"点了就走"的总控工作流，
+#   显式调用后先登记、再干活（排他挡掉 omni/hypit 台）
+#   只有【带引擎】的流水线才登记；纯提示词/知识库类单 skill（seedance-*、film-* 单阶段写作类）不登记、不挂台
 #   换产品线 = 再登记一次覆盖；做完可 intent-clear <会话id>
 ```
 
@@ -40,6 +42,7 @@ python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [
 
 - 🔴 **不靠痕迹兜底**（2026-10-02 第四次修订）：实测装了个纯提示词 skill，切回会话却在弹 omni 台——因为一条 67 分钟前的 run 带着该会话的标被当成"佐证"。run 不会过期 ⇒ "跑过一次"就成了永久产权，那仍然是在猜意图。
 - **纯提示词 / 知识库类 skill 不登记意图**：`seedance-*`（那 13 个 prompt 库）、`film-*` 写作类都没有引擎，挂了也只是空壳。它们照常干活（产出就是文案/提示词本身），只是不占右栏。
+- 🔴 **选了就要看到界面**：`intent <会话> hypit` 这一步会**顺手把 studio 查看器起起来**并 claim 给这条会话（`studio_up`：解析该会话的工程→已有查看器就复用→否则从 5179 往上找空闲口，无 shell、路径限工作区 `productions/` 内、15 秒内没应答就报出来）。触发者是 agent 跑 intent 这条命令，所以**不加 HTTP 执行端点**（那才是要鉴权的面）。
 - 引擎动作会自己钉意图（**这条现在才是真保险**）：omni = `store.create_run()` 带 session 时自动登记 `omni`；hypit = `studio-claim` 自动登记 `hypit`。显式 `intent` 命令照旧要跑，但**忘了跑不会再导致"该弹的不弹"**——2026-10-02 实测线上登记簿 0 条是 agent 自己登记的，所以把登记绑到了必然发生的动作上。
 - 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。判定口（8100）自己没回话时显示"判定口没回话"，**不许谎报成"这条会话没意图"**。
 - 回归（改这条逻辑必须先过）：`check-intent-rule.py` 15 条 · `check-workbench-presence.py` 40 条 · `check-workbench-client.mjs` 28 条 · `check-intent-anchor.py` 9 条（建 run⇒钉意图的锚点，含"登记炸了也不能让建片失败"）· `check-export-gates.py` 29 条。
