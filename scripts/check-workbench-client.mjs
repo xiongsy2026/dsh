@@ -2,12 +2,13 @@
  * 右栏对账逻辑回归（docs/ADR-workbench-presence.md）
  * 假 ctx + 假 fetch 驱动 client.js 的 apply()，断言：
  *   弹不弹只看【意图】；引擎死了台还在（里面提示怎么起）；新会话一条都不弹；
- *   运维台永不自动弹；导出条只在有 run 时可点。
+ *   运维台永不自动弹；页签里不再放导出条（导出走 agent/CLI，2026-10-03 定案）。
  * 跑法：node scripts/check-workbench-client.mjs
  */
 import { readFileSync } from "node:fs";
 
 const SRC = "C:/dsh/plugins/ops-gateway/lib/client.js";
+const SRC_TXT = readFileSync(SRC, "utf8");
 const KEY = "weeksir-pipeline-view", HKEY = "weeksir-hypit-view", MGKEY = "weeksir-model-gateway";
 const fails = [];
 let total = 0;
@@ -191,27 +192,22 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   check("10c 有意图+活着 ⇒ 出 iframe 且端口来自判定口",
     (await bodyJson(HKEY, "session-Y")).includes("localhost:5179"), true);
 
-  // 11) 导出条：有 run 才能点；studio 死了不给 run ⇒ 按钮禁用
-  const findBtns = (node, out = []) => {
+  const findBtns = (node, out = []) => {        // 被我删掉的旧组 11 里定义的，后面 16/18 还要用
     if (!node || typeof node !== "object") return out;
     if (node.tag === "button") out.push(node);
     for (const k of (node.kids || [])) findBtns(k, out);
     return out;
   };
-  payload = { omni: omni(false, false), hypit: hypit(true) };
+
+  // 11) 🔴 定案变更（2026-10-03）：页签里不放导出条了 —— 界面归官方 studio/进度台，
+  //     导出仍走服务端闸门（/api/hypit/export 与那 29 条断言不动，触发者是 agent/CLI）。
+  payload = { omni: omni(false, false), hypit: hypit(true, true) };     // 不用 PROG：它在后面才定义
   render(captured[HKEY + "|body"], { sessionId: "session-Z" });
   await settle5();
-  const live = render(captured[HKEY + "|body"], { sessionId: "session-Z" });
-  const bar = findBtns(live).find(x => JSON.stringify(x.kids).includes("导出成片"));
-  check("11 有 hypit 意图时给导出条", !!bar, true);
-  check("11a 有 run ⇒ 按钮可点", bar.props.disabled, false);
-  // 11b studio 死了走"引擎没在跑"分支 —— 那里根本没有导出条（比"禁用"更强）
-  payload = { omni: omni(false, false), hypit: hypit(true, false) };
-  render(captured[HKEY + "|body"], { sessionId: "session-W" });
-  await settle5();
-  const dead = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-W" }));
-  check("11b 引擎死了：不给导出条", dead.includes("导出成片"), false);
-  check("11c 台还在，说的是查看器没起、不影响生成", [dead.includes("查看器没起"), dead.includes("不影响生成")], [true, true]);
+  const live = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-Z" }));
+  check("11 页签里不再出现导出条（输入框/按钮都没有）",
+        [live.includes("导出成片"), live.includes("任务目录"), live.includes("ExportBar")], [false, false, false]);
+  check("11a 组件本体也从包里删掉了（不是藏起来）", SRC_TXT.includes("function ExportBar"), false);
 
   // 12~13b) 🔴 判定口哑掉（8100 没起/抖了）≠ 这条会话没意图：短哑不关台，长哑才认输，回来能再弹
   const d = makeCtx({ v: "session-FLAP" });

@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261003a";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261003b";   // 撤掉页签里的导出条（定案变更）；排查"到底加载了哪一版"用
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // ── 右栏工作台规则（docs/ADR-workbench-presence.md）────────────────────────────
@@ -61,61 +61,6 @@ window.__ModuleLoader__.load({
       });
     }
 
-    // 导出条：只在 hypit 台上出现；没有 run（没表过意图）时按钮保持禁用——看可以，烧钱不行
-    function ExportBar(props) {
-      const run = props.run || "";
-      const s = React.useState({ phase: "idle", msg: "", link: "", path: "", task: "", busy: false });
-      const st = s[0], setSt = s[1];
-      const timer = React.useRef ? React.useRef(null) : { current: null };
-
-      function poll(id) {
-        getJson(GW + "/api/hypit/export?id=" + encodeURIComponent(id)).then(j => {
-          if (!j || j.error) { setSt(p => Object.assign({}, p, { phase: "failed", msg: (j && j.error && j.error.message) || "查不到这条导出", busy: false })); return; }
-          if (j.state === "done") { setSt(p => Object.assign({}, p, { phase: "done", msg: "已导出 " + (j.bytes || 0) + " 字节", link: j.url || "", path: j.path || "", busy: false })); return; }
-          if (j.state === "failed") { setSt(p => Object.assign({}, p, { phase: "failed", msg: j.error || "导出失败", busy: false })); return; }
-          const txt = { queued: "排队中", planning: "验免费闸（plan）", building: "渲染合成中（本地·约 1~4 分钟）", fetching: "取回成片" }[j.state] || j.state;
-          setSt(p => Object.assign({}, p, { phase: "busy", msg: txt + "…" + (j.elapsed ? " " + j.elapsed + "s" : "") }));
-          timer.current = setTimeout(() => poll(id), 3000);
-        });
-      }
-
-      function start() {
-        if (st.busy || !run) return;
-        setSt(p => Object.assign({}, p, { busy: true, phase: "busy", msg: "提交中…", link: "", path: "" }));
-        // text/plain：浏览器不发预检；服务端按本机 Origin 放行（插件里不嵌 token）
-        fetch(GW + "/api/hypit/export", {
-          method: "POST", headers: { "Content-Type": "text/plain" },
-          body: JSON.stringify({ run: run, task: (st.task || "").trim() })
-        }).then(r => r.json().then(j => ({ code: r.status, j: j }))).then(res => {
-          if (res.code !== 200 || !res.j || !res.j.id) {
-            setSt(p => Object.assign({}, p, { phase: "failed", busy: false, msg: (res.j && res.j.error && res.j.error.message) || ("HTTP " + res.code) }));
-            return;
-          }
-          setSt(p => Object.assign({}, p, { phase: "busy", msg: "已受理 " + res.j.id + "（0 分·只允许零生成腿工程）" }));
-          poll(res.j.id);
-        }).catch(e => setSt(p => Object.assign({}, p, { phase: "failed", busy: false, msg: "打不动网关：" + e })));
-      }
-
-      React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-      const btn = { padding: "3px 10px", fontSize: 12, borderRadius: 4, cursor: st.busy ? "default" : "pointer",
-        border: "1px solid #fa6f08", background: st.busy ? "#3a2a1a" : "#fa6f08", color: "#fff" };
-      const inp = { padding: "2px 6px", fontSize: 12, width: 150, background: "#1b1f27", color: "#e6e9ef",
-        border: "1px solid #333a45", borderRadius: 4 };
-      return h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
-                                 padding: "6px 8px", borderBottom: "1px solid #232833", fontSize: 12, background: "#151821" } },
-        h("span", { style: { color: "#9aa4b2" }, title: run }, "工程 " + (run.split(/[\\/]/).pop() || "—")),
-        h("input", { style: inp, placeholder: "任务目录（可留空）", value: st.task,
-          onChange: e => setSt(p => Object.assign({}, p, { task: e.target.value })) }),
-        h("button", { style: btn, disabled: st.busy || !run, onClick: start,
-          title: run ? "build + get，只允许零生成腿的免费装配工程" : "这条会话还没登记 run 归属，不给点" },
-          st.busy ? "导出中…" : "导出成片（免费）"),
-        st.msg ? h("span", { style: { color: st.phase === "failed" ? "#ff7b72" : "#9aa4b2" } }, st.msg) : null,
-        st.link ? h("a", { href: st.link, target: "_blank", style: { color: "#58a6ff" } }, "下载/播放") : null,
-        st.path ? h("code", { style: { color: "#6b7280", fontSize: 11 } }, st.path) : null
-      );
-    }
-
-    // 进度台：hypit 生成工程的默认视图。数据来自网关账本（永久、0 分），studio 起没起都能出内容。
     function ProgressPanel(props) {
       const p = props.p || {}, sm = p.summary || {};
       const chip = (txt, bg, fg) => h("span", { key: txt, style: { padding: "1px 7px", borderRadius: 10,
@@ -202,7 +147,7 @@ window.__ModuleLoader__.load({
                "判定：", h("code", null, st.reason || "no-intent")),
             h("div", { style: { marginTop: 10 } },
               h("button", { style: ghost, onClick: () => setCur(p => Object.assign({}, p, { forced: true })),
-                title: "只是这一页显示出来，不改归属登记（导出仍要有 run 才能点）" }, "我就是要看，直接显示"))
+                title: "只是这一页显示出来，不改归属登记" }, "我就是要看，直接显示"))
           );
         }
         return shell(h("iframe", { src: w.fallback, title: w.label,
@@ -222,7 +167,6 @@ window.__ModuleLoader__.load({
       const frame = () => shell([
         hasLegs ? h("div", { key: "sw", style: { padding: "6px 10px", borderBottom: "1px solid #232833", background: "#151821" } },
           h("button", { style: ghost, onClick: toPanel }, "看精简进度（网关账本）")) : null,
-        w.key === HKEY ? h(ExportBar, { key: "exp", run: st.run }) : null,
         h("iframe", { key: "frame",
           src: st.url || (w.skill === "hypit" ? "http://localhost:" + (st.port || 5179) + "/" : w.fallback),
           title: w.label, style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })]);
