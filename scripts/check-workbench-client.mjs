@@ -132,8 +132,11 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   payload = { omni: omni(true), hypit: hypit(true, false) };
   await run(a.calls, 2);
   check("4 引擎死了不关台（弹的次数不变）", a.calls.open.length, openedBefore);
-  check("4b 台里显示引擎没在跑 + 怎么起",
-    (await bodyJson(HKEY, sid.v)).includes("hypit studio --run"), true);
+  // 🔴 2026-10-03 语义更正：查看器没起 ≠ 引擎没在跑，且不再把命令行印给人
+  const g4 = await bodyJson(HKEY, sid.v);
+  check("4b 查看器没起：说「studio 查看器没起」，不再谎报「引擎没在跑」",
+        [g4.includes("studio 查看器没起"), g4.includes("引擎没在跑")], [true, false]);
+  check("4c 也不再甩 hypit studio --run 命令行（起查看器是 agent 的活）", g4.includes("hypit studio --run"), false);
 
   // 5) 意图撤销（release 后）⇒ 只关它自己的台，有意图的那个不动
   const mark5 = a.calls.close.length;
@@ -208,7 +211,7 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   await settle5();
   const dead = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-W" }));
   check("11b 引擎死了：不给导出条", dead.includes("导出成片"), false);
-  check("11c 但台还在，并告诉你怎么起", dead.includes("hypit studio --run"), true);
+  check("11c 台还在，说的是查看器没起、不影响生成", [dead.includes("查看器没起"), dead.includes("不影响生成")], [true, true]);
 
   // 12~13b) 🔴 判定口哑掉（8100 没起/抖了）≠ 这条会话没意图：短哑不关台，长哑才认输，回来能再弹
   const d = makeCtx({ v: "session-FLAP" });
@@ -261,17 +264,31 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   render(captured[HKEY + "|body"], { sessionId: "session-FRAME" });
   await settle5();
   const withPanel = render(captured[HKEY + "|body"], { sessionId: "session-FRAME" });
-  check("16 studio 活着也先给进度台", JSON.stringify(withPanel).includes("打开导演台视图"), true);
-  const btn = findBtns(withPanel).find(x => JSON.stringify(x.kids).includes("打开导演台视图"));
+  // 🔴 顺序更正：studio 活着 ⇒ 默认就是官方界面（任务页在左栏第三个 tab），进度台退成可切换视图
+  check("16 studio 活着 ⇒ 默认出官方界面（不是自绘视图抢位）",
+        [JSON.stringify(withPanel).includes('"tag":"iframe"'), JSON.stringify(withPanel).includes("看精简进度")], [true, true]);
+  const btn = findBtns(withPanel).find(x => JSON.stringify(x.kids).includes("看精简进度"));
   btn.props.onClick();
   const afterFrame = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-FRAME" }));
-  check("16b 点「打开导演台」才切 iframe（并给返回入口）",
-        [afterFrame.includes('"tag":"iframe"'), afterFrame.includes("返回进度台")], [true, true]);
+  check("16b 点「看精简进度」才切到自绘面板（iframe 让位）",
+        [afterFrame.includes('"tag":"iframe"'), afterFrame.includes("网关账本")], [false, true]);
   // 17) 没有生成腿的会话不受影响：照旧是"引擎没在跑/怎么起"
   payload = { omni: omni(false, false), hypit: hypit(true, false) };
   const nog = await bodyJson(HKEY, "session-NO-LEGS");
-  check("17 账本里没腿 ⇒ 不硬编进度台，仍显示引擎没在跑", [nog.includes("生成进度"), nog.includes("引擎没在跑")],
+  check("17 账本里没腿 ⇒ 不硬编进度台，只说查看器没起", [nog.includes("生成进度"), nog.includes("查看器没起")],
         [false, true]);
+  // 18) 🔴 有在途腿 + studio 没起：这一档必须是"正在生成"，不是"引擎没在跑"、也不是命令行
+  const LIVE = JSON.parse(JSON.stringify(PROG));
+  LIVE.summary = { total: 3, ok: 1, failed: 1, running: 1, queued: 0, credits: 50 };
+  LIVE.segments.unshift({ id: "eeee5555ffff6666", model: "seedance-2-mini", state: "running",
+                          label: "generate", credits: 0, seconds: 214, ago: 214, error: "", upstream: "" });
+  payload = { omni: omni(false, false), hypit: Object.assign(hypit(true, false), { state: "generating",
+                active_legs: 1, progress: LIVE }) };
+  const gen = await bodyJson(HKEY, "session-GENERATING");
+  check("18 有在途腿 ⇒ 说「正在生成」", [gen.includes("正在生成"), gen.includes("引擎在工作")], [true, true]);
+  check("18b 这一档绝不出现「引擎没在跑」，也不出现命令行",
+        [gen.includes("引擎没在跑"), gen.includes("hypit studio --run")], [false, false]);
+  check("18c running 段也在列表里", gen.includes("214s"), true);
 
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);

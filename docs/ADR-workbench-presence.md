@@ -315,6 +315,42 @@ presence.hypit.progress = {known, projects, segments[{state,seconds,credits,erro
 `hypit_bridge.py preflight` → `{active_jobs, active_exports, pending_holds, pending_credit, safe_to_restart}`，
 并写进 `AGENTS.md` 的模型调用轨一节。
 
+## 第六次更正（2026-10-03）：查看器 ≠ 引擎，文案不许谎报
+
+用户连着三次问"这个报错正常吗"，我三次答"设计内"。**那是拿规则给坏体验背书。** 实测摆在一起就看出来了：
+
+```
+判定口：up=False reason=not-claimed  →  页面文案「引擎没在跑 / 起它：hypit studio --run …」
+同一时刻：网关账本里有 1 条在途腿在跑  →  引擎明明在工作
+```
+
+`up` 当时只定义为"studio 这个 **查看器** 活着且服务你的 run"。但真正出片的是 hypit 的 **runtime worker**，
+studio 只是它的一个查看窗口（`/__studio/library?section=tasks` 与 `/__studio/session` 是两个独立端点就是证据）。
+所以"查看器没起"被显示成"引擎没在跑"，是**谎报**，不是正常态。
+
+顺带把另一句旧结论也更正（此前写进 skill 契约的）：**"生成工程开 studio 也没用"是错的**。
+真浏览器实测：session 500 只打掉「源文件 + 预览」两块，**「任务」页照样能用**
+（`ui/library.ts:519` 在点 tab 时自己 fetch `/__studio/library?section=tasks`；boot 时 `ui/main.ts:1127` 失败只走 `applyFailure`）。
+实测那页给出 27 张任务卡 + 状态 + 失败原因 + 更新时间。
+
+定稿三件事：
+
+| 状态（`studio_status.state`） | 条件 | 页面 |
+|---|---|---|
+| `viewer-up` | studio 活着且服务你的 run | **默认官方 studio iframe**（任务页=左栏第三个 tab），进度台退成「看精简进度」按钮 |
+| `generating` | 查看器没起，但本会话名下工程有 queued/running 腿 | 进度台，抬头写「正在生成 · studio 查看器没起，但引擎在工作」 |
+| `viewer-down` / `not-claimed` | 查看器没起且**没有**在途腿 | 只说「studio 查看器没起，不影响生成」，**不再印命令行** |
+
+- 服务端仍保留 `how_to_start` 字段（给 agent/运维用），但页面按 `state` 走 ⇒ 人不会再看到要手敲的命令。
+- `active_legs` 随 `generating` 一起回，进度缓存从 30 秒收到 **5 秒**（状态晚 30 秒才亮，等于继续骗人）。
+- 页签标题带状态徽标：`Hypit Studio · 生成中` / `· Studio 未起` / `· 就绪`（拿不到 sessionId 时退回静态名）。
+- 顺序为什么是"官方优先"：自绘视图不该抢真界面的位置；官方 studio 能显示的就交给它，我的面板只补它看不到的那段（没进程时）。
+- 回归：presence 45→46（A9d 重写 + A9e 断有腿必为 `generating`、并给腿数），client 35→39
+  （4b/4c/11c/16/16b/17 按新契约重写，新增 18 组断言：这一档绝不出现「引擎没在跑」也不出现命令行）。
+  审计脚本修了一处 `KeyError`：现在有会话登记的是 `film`（无台的 skill），应弹台=无，不许崩。
+
+⇒ 教训：**"符合规则"不等于"正常"。** 用户连续追问同一个提示，就是把规则当面向他解释之前，先去看它是不是在谎报现实。
+
 ## 相关
 
 - 上游决策：`docs/AGENT-FRAMEWORK.md`（UI 只展示+批准）、`docs/ADR-pipeline-server.md` Gate 0（origin 白名单 + 执行端点鉴权）

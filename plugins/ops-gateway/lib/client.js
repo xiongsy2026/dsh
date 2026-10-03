@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261002g";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
+    const PV_BUILD = "pv-20261003a";   // 排查"到底加载了哪一版"用（改这个文件时顺手 +1 后缀）
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // ── 右栏工作台规则（docs/ADR-workbench-presence.md）────────────────────────────
@@ -53,9 +53,11 @@ window.__ModuleLoader__.load({
       return presence(sid).then(j => {
         if (!j) return { known: false, intent: false, up: false, url: "", reason: "gateway-silent" };
         const s = (j || {})[w.skill] || {};
+        if (w.skill) BADGE[sid + "|" + w.key] = !s.intent ? "" : (s.up ? "就绪"
+          : (s.state === "generating" || ((s.progress || {}).summary || {}).running ? "生成中" : "Studio 未起"));
         return { known: true, intent: !!s.intent, up: !!s.up, url: s.url || "", port: s.port, run: s.run || "",
                  reason: s.reason || "", how: s.how_to_start || w.start || "", idle: s.idle_age,
-                 progress: s.progress || null };
+                 state: s.state || "", legs: s.active_legs || 0, progress: s.progress || null };
       });
     }
 
@@ -132,7 +134,10 @@ window.__ModuleLoader__.load({
         ));
       return h("div", { style: { padding: "12px 14px", lineHeight: 1.7, fontSize: 13, color: "#9aa4b2",
                                  overflow: "auto", flex: 1 } },
-        h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 4 } }, "生成进度"),
+        h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 4 } },
+          props.generating ? "正在生成" : "生成进度（网关账本）"),
+        props.generating ? h("div", { style: { fontSize: 12, color: "#d29922", marginBottom: 6 } },
+          "studio 查看器没起，但引擎在工作——这里就是它的进度视图。") : null,
         h("div", { style: { fontSize: 12, marginBottom: 8 } },
           chip("成功 " + (sm.ok || 0), "#12261a", "#3fb950"),
           chip("失败 " + (sm.failed || 0), "#2a1315", "#ff7b72"),
@@ -157,7 +162,7 @@ window.__ModuleLoader__.load({
     function WorkbenchBody(props) {
       const w = byKey[props && props.__wbKey];
       const sid = props && props.sessionId ? String(props.sessionId) : "";
-      const s = React.useState({ st: null, forced: false, silent: false, frame: false });
+      const s = React.useState({ st: null, forced: false, silent: false, view: null });
       const cur = s[0], setCur = s[1];
       React.useEffect(() => {
         let alive = true;
@@ -203,32 +208,45 @@ window.__ModuleLoader__.load({
         return shell(h("iframe", { src: w.fallback, title: w.label,
           style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } }));
       }
-      // ②′ hypit 生成工程的默认视图 = 进度台（账本里有腿就出，不等 studio 起）
-      const backBar = (cur.frame && st.progress && st.progress.known)
-        ? h("div", { style: { padding: "6px 10px", borderBottom: "1px solid #232833", background: "#151821" } },
-            h("button", { style: ghost, onClick: () => setCur(x => Object.assign({}, x, { frame: false })) },
-              "← 返回进度台"))
-        : null;
-      if (w.skill === "hypit" && st.progress && st.progress.known && !cur.frame) {
-        return h(ProgressPanel, { p: st.progress, studio: !!st.up,
-          onFrame: () => setCur(x => Object.assign({}, x, { frame: true })) });
-      }
-      // ② 有意图但引擎没起：台要在，里面说清楚怎么起——"进程不在"从来不是藏掉台的理由
+      // ── hypit 的视图顺序（2026-10-03 定）：studio 是【查看器】，引擎在不在工作是另一件事 ──
+      //   查看器活着 ⇒ 默认就给你官方 studio（任务页在左栏第三个 tab）；
+      //   查看器没起但账本里有腿 ⇒ 进度台，文案说"正在生成"，绝不再写"引擎没在跑"；
+      //   两者都没有 ⇒ 说"查看器没起、不影响生成"，不甩命令行给人抄。
+      const prog = st.progress || {};
+      const hasLegs = !!prog.known;
+      const act = ((prog.summary || {}).running || 0) + ((prog.summary || {}).queued || 0);
+      const generating = st.state === "generating" || act > 0;
+      const toPanel = () => setCur(x => Object.assign({}, x, { view: "panel" }));
+      const toFrame = () => setCur(x => Object.assign({}, x, { view: "frame" }));
+      const panel = () => h(ProgressPanel, { p: prog, studio: !!st.up, generating: generating, onFrame: toFrame });
+      const frame = () => shell([
+        hasLegs ? h("div", { key: "sw", style: { padding: "6px 10px", borderBottom: "1px solid #232833", background: "#151821" } },
+          h("button", { style: ghost, onClick: toPanel }, "看精简进度（网关账本）")) : null,
+        w.key === HKEY ? h(ExportBar, { key: "exp", run: st.run }) : null,
+        h("iframe", { key: "frame",
+          src: st.url || (w.skill === "hypit" ? "http://localhost:" + (st.port || 5179) + "/" : w.fallback),
+          title: w.label, style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })]);
+
+      if (cur.view === "panel" && hasLegs) return panel();
+      if (w.skill === "hypit" && st.up) return frame();
+      if (w.skill === "hypit" && hasLegs) return panel();
+      // ④ 有意图、但查看器不在：台不藏。说清"生成照常"，别把命令行丢给人
       if (!st.up) {
         return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
-          backBar,
-          h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } }, w.label + "：引擎没在跑"),
-          h("div", null, "状态：", h("code", null, st.reason || "down"),
-             st.idle == null ? null : h("span", null, "（" + st.idle + "s 前还有人看）")),
-          h("div", { style: { marginTop: 8 } }, "起它：",
-            h("code", null, st.how || w.start || "见对应 skill 的 monitor-contract"))
+          h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } },
+             w.label + "：" + (generating ? "正在生成（studio 查看器没起）" : "studio 查看器没起")),
+          h("div", null, generating
+            ? "网关账本里有 " + act + " 条腿在跑或排队，生成照常进行——这里只是看不到时间轴/预览，不是没在工作。"
+            : "这不影响生成，只影响看不看得到时间轴与成片预览。"),
+          h("div", { style: { marginTop: 6, fontSize: 12, color: "#6b7280" } }, "状态：",
+             h("code", null, st.reason || "down"), st.idle == null ? null : "（" + st.idle + "s 前还有人看）"),
+          h("div", { style: { marginTop: 8 } }, hasLegs
+            ? h("button", { style: ghost, onClick: toPanel }, "看生成进度")
+            : "要开查看器：让 agent 起 studio（人或客户不需要敲命令）。")
         );
       }
-      // ③ 有意图 + 引擎活着：正常出台（hypit 的端口由 presence 口给，换端口不用改这里）
-      const url = w.skill === "hypit" ? (st.url || "http://localhost:" + (st.port || 5179) + "/") : (st.url || w.fallback);
-      return shell([backBar, w.key === HKEY ? h(ExportBar, { key: "bar", run: st.run }) : null,
-        h("iframe", { key: "frame", src: url, title: w.label,
-          style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })]);
+      // ⑤ 其余（omni 等）：有意图 + 引擎活着 ⇒ 正常出台
+      return frame();
     }
 
     function bodyOf(w) {
@@ -236,9 +254,13 @@ window.__ModuleLoader__.load({
         return h(WorkbenchBody, Object.assign({}, props, { __wbKey: w.key }));
       };
     }
+    const BADGE = {};                       // sid|skill → "生成中" / "Studio 未起" / "就绪"
     function titleOf(w) {
-      return function Title() {
-        return h("span", { title: w.scope === "ops" ? w.label + "（运维·全局·不自动弹）" : w.label + "（本会话有该流水线意图才弹）" }, w.label);
+      return function Title(props) {
+        const sid = props && props.sessionId ? String(props.sessionId) : "";
+        const badge = BADGE[sid + "|" + w.key] || "";
+        return h("span", { title: w.scope === "ops" ? w.label + "（运维·全局·不自动弹）" : w.label + "（本会话有该流水线意图才弹）" },
+          w.label + (w.skill && badge ? " · " + badge : ""));
       };
     }
 

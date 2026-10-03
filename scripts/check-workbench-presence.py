@@ -23,6 +23,7 @@ import urllib.request
 SCRATCH = r"C:\dsh\_scratch_b"
 os.makedirs(SCRATCH, exist_ok=True)
 os.environ["HYPIT_STUDIO_MARK"] = os.path.join(SCRATCH, "mark_selftest.json")
+os.environ["HYPIT_JOBS_DB"] = os.path.join(SCRATCH, "presence_selftest.sqlite")   # studio_status 现在会读腿数，绝不能碰线上账本
 # ⚠️ 意图文件也必须隔离：studio_claim 会顺手写意图，早先没隔离时把 5 条假会话写进了线上
 #    .gateway_intent.json（就是"绝不往生产状态写假数据"那条老坑）。
 os.environ["HYPIT_INTENT_MARK"] = os.path.join(SCRATCH, "intent_selftest.json")
@@ -128,7 +129,19 @@ ALIVE["studio"] = False
 r = hb.studio_status("session-C")
 check("A9c studio 死了：intent 保住、up 掉", (r["intent"], r["up"], r["reason"]),
       (True, False, "studio-down"))
-check("A9d 死了也要告诉人怎么起", "hypit studio --run" in (r.get("how_to_start") or ""), True)
+check("A9d 无腿时台里仍给起法（字段留给 agent，页面不印命令行由 client 负责）",
+      [r.get("state"), "hypit studio --run" in (r.get("how_to_start") or "")], ["viewer-down", True])
+_c = hb._db()
+_c.execute("insert into jobs(id,model,state,run,label,session,created,updated) values"
+           "('l-live','seedance-2-mini','running','productions/hypit-e2e','generate','session-C',?,?)",
+           (time.time(), time.time()))
+_c.commit(); _c.close()
+hb._PROGRESS_CACHE.update(sid=None, ts=0.0)
+r2 = hb.studio_status("session-C")
+# 服务端仍带 how_to_start 字段（给 agent/运维用），但状态已经是 generating：
+# 页面按 state 走，绝不把"引擎没在跑/起它：<命令行>"印给人（client 侧有对应断言）。
+check("A9e 🔴 有在途腿 ⇒ state=generating、腿数报出来（页面据此改口的依据）",
+      [r2.get("state"), r2.get("active_legs")], ["generating", 1])
 ALIVE["studio"] = True
 
 # ══ A10 登记封顶：只裁最旧的，不裁"过期的" ════════════════════════════════════════
@@ -253,6 +266,8 @@ if os.path.exists(hb.INTENT_MARK):
     os.remove(hb.INTENT_MARK)
 if os.path.exists(hb.STUDIO_MARK):
     os.remove(hb.STUDIO_MARK)
+if os.path.exists(os.environ["HYPIT_JOBS_DB"]):
+    os.remove(os.environ["HYPIT_JOBS_DB"])
 
 print("\n=== %d 条断言，失败 %d ===" % (total[0], len(fails)))
 for name, got, want in fails:

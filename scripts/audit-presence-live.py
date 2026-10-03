@@ -79,7 +79,8 @@ for last, sid in sids:
         continue
     o, hp = v.get("omni") or {}, v.get("hypit") or {}
     sk = (intent.get(sid) or {}).get("skill") or "-"
-    should = {"omni": "流水线", "hypit": "Studio"}.get(sk, "无")
+    # 只认有台的 skill；未知/无引擎的 skill（如 film、prompt 库）应弹台=无，不许 KeyError
+    should = {"omni": "流水线", "hypit": "Studio"}.get(sk) or "无"
     pops = [n for n, x in (("流水线", o), ("Studio", hp)) if x.get("intent")]
     fmt = lambda x: ("弹 up=%s" % ("Y" if x.get("up") else "N")) if x.get("intent") else "不弹 %s" % (x.get("reason") or "?")
     trace = "omni run×%d/approved%d · hypit claim×%d" % (
@@ -92,7 +93,7 @@ print("\n" + "=" * 60 + "\n核对结论")
 print("-" * 60)
 n = 0
 for sid, sk, pops, o, hp, trace in rows:
-    expect = [] if sk in ("-", None) else [{"omni": "流水线", "hypit": "Studio"}[sk]]
+    expect = [{"omni": "流水线", "hypit": "Studio"}.get(sk)] if sk in ("omni", "hypit") else []
     if pops != expect:
         n += 1
         print("  ✗ %s：登记=%s 却弹出 %s（应为 %s）" % (sid, sk, pops or "无台", expect or "无台"))
