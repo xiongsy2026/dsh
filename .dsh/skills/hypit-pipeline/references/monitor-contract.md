@@ -67,11 +67,18 @@ WeekSir 薄编排层驱动 **hypit 原生 CLI**（全局 `@hypit/hypit` v0.2.9�
 
 ## §2.5 生成腿的身份是【数据面盖章】，不靠人起点按钮（2026-10-02 定）
 
-provider `@weeksir/provider-gateway` 每次 POST `/videos` 带三样：`project`（从 `need.id` 摘出的工程源文件路径）、`need`（原样 need id，尾段当段名）、`session`（`$HYPIT_SESSION_ID`，为空则回落读 `$DSH_SESSION_ID`——agent 起 build 的 shell 本来就有，无需额外导出）。服务端 `hypit_bridge.handle_submit` 落进 `jobs.run / jobs.label / jobs.session`。
+provider `@weeksir/provider-gateway` 每次 POST `/videos` 带三样：`project`（从 `need.id` 摘出的工程源文件路径）、
+`need`（原样 need id，尾段当段名）、`session`（`$HYPIT_SESSION_ID`，空则回落读 `$DSH_SESSION_ID`——agent 起 build 的
+shell 本来就有这个变量，**不需要额外导出**）。服务端 `hypit_bridge.handle_submit` 落进 `jobs.run / label / session`。
 
-- 于是 `presence.hypit.progress` **不依赖 studio**：账本里有腿就出进度（每段状态/耗时/扣分/失败原因/上游任务号 + 汇总）。- 右栏默认视图 = 进度台；studio 降级成可选的「导演台视图」按钮（生成工程的 `/__studio/session` 实测回 500，本来就没法看）。- 🔥 `project/session` 是客户端自报的，只用于显示分组；**鉴权与扣费依据只有 token + 服务端路由**。路径先归一：realpath 后不在 `C:\dsh\hypit_runs\productions\` 里的一律丢弃（越界、目录穿越都不入库）。- 老数据没这两列 ⇒ 历史工程在进度台上显示「本会话还没有生成腿」，属预期，**不回填**（回填只能靠 prompt 猜，等于又开始猜意图）。
-
-
+- 于是 `presence.hypit.progress` 不依赖 studio：账本里有腿就出进度（每段状态/耗时/扣分/失败原因/上游任务号 + 汇总）。
+- 右栏视图顺序（2026-10-03 更正）：**studio 活着 ⇒ 默认官方界面**（任务页 = 左栏第三个 tab）；查看器没起但有腿 ⇒ 进度台，
+  抬头写「正在生成 · studio 查看器没起，但引擎在工作」；两者都没有 ⇒ 只说「查看器没起，不影响生成」，**不印命令行**。
+- ⚠️ 旧说法「生成工程开 studio 也没用」已作废：真浏览器实测 `/__studio/session` 500 只打掉「源文件 + 预览」，
+  「任务」页照常可用（`ui/library.ts:519` 在点 tab 时自己 fetch `/__studio/library?section=tasks`）。
+- 🔴 `project/session` 是客户端自报的，只用于显示分组；**鉴权与扣费依据只有 token + 服务端路由**。
+  路径先归一：realpath 后不在 `C:\dsh\hypit_runs\productions\` 里的一律丢弃（越界、目录穿越都不入库）。
+- 老数据没这两列 ⇒ 历史工程在进度台上显示「本会话还没有生成腿」，属预期，**不回填**（回填只能靠 prompt 猜）。
 
 ## §3 关口（比 omni 多一道钱闸）
 - **A 方案+预算批准**：build 花钱前必过。走 `weeksir.gateway` 时钱=**网关积分**（`gateway.invoke` 预扣→失败回滚，账目在 `gateway.py credits`），不是付 HypiHub；pricing 是唯一成本预估口。
