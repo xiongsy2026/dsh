@@ -160,6 +160,208 @@ try:
            gw.unit_price("video.generate", "agnes-v")], [True, 30])
 finally:
     av.create_flash_task, av.wait_flash_task, av.download_file = real_av
+
+# ── ④′ 查询腿的 URL 归谁：④ 的假客户端把 get_task 整块替掉了，所以当年
+#     「提交 200、查询 401 Invalid token」（查询打了 apihub 另一个鉴权域）全绿却漏网。
+#     🔴 症状会被误读成"key 坏了"，其实是两条腿不同源。下面这两条只认真实请求形状。
+import asyncio                                              # noqa: E402
+import inspect                                              # noqa: E402
+from config import settings as _cfg                         # noqa: E402
+
+# 只查 get_task 自己的函数体（别的函数的注释里可能提到过旧主机名）
+check("4i get_task 函数体里不许出现写死的 URL（必须经 _base() 拼）",
+      "://" in inspect.getsource(av.get_task), False)
+
+_seen_req = {}
+
+
+class _FakeResp:
+    status_code = 200
+
+    def json(self):
+        return {"status": "completed", "progress": 100}
+
+
+class _FakeAsyncClient:
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, headers=None, params=None):
+        _seen_req["url"] = url
+        # 只断言"带没带 Bearer"，绝不把 key 内容放进断言值（失败会打印 got）
+        _seen_req["bearer"] = str((headers or {}).get("Authorization") or "").startswith("Bearer ")
+        return _FakeResp()
+
+
+_real_ac = av.httpx.AsyncClient
+av.httpx.AsyncClient = _FakeAsyncClient
+try:
+    _got = asyncio.run(av.get_task("vid-777"))
+finally:
+    av.httpx.AsyncClient = _real_ac
+check("4j 查询打到创建腿同一个 base（GET <base>/videos/<id>）", _seen_req.get("url"),
+      _cfg.AGNES_BASE_URL.rstrip("/") + "/videos/vid-777")
+check("4k 查询带上同一个 Bearer", _seen_req.get("bearer"), True)
+check("4l completed 状态原样返回给上层", _got.get("status"), "completed")
+
+# ── ⑤ H3（RunningHub 导演台）分发契约：假客户端，0 网络、0 花费 ───────────────────
+from backend.services import h3_director_client as h3d       # noqa: E402
+from backend.services import runninghub_client as rh         # noqa: E402
+
+h5 = {}
+# H3 现在会先验参考文件真的在盘上（不存在的文件白烧一次 GPU + 一笔预扣），所以夹具得是真文件
+_SCR = r"C:\dsh\_scratch_b"
+os.makedirs(_SCR, exist_ok=True)
+A1, A2 = os.path.join(_SCR, "a.jpg"), os.path.join(_SCR, "b.jpg")
+for _f in (A1, A2):
+    open(_f, "wb").write(bytes(16))
+
+
+async def fake_submit(task_type=None, segments=None, **kw):
+    h5["submit"] = {"task_type": task_type, "seg": segments[0],
+                    "wf": h3d.DIRECTOR_WORKFLOW_ID}
+    return {"taskId": "2013508786110730241", "workflow_id": h5["submit"]["wf"], "unet_type": "ref2va"}
+
+
+async def fake_poll(tid, out, timeout=None, **kw):
+    h5["poll"] = [tid, out, timeout]
+    return out
+
+
+class FakeRH:
+    def __init__(self, *a, **kw):
+        pass
+
+    async def query_task(self, tid):
+        return {"taskStatus": "SUCCESS", "results": [{"url": "https://rh/x.mp4", "outputType": "mp4"}]}
+
+
+real_h3 = (h3d.submit_h3_director, h3d.poll_and_download, rh.RunningHubClient)
+h3d.submit_h3_director, h3d.poll_and_download, rh.RunningHubClient = fake_submit, fake_poll, FakeRH
+try:
+    r = gw.call("video.generate", "h3", prompt="产品旋转一周", duration=5,
+                image_paths=[A1, A2], output_path="C:/tmp/h3.mp4")
+    check("5 提交→轮询→落盘全通，并带回 job_id/workflow_id/unet_type",
+          [r.get("success"), r.get("job_id"), r.get("path"), r.get("workflow_id"), r.get("unet_type")],
+          [True, "2013508786110730241", "C:/tmp/h3.mp4", h3d.DIRECTOR_WORKFLOW_ID, "ref2va"])
+    check("5b 补查一次拿回上游链接（落盘才算交付，链接 24h 就失效）", r.get("url"), "https://rh/x.mp4")
+    check("5c 两张参考图 = r2v + refImagePaths",
+          [h5["submit"]["task_type"], h5["submit"]["seg"].get("refImagePaths")],
+          ["r2v", [A1, A2]])
+
+    gw.call("video.generate", "h3", prompt="x", image_paths=[A1], output_path="C:/t.mp4")
+    check("5d 单张图自动降成 i2v + startImagePath（不硬塞 refImagePaths）",
+          [h5["submit"]["task_type"], h5["submit"]["seg"].get("startImagePath")], ["i2v", A1])
+    gw.call("video.generate", "h3", prompt="x", output_path="C:/t.mp4")
+    check("5e 无图 = t2v", h5["submit"]["task_type"], "t2v")
+
+    r = gw.call("video.generate", "h3", prompt="x", image_paths=[os.path.join(_SCR, "ghost.jpg")],
+                output_path="C:/t.mp4")
+    check("5h2 参考文件不在盘上就拒（不白烧 GPU、不白占预扣）",
+          [r.get("success"), "不存在" in str(r.get("error"))], [False, True])
+    r = gw.call("video.generate", "h3", prompt="x", image_urls=["http://i/1.jpg"], output_path="C:/t.mp4")
+    check("5f 公网 URL 本地就拒（导演台只吃上传后的 fileName，不静默丢字段）",
+          [r.get("success"), "本地" in str(r.get("error"))], [False, True])
+    r = gw.call("video.generate", "h3", prompt="x", image_paths=["C:/a.jpg"])
+    check("5g 不给 output_path 就拒（不落盘=24 小时后什么都没有）",
+          [r.get("success"), "output_path" in str(r.get("error"))], [False, True])
+
+    async def boom_submit(task_type=None, segments=None, **kw):
+        raise RuntimeError("未配置 RUNNINGHUB_H3_DIRECTOR_WORKFLOW_ID")
+
+    h3d.submit_h3_director = boom_submit
+    r = gw.call("video.generate", "h3", prompt="x", output_path="C:/t.mp4")
+    check("5h 提交炸了回错误类别，不抛穿", [r.get("success"), "RuntimeError" in str(r.get("error"))], [False, True])
+
+    async def boom_poll(tid, out, timeout=None, **kw):
+        raise RuntimeError("H3 导演台任务失败: CUDA out of memory")
+
+    h3d.submit_h3_director, h3d.poll_and_download = fake_submit, boom_poll
+    r = gw.call("video.generate", "h3", prompt="x", output_path="C:/t.mp4")
+    check("5i 轮询失败仍带 job_id（能据此查上游，不让人盲跑重烧一次 GPU）",
+          [r.get("success"), r.get("job_id"), "out of memory" in str(r.get("error"))],
+          [False, "2013508786110730241", True])
+
+    # ── ⑥ rv2v：视频出动作 + 图片换主体（socks 那种"动作照原片、鞋换新鞋"）──────────
+    SCR = r"C:\dsh\_scratch_b"
+    os.makedirs(SCR, exist_ok=True)
+    CLIP = os.path.join(SCR, "rv2v_clip.mp4")
+    IMG1 = os.path.join(SCR, "shoe1.jpg")
+    IMG2 = os.path.join(SCR, "shoe2.jpg")
+    for f in (CLIP, IMG1, IMG2):
+        with open(f, "wb") as fh:
+            fh.write(b"\x00" * 32)
+
+    gw.call("video.generate", "h3", prompt="新鞋跟原片动作", duration=5,
+            output_path=os.path.join(SCR, "o1.mp4"), video_paths=[CLIP], image_paths=[IMG1, IMG2])
+    seg = h5["submit"]["seg"]
+    check("6 视频+图片 ⇒ task_type=rv2v，段里带 referenceVideoPath + refImagePaths",
+          [h5["submit"]["task_type"], seg.get("referenceVideoPath") == CLIP, seg.get("refImagePaths") == [IMG1, IMG2]],
+          ["rv2v", True, True])
+    check("6b rv2v 不再塞 startImagePath（首帧形态和参考形态不能混）", "startImagePath" in seg, False)
+
+    gw.call("video.generate", "h3", prompt="只照原片动", duration=5,
+            output_path=os.path.join(SCR, "o2.mp4"), video_paths=[CLIP])
+    check("6c 只给视频 ⇒ v2v（refs 为空）",
+          [h5["submit"]["task_type"], h5["submit"]["seg"].get("refImagePaths")], ["v2v", None])
+
+    bad = gw.call("video.generate", "h3", prompt="x", output_path=os.path.join(SCR, "o3.mp4"),
+                  video_paths=[CLIP, CLIP, CLIP, CLIP], image_paths=[IMG1])
+    check("6d 参考视频 >3 条本地就拒（上游端口表 3 条）", [bad.get("success"), "3 条" in str(bad.get("error"))],
+          [False, True])
+    bad = gw.call("video.generate", "h3", prompt="x", output_path=os.path.join(SCR, "o4.mp4"),
+                  image_paths=[IMG1] * 10, video_paths=[CLIP])
+    check("6e 参考图片 >9 条本地就拒", [bad.get("success"), "9 条" in str(bad.get("error"))], [False, True])
+    bad = gw.call("video.generate", "h3", prompt="x", output_path=os.path.join(SCR, "o5.mp4"),
+                  image_paths=["https://img/x.jpg"])
+    check("6f 🔴 image_paths 塞公网 URL 在提交前就挡（过去要到客户端才 FileNotFoundError）",
+          [bad.get("success"), "只收本地文件" in str(bad.get("error"))], [False, True])
+    bad = gw.call("video.generate", "h3", prompt="x", output_path=os.path.join(SCR, "o6.mp4"),
+                  video_paths=[os.path.join(SCR, "nope.mp4")])
+    check("6g 参考文件不存在 ⇒ 本地拒，不浪费一次 GPU", [bad.get("success"), "不存在" in str(bad.get("error"))],
+          [False, True])
+
+    H3B = {"model": "h3", "prompt": "p", "duration": 5, "references": [{"url": "http://i/a.jpg"}]}
+    check("6h 桥：h3 收视频参考（rv2v 现在真带得动）",
+          hb.check_support(dict(H3B, videoReferences=[{"url": "http://i/c.mp4"}]))[0], True)
+    ok, why = hb.check_support(dict(H3B, audioReferences=["http://i/a.mp3"]))
+    check("6i 桥：h3 仍不收音频参考（没实测过带音频的形态）", [ok, "audio" in why], [False, True])
+    ok, why = hb.check_support({"model": "seedance-2-mini", "prompt": "p", "duration": 5,
+                                 "videoReferences": [{"url": "http://i/c.mp4"}]})
+    check("6j 桥：seedance 路照旧拦视频参考（放开只针对 h3，不是一刀切）",
+          [ok, "只带得动 image 参考" in why], [False, True])
+
+    up_dir = os.path.join(SCR, "uploads")
+    os.makedirs(up_dir, exist_ok=True)
+    with open(os.path.join(up_dir, "vid123.mp4"), "wb") as fh:
+        fh.write(b"\x00" * 16)
+    saved = (hb.UPLOAD_DIR, hb.OUT_DIR)
+    hb.UPLOAD_DIR, hb.OUT_DIR = up_dir, SCR
+    try:
+        got = hb._materialize_refs({"videoReferences": [{"url": "http://localhost:8100/api/hypit/uploads/files/vid123.mp4"}]},
+                                   "t1", ("videoReferences",))
+        check("6k 自家 /uploads 的回环地址直接指回磁盘那份，不再绕本机下载一遍（也不会把 .mp4 认成 .jpg）",
+              [got == [os.path.normpath(os.path.join(up_dir, "vid123.mp4"))], got[0].endswith(".mp4")], [True, True])
+    finally:
+        hb.UPLOAD_DIR, hb.OUT_DIR = saved
+
+    check("5j 已登记为『已接线』（管理台不再算空头路由）", gw.is_adapted("video.generate", "h3"), True)
+    check("5l v2v/rv2v 会切到 ref2va 那条（.env 目前两条同号 ⇒ 只钉『会切』这件事，别当成两条都实测过）",
+          h3d.REF2VA_TASK_TYPES >= {"v2v", "rv2v"}, True)
+    # 只取价格与工作流号，绝不打印 resolve()（它连 api_key 一起回显）
+    check("5k 单价 60 分在册，且用的号是 .env 覆盖后那条（探针真出过片的）",
+          [gw.unit_price("video.generate", "h3"), h3d.DIRECTOR_WORKFLOW_ID,
+           h3d.DIRECTOR_REF2VA_WORKFLOW_ID == h3d.DIRECTOR_WORKFLOW_ID],
+          [60, "2095474072795865090", True])
+finally:
+    h3d.submit_h3_director, h3d.poll_and_download, rh.RunningHubClient = real_h3
+
 print("\n=== %d 条断言，失败 %d ===" % (total[0], len(fails)))
 for n, g, w in fails:
     print("  FAIL", n, "got", g, "want", w)

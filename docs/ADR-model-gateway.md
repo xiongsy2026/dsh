@@ -77,7 +77,7 @@ hypit 的 Provider 协议只认 HTTP（`POST /uploads`、`POST /videos`、`GET /
   - **未证实**：同期 Google Flow 公告（"Image uploads are failing for some users"）与我们的 `参考图` 类失败**没有证据表明同源**——vinted 与 Google Flow 是不同上游，只是症状同名；对照实验（同一条 1 段工程只换参考图托管源）用户决定暂不跑。
 - **license 边界**：hypit = *Apache-2.0 with conditions*（非纯开源）。自用、以及用它是给我们自己客户出片（产物归我们）可走；**把 hypit 打包分发给客户、或多租户对外服务，需 Hypit.AI 书面授权**（sales）。3.0 服务端化前先把这条谈定。
 
-## 推理脑注册表（2026-10-01 全中转实测 · `text.complete` 现有 8 条腿）
+## 推理脑注册表（2026-10-01 全中转实测 · `text.complete` 现有 8 条腿，2026-10-04 下线 2 条后）
 模型名集中在 `config.py` 的「文本推理脑注册表」字段（.env 可覆盖），不散在代码里；单价按实测 token 分档（≈100 tok/分）。
 
 | purpose | provider | 模型 | 实测 | 分/次 | 备注 |
@@ -90,7 +90,16 @@ hypit 的 Provider 协议只认 HTTP（`POST /uploads`、`POST /videos`、`GET /
 | `deepseekv4` | zexapi | deepseek-v4-pro | live-ok 2.2s | 7 | **思考型：max_tokens <2000 会"空正文"**（HTTP 200 但 content 空） |
 | `qwen38max` | dashscope | qwen3.8-max | — | 2 | 🔒 已屏蔽：**阿里百炼账户欠费 `Arrearage`**（3.7-max/3.6-plus 同错；早间能出词只是免费额度未用尽）→ 充值后一键恢复。⚠️ 接通时 chat 必须走 `DASHSCOPE_CHAT_BASE_URL=…/compatible-mode/v1`，不是 `api/v1` |
 | `gpt61` | nocannobb | gpt-6.1-sol | 可用但**抖**（连打 3 次全 OK，2.5/8.9/12.3s；偶发 502/503） | 1 | 必须带浏览器 UA；⚠️ 见下面"固定分不准" |
-| `zexapi` | zexapi | gemini-3.5-flash | — | 1 | 🔒 已屏蔽：503 无渠道（同 key 的 3.7/3.8/opus-4-8 正常 → 别把单条无渠道当整分组坏） |
+| `gpt56` | nocannobb | gpt-5.6-sol | ⚠️ **3/3 回 401 `INVALID_API_KEY`**（2026-10-04） | 1 | 用独立字段 `GPT56_API_KEY`（**不覆盖** `GPT55_API_KEY`）。模型名在册（`GET /v1/models` 用旧 key 列出 `gpt-5.5 / 5.6-sol / 5.6-terra / 6-astra / 6-sol / 6.1-sol`），旧 key 实发 `gpt-5.6-sol` **能出词**（106 tok，84 是 reasoning）⇒ 端点/调用形/模型名全对，只差一把有效 key |
+
+### 2026-10-04 下线两条 + 一条硬规矩（用户定：gpt 只认 hub.nocannobb）
+连测 **3 轮**取稳定结论后删除，不是"某一次没通就删"：
+- ~~`text.complete/zexapi`~~（gemini-3.5-flash）— 3/3 `disabled`，503 无渠道。
+- ~~`text.complete/qwen38max`~~（qwen3.8-max）— 3/3 `disabled`，阿里百炼整把 key 欠费 `Arrearage`。
+- 同时清掉 `_MODEL_FALLBACK` 里三个**死兜底**：`gpt` / `openai` / `manxue` —— 没有任何路由再用这些 provider，留着等于宣称"换条腿能兜底"，实际一调就 `RouteError`。
+- `model_prices.json` 里这两条的 `prices`/`disabled` 键一并清（27→25 价、disabled 归零）。
+- **规矩**：`gpt-*` 系模型**只允许走 `hub.nocannobb.com`**（`GPT55_BASE_URL`）。别的中转（zexapi/manxue/dashscope）报的 gpt 名字一律不进路由表——同名不同源，扣费和内容都对不上。
+- 修好后要加回来：dashscope 充值 ⇒ 恢复 `qwen38max`（注意 chat 必须走 `…/compatible-mode/v1`）；zexapi 有渠道 ⇒ 恢复 `zexapi`。加回来前先跑 3 轮探活，别凭"以前能通"。
 
 **踩过的坑（写死在这里防止复发）**：`hub.nocannobb.com` 的 **403 error code: 1010 是 Cloudflare 拦"无 User-Agent 的脚本请求"**，不是 key 坏；网关所有 HTTP 请求现已统一带浏览器 UA。同理：探活路径 `/models` vs `/v1/models` 各家不同、route 无 model 时不能发 null、reasoning 模型小预算会返回空正文——**自家 probe 的现象 ≠ 上游事实，下"坏了"的结论前必须直连复现**。
 **不可用（非代码问题，要你去处理）**：manxue 的 claude 系 410 渠道已撤、manxue gpt-5.5 403 余额不足（该 key 没钱）；**dashscope 这把 key 现在整片被账户欠费拦住**——`qwen3.8-max/3.7-max/3.6-plus` 与 MiniMax 全系都回 **400 `type/code:"Arrearage"`**（早间 qwen 能出词=免费额度尚未用尽；**别把"当时能通"当"这个模型没问题"**），另有 deepseek-v3.2/r1 = 403 免费额度用尽、`ZHIPU/GLM-5.2` = 400 产品未开通（后台点一下）；agnes 2.5-pro 三档 403 额度不足（要充值）。

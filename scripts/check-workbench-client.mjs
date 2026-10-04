@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 const SRC = "C:/dsh/plugins/ops-gateway/lib/client.js";
 const SRC_TXT = readFileSync(SRC, "utf8");
 const KEY = "weeksir-pipeline-view", HKEY = "weeksir-hypit-view", MGKEY = "weeksir-model-gateway";
+const FKEY = "weeksir-film-view";   // 2026-10-03 另一会话加的 film 看板台 ⇒ 僵尸页签对账要认它
 const fails = [];
 let total = 0;
 const check = (name, got, want) => {
@@ -62,7 +63,8 @@ globalThis.fetch = url => {
 const omni = (intent, up = true) => ({ intent: intent, up: up, url: "http://127.0.0.1:8765/?session=s",
                                        reason: up ? "" : "", ready: true });
 const hypit = (intent, up = true, run = "productions/hypit-e2e/assemble.svrun") =>
-  ({ intent: intent, up: up, port: 5179, run: up ? run : "", reason: up ? "" : "studio-down",
+  ({ intent: intent, up: up, port: 5181,   // 🔴 故意不用 5179：iframe 里出现 5179 就说明代码又回落到 fallback 端口了
+     run: up ? run : "", reason: up ? "" : "studio-down",
      how_to_start: up ? "" : "hypit studio --run " + run + " --port 5179", run_verified: up });
 
 // ── 装载插件 ────────────────────────────────────────────────────────────────────
@@ -116,7 +118,7 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   check("1 新会话不猜意图：一条页签都不弹", a.calls.open.map(o => o[0]), []);
   // 1d 🔴 首次判定为"无意图"也要去关 —— 清掉旧版本（hypit 曾弹进每条会话）留下的僵尸页签。
   //    这条就是用户报"无关会话里出现这个提示"的根因：只等下降沿的话，僵尸页签永远留着。
-  check("1d 首次无意图也会去关僵尸页签（本会话两个台都试）", closedKeys(a.calls, sid.v), [HKEY, KEY].sort());
+  check("1d 首次无意图也会去关僵尸页签（本会话两个台都试）", closedKeys(a.calls, sid.v), [FKEY, HKEY, KEY].sort());
 
   // 2) 说了做 omni ⇒ 只弹流水线
   payload = { omni: omni(true), hypit: hypit(false, false) };
@@ -174,7 +176,7 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   await run(c.calls);
   // 切到一个新会话：它自己的台会被"首次无意图"清一遍（无害 no-op），但不能碰老会话的台
   check("9 切会话只动本会话的页签（不碰刚那个老会话）", [...new Set(c.calls.close.map(x => x[0]))],
-        ["session-OTHER"]);
+        ["session-NEW","session-OTHER"]);
   sid.v = "session-NEW";
   payload = { omni: omni(true), hypit: hypit(false, false) };
   c.calls.subs.forEach(fn => fn());
@@ -190,7 +192,7 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   check("10b 但给了「直接显示」出口", cold.includes("我就是要看"), true);
   payload = { omni: omni(true), hypit: hypit(true) };
   check("10c 有意图+活着 ⇒ 出 iframe 且端口来自判定口",
-    (await bodyJson(HKEY, "session-Y")).includes("localhost:5179"), true);
+    (await bodyJson(HKEY, "session-Y")).includes("localhost:5181"), true);
 
   const findBtns = (node, out = []) => {        // 被我删掉的旧组 11 里定义的，后面 16/18 还要用
     if (!node || typeof node !== "object") return out;
@@ -222,7 +224,7 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
         d.calls.close.length, closes12);
   await run(d.calls, 9);                       // 累计 120 秒 > 90 秒容忍窗
   check("12c 哑过 90 秒 ⇒ 认输关掉（fail-closed，不是永远挂着）",
-        closedKeys(d.calls, "session-FLAP", closes12), [HKEY, KEY].sort());
+        closedKeys(d.calls, "session-FLAP", closes12), [FKEY, HKEY, KEY].sort());
   SILENT = false;
   await run(d.calls);
   check("13b 判定口回来 ⇒ 重新弹（上膛没坏）", d.calls.open.length, 4);
@@ -242,7 +244,9 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   const PROG = { known: true, source: "gateway-jobs", projects: ["productions/nose-cream"],
                  summary: { total: 2, ok: 1, failed: 1, running: 0, queued: 0, credits: 50 },
                  segments: [{ id: "aaaa1111bbbb2222", model: "seedance-2-mini", state: "succeeded",
-                              label: "request-video-generate", credits: 50, seconds: 312, ago: 900, error: "", upstream: "" },
+                              label: "request-video-generate", credits: 50, seconds: 312, ago: 900, error: "", upstream: "",
+                              output: "http://localhost:8100/api/hypit/assets/aaaa1111bbbb2222.mp4",
+                              clip: "productions/nose-cream/clips/seg1.mp4" },
                             { id: "cccc3333dddd4444", model: "seedance-2-mini", state: "failed",
                               label: "request-audio-render", credits: 0, seconds: 1800, ago: 120,
                               error: "轮询超时 1800s（上游任务 d909fa86e1bf43f484c2e20aa106bd34，可据此查）",
@@ -263,16 +267,35 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   // 🔴 顺序更正：studio 活着 ⇒ 默认就是官方界面（任务页在左栏第三个 tab），进度台退成可切换视图
   check("16 studio 活着 ⇒ 默认出官方界面（不是自绘视图抢位）",
         [JSON.stringify(withPanel).includes('"tag":"iframe"'), JSON.stringify(withPanel).includes("看精简进度")], [true, true]);
+  // 16a 🔴 iframe 必须开 presence 报的那个端口。曾经的坑：stateOf 把 url 预填成 fallback(5179)，
+  //      frame() 又优先用 url ⇒ 右栏永远开 5179 上那台【别的工程】（用户："视频牛头不对马嘴"）
+  check("16a iframe 开的是判定口报的端口，不是 5179 兜底",
+        [JSON.stringify(withPanel).includes("localhost:5181"), JSON.stringify(withPanel).includes("localhost:5179")], [true, false]);
   const btn = findBtns(withPanel).find(x => JSON.stringify(x.kids).includes("看精简进度"));
   btn.props.onClick();
   const afterFrame = JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-FRAME" }));
   check("16b 点「看精简进度」才切到自绘面板（iframe 让位）",
         [afterFrame.includes('"tag":"iframe"'), afterFrame.includes("网关账本")], [false, true]);
-  // 17) 没有生成腿的会话不受影响：照旧是"引擎没在跑/怎么起"
+  // 17) 🔴 定案变更（2026-10-03 用户：「不能等 .svml 出现才触发 studio，精简版可以切换，挺好的」）：
+  //     没腿也直接给精简进度台 + 一句实话说明，不再只印一张文字卡。
   payload = { omni: omni(false, false), hypit: hypit(true, false) };
   const nog = await bodyJson(HKEY, "session-NO-LEGS");
-  check("17 账本里没腿 ⇒ 不硬编进度台，只说查看器没起", [nog.includes("生成进度"), nog.includes("查看器没起")],
-        [false, true]);
+  check("17 账本里没腿也出精简进度台（不是一张死胡同文字卡）",
+        [nog.includes("生成进度"), nog.includes("本会话还没有生成腿"), nog.includes('"tag":"iframe"')],
+        [true, true, false]);
+  check("17a 但要说清为什么只有进度：查看器没起、不影响生成",
+        [nog.includes("查看器没起，不影响生成"), nog.includes("hypit studio --run")], [true, false]);
+  // 17b) 没腿但查看器活着 ⇒ 官方界面照常是默认，切换口不许依赖"有腿"
+  payload = { omni: omni(false, false), hypit: Object.assign(hypit(true, true), { progress: null }) };
+  const up0 = await bodyJson(HKEY, "session-UP-NOLEGS");
+  check("17b 查看器活着+零腿 ⇒ iframe 与「看精简进度」同时给",
+        [up0.includes('"tag":"iframe"'), up0.includes("看精简进度")], [true, true]);
+  // 17c) 工程还没落地（no-project）⇒ 面板顶部要说出 .svrun 这件事，且不承诺用户去敲命令
+  payload = { omni: omni(false, false),
+              hypit: Object.assign(hypit(true, false), { state: "no-project", reason: "no-project" }) };
+  const nop = await bodyJson(HKEY, "session-NO-PROJ");
+  check("17c no-project 也进面板，话说清「还没有 .svrun、会自动起」",
+        [nop.includes("生成进度"), nop.includes(".svrun"), nop.includes("你不用敲任何命令")], [true, true, true]);
   // 18) 🔴 有在途腿 + studio 没起：这一档必须是"正在生成"，不是"引擎没在跑"、也不是命令行
   const LIVE = JSON.parse(JSON.stringify(PROG));
   LIVE.summary = { total: 3, ok: 1, failed: 1, running: 1, queued: 0, credits: 50 };
@@ -285,6 +308,31 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   check("18b 这一档绝不出现「引擎没在跑」，也不出现命令行",
         [gen.includes("引擎没在跑"), gen.includes("hypit studio --run")], [false, false]);
   check("18c running 段也在列表里", gen.includes("214s"), true);
+
+// ── 成片回传与"官方界面优先"（2026-10-03）──
+  // 19) 🔴 看片改成"就地播"（用户 2026-10-03：不要跳转）：按钮展开 <video>，页签里不许再有甩出 DSH 的链接
+  payload = { omni: omni(false, false), hypit: Object.assign(hypit(true, false), { progress: PROG }) };
+  render(captured[HKEY + "|body"], { sessionId: "session-PLAY" });
+  await settle5();
+  const pv = render(captured[HKEY + "|body"], { sessionId: "session-PLAY" });
+  const p0 = JSON.stringify(pv);
+  const playBtn = findBtns(pv).find(x => JSON.stringify(x.kids).includes("看片"));
+  check("19 成功段给的是「看片」按钮（就地播），不是跳出去的链接",
+        [!!playBtn, p0.includes('"tag":"video"'), /target:\s*"\_blank"/.test(p0)], [true, false, false]);
+  playBtn.props.onClick();
+  const t1 = render(captured[HKEY + "|body"], { sessionId: "session-PLAY" });
+  const p1 = JSON.stringify(t1);
+  check("19b 点一下就在面板里播：出现 <video> 且 src 是账本里那条 8100 地址",
+        [p1.includes('"tag":"video"'), p1.includes("http://localhost:8100/api/hypit/assets/aaaa1111bbbb2222.mp4"),
+         p1.includes("preload")], [true, true, true]);
+  check("19c 回传路径也显示出来（导演台看得见片段的原因）", p1.includes("clips/seg1.mp4"), true);
+  const collapsed = findBtns(t1).find(x => JSON.stringify(x.kids).includes("收起"));
+  check("19c2 展开后按钮文案变「收起」", !!collapsed, true);
+  collapsed.props.onClick();
+  check("19d 再点收起，播放器不占地方",
+        JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-PLAY" })).includes('"tag":"video"'), false);
+check("19z 查看器起来的上升沿把视图交还官方 studio（自绘台不永久挡官方界面）",
+      SRC_TXT.includes("!p.st.up && p.view === \"panel\""), true);
 
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);

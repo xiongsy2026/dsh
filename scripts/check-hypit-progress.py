@@ -16,6 +16,10 @@ os.makedirs(SCRATCH, exist_ok=True)
 assert os.path.isdir(os.path.join(WS, "productions", "nose-cream")), "工作区根/工程目录得真实存在"
 if os.path.exists(DB):
     os.remove(DB)
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows 控制台默认 GBK，箭头一印就炸
+except Exception:
+    pass
 os.environ["HYPIT_JOBS_DB"] = DB
 os.environ["HYPIT_WORKSPACE"] = WS
 os.environ["HYPIT_INTENT_MARK"] = os.path.join(SCRATCH, "progress_intent.json")
@@ -90,6 +94,17 @@ check("3f 没腿的会话如实说没有", [hb.jobs_progress("session-NOPE")["kn
                                  hb.jobs_progress("session-NOPE")["reason"]], [False, "no-jobs"])
 check("3g 不带会话不查库", hb.jobs_progress("")["reason"], "no-session")
 
+# ── ③b 成功的腿必须带成片地址（右栏"看片"、agent 回传贴图都靠它，2026-10-03 用户点名）──
+con = hb._db()
+con.execute("update jobs set output=? where id=?",
+            ("http://localhost:8100/api/hypit/assets/abc123.mp4", r_new["id"]))
+con.commit()
+con.close()
+hb._PROGRESS_CACHE.update(sid=None, ts=0)            # 绕开 5 秒缓存，别拿旧结果自证
+p_out = {x["id"]: x for x in hb.jobs_progress(SID)["segments"]}
+check("3h 成功段带得出 8100 直链", p_out[r_new["id"]]["output"], "http://localhost:8100/api/hypit/assets/abc123.mp4")
+check("3i 失败段不给空链接（画出来就是骗人）", p_out[jid2]["output"], "")
+
 # ── ④ 判定口把进度带上（台才有内容可画，哪怕 studio 没起）───────────────────────────
 hb.set_intent(SID, "hypit", "复刻 video_1")
 hb._probe_studio = lambda port: {"up": False, "error": "ConnectionRefusedError"}
@@ -121,6 +136,36 @@ _hole.bind(("::1", busy))
 _hole.listen(1)
 check("4g 已被占的端口不会再分配（不抢别人正在服务的查看器）", hb._free_studio_port() != busy, True)
 _hole.close()
+
+# 4h 🔴 整段窗口被历史查看器占满时不能再回 0（2026-10-03 实测：5179..5190 全占 ⇒ 新会话点了 skill 起不了查看器）
+import socket as _sk2
+_saved = hb.STUDIO_PORT
+_holes = []
+try:
+    _base = _sk2.socket(_sk2.AF_INET6, _sk2.SOCK_STREAM)
+    _base.bind(("::1", 0))
+    hb.STUDIO_PORT = int(_base.getsockname()[1])
+    _base.close()
+    for _k in range(3):
+        _h = _sk2.socket(_sk2.AF_INET6, _sk2.SOCK_STREAM)
+        _h.bind(("::1", hb.STUDIO_PORT + _k))
+        _h.listen(1)
+        _holes.append(_h)
+    _got = hb._free_studio_port(span=3)
+    _probe = _sk2.socket(_sk2.AF_INET6, _sk2.SOCK_STREAM)
+    try:
+        _probe.bind(("::1", _got))
+        _bindable = True
+    except OSError:
+        _bindable = False
+    finally:
+        _probe.close()
+    check("4h 窗口占满 ⇒ 回一个窗口外的空闲口（不是 0），且真能 bind",
+          [_got not in range(hb.STUDIO_PORT, hb.STUDIO_PORT + 3), _got > 0, _bindable], [True, True, True])
+finally:
+    for _h in _holes:
+        _h.close()
+    hb.STUDIO_PORT = _saved
 shutil.rmtree(os.path.join(WS, "productions", "demo-a"), ignore_errors=True)
 
 # ── ⑤ 孤儿预扣：只列 + 指名回收（绝不自动退，自动退会伤到别的进程在途的花费）────────

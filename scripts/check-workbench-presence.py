@@ -16,6 +16,8 @@ import os
 import shutil
 import subprocess
 import sys
+
+os.environ.setdefault("HYPIT_NO_AUTOSTART", "1")   # 判定口现在会顺手起查看器，自测里必须关
 import time
 import urllib.error
 import urllib.request
@@ -199,7 +201,9 @@ ALIVE["omni"] = True
 # ══ A16 判定口一次给两台 ══════════════════════════════════════════════════════════
 hb.studio_claim("session-OMNI-1", RUN, 5179)
 both = hb.workbench_presence("session-OMNI-1")
-check("A16 一个口同时回答 omni+hypit", sorted(both), ["hypit", "omni"])
+# 2026-10-03：判定口现在还回答第三个台（film 看板，另一会话加的 film_status/KNOWN_SKILLS）
+# ⇒ 期望从两条改成三条。右栏 WORKBENCHES 里目前还没有 film 页签，这条差异已报用户待定。
+check("A16 一个口同时回答 omni+hypit+film", sorted(both), ["film", "hypit", "omni"])
 # 🔴 铁律三修推翻了旧断言（原来写"同会话跨两条流水线都弹=合法"）：显式登记是【排他】的，
 #    claim 顺手钉了 hypit 意图 ⇒ omni 必须不挂。要回 omni 就重新 intent omni。
 check("A16b 登记排他：说了 hypit 就不给 omni 台",
@@ -208,6 +212,39 @@ check("A16c omni 侧理由可诊断", both["omni"]["reason"], "intent-is-hypit")
 hb.set_intent("session-OMNI-1", "omni", "切回电商线")
 back = hb.workbench_presence("session-OMNI-1")
 check("A16d 改登记即换台（排他可逆）", [back["omni"]["intent"], back["hypit"]["intent"]], [True, False])
+
+# ── W 同工程有装配形态 ⇒ 台不许停在生成工程上（2026-10-03 "视频都出来了导演台还不同步"）──────
+WSW = os.path.join(SCRATCH, "w_ws")
+shutil.rmtree(WSW, ignore_errors=True)
+WD = os.path.join(WSW, "productions", "wtest")
+os.makedirs(WD)
+with open(os.path.join(WD, "build.svrun"), "w", encoding="utf-8") as f:
+    f.write("<run/>")
+_saved_ws = hb.HYPIT_WORKSPACE
+hb.HYPIT_WORKSPACE = WSW
+SERVED["path"] = "productions\\wtest\\build.svml"
+try:
+    hb.studio_claim("session-W", "productions/wtest/build.svrun", 5179)
+    st = hb.studio_status("session-W")
+    check("W1 没有装配形态 ⇒ 台照旧开在 build.svrun（不误伤老行为）",
+          [st.get("up"), st.get("run"), st.get("reason")], [True, "productions/wtest/build.svrun", None])
+    with open(os.path.join(WD, "assemble.svrun"), "w", encoding="utf-8") as f:
+        f.write("<run/>")
+    st2 = hb.studio_status("session-W")
+    check("W2 出现 assemble.svrun ⇒ 不许再报 up（旧台服务的是另一个文件，报上去=把 500 的台挂进 iframe）",
+          [st2.get("up"), st2.get("reason"), st2.get("state")], [False, "assemble-preferred", "not-claimed"])
+    check("W2b 目标换成装配工程，旧 claim 只作为显示",
+          [str(st2.get("run")).endswith("assemble.svrun"), str(st2.get("stale_claim")).endswith("build.svrun")],
+          [True, True])
+    check("W2c _session_project 同口径（且保持相对路径形态，别突然变绝对）",
+          hb._session_project("session-W").replace("\\", "/"), "productions/wtest/assemble.svrun")
+    check("W2d 归属没被改写（run_key/claim 仍是这条会话那个工程，换的只是打开目标）",
+          mark()["productions/wtest"]["run"], "productions/wtest/build.svrun")
+finally:
+    hb.HYPIT_WORKSPACE = _saved_ws
+    hb.studio_release("session-W", "productions/wtest/build.svrun")
+    hb.intent_clear("session-W") if hasattr(hb, "intent_clear") else None
+    shutil.rmtree(WSW, ignore_errors=True)
 
 # ══ B HTTP 层（真 8100 + 真 studio）═══════════════════════════════════════════════
 # ⚠️ 这段会真写线上登记文件（8100 读的就是它），用完只摘自己那一条。
@@ -268,6 +305,20 @@ if os.path.exists(hb.STUDIO_MARK):
     os.remove(hb.STUDIO_MARK)
 if os.path.exists(os.environ["HYPIT_JOBS_DB"]):
     os.remove(os.environ["HYPIT_JOBS_DB"])
+
+# ── V 复用必须验"这台到底在服务哪个工程"（2026-10-03：claim 默认记 5179，而 5179 挂着别的工程）──
+_real_free = hb._free_studio_port
+hb._free_studio_port = lambda: None          # 本段绝不允许真起进程：走到"新起"分支就会拿到 no-port
+hb.studio_claim(ME, RUN, 5179)
+SERVED["path"] = "productions\\hypit-e2e\\assemble.svml"        # studio 自报 .svml、claim 记 .svrun：同一个工程
+r_same = hb.studio_up(ME, RUN)
+check("V 同名工程不同扩展 ⇒ 复用同一台（不另起进程）", [r_same.get("reused"), r_same.get("port")], [True, 5179])
+SERVED["path"] = "productions\\video_1789805487\\assemble.svml"   # 端口活着，但服务的是另一个工程
+r_other = hb.studio_up(ME, RUN)
+check("Vb 端口活着但服务别的工程 ⇒ 绝不复用（宁可去起新的）",
+      [r_other.get("reused"), r_other.get("reason")], [None, "no-port"])
+hb._free_studio_port = _real_free
+hb.studio_release(ME, RUN)
 
 print("\n=== %d 条断言，失败 %d ===" % (total[0], len(fails)))
 for name, got, want in fails:

@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
-    const PV_BUILD = "pv-20261003b";   // 撤掉页签里的导出条（定案变更）；排查"到底加载了哪一版"用
+    const PV_BUILD = "pv-20261003h";   // + hypit 的 iframe 只开 presence 报的端口（不再回落 5179 看别人的工程）；排查加载哪版用
     try { window.__OPS_GW_EVAL__ = true; console.log("[pipeline-view] module evaluated", PV_BUILD); } catch (e) {}
 
     // ── 右栏工作台规则（docs/ADR-workbench-presence.md）────────────────────────────
@@ -19,12 +19,17 @@ window.__ModuleLoader__.load({
     const KEY = "weeksir-pipeline-view";
     const HKEY = "weeksir-hypit-view";
     const MGKEY = "weeksir-model-gateway";
+    const FKEY = "weeksir-film-view";
 
     const WORKBENCHES = [
       { key: KEY, skill: "omni", scope: "session", auto: true, label: "流水线",
         fallback: "http://127.0.0.1:8765/", start: "计划任务 WeeksirVideoUI（start_video_ui.cmd）" },
       { key: HKEY, skill: "hypit", scope: "session", auto: true, label: "Hypit Studio",
         fallback: "http://localhost:5179/", start: "hypit studio --run <工程>.svrun --port 5179" },
+      // film 全流程看板:短剧带货/影视类 skill（short-drama、ai-film-router 都登记 film）意图后弹出。
+      // 8100 同域托管看板页（/api/film/board），不是外部引擎，up 恒 True；intent 决定弹不弹。
+      { key: FKEY, skill: "film", scope: "session", auto: true, label: "短剧全流程",
+        fallback: "http://127.0.0.1:8100/api/film/board", start: "8100 看板页（film 意图自动弹出，无独立引擎）" },
       // 运维台：全局可【手动】开（右栏"+"里选得到），但【绝不自动弹】——它跟技能无关，
       // 自动弹等于把内部控制台摆进每一条对话，包括客户会话。
       { key: MGKEY, skill: null, scope: "ops", auto: false, label: "模型网关", fallback: GW + "/" },
@@ -44,7 +49,7 @@ window.__ModuleLoader__.load({
       // 回 null = 判定口没回话（8100 没起 / 抖了 / 回了不是判定形状）。
       // 🔴 绝不能把 null 当"没意图"：那会让 8100 一重启就把每条会话的台全关掉再弹回来。
       cache = { sid: sid, at: now, p: getJson(PRESENCE + encodeURIComponent(sid || "")).then(j =>
-        (j && (j.omni || j.hypit)) ? j : null) };
+        (j && (j.omni || j.hypit || j.film)) ? j : null) };
       return cache.p;
     }
 
@@ -53,16 +58,29 @@ window.__ModuleLoader__.load({
       return presence(sid).then(j => {
         if (!j) return { known: false, intent: false, up: false, url: "", reason: "gateway-silent" };
         const s = (j || {})[w.skill] || {};
-        if (w.skill) BADGE[sid + "|" + w.key] = !s.intent ? "" : (s.up ? "就绪"
-          : (s.state === "generating" || ((s.progress || {}).summary || {}).running ? "生成中" : "Studio 未起"));
-        return { known: true, intent: !!s.intent, up: !!s.up, url: s.url || "", port: s.port, run: s.run || "",
+        // film 看板:8100 同域托管,up 恒 True;badge 只标"已挂看板"
+        if (w.skill === "film") {
+          BADGE[sid + "|" + w.key] = s.intent ? "全流程看板" : "";
+        } else if (w.skill) {
+          BADGE[sid + "|" + w.key] = !s.intent ? "" : (s.up ? "就绪"
+            : (s.state === "generating" || ((s.progress || {}).summary || {}).running ? "生成中" : "Studio 未起"));
+        }
+        // 🔴 hypit 不许把 url 预填成 fallback：presence 不给 url，一填就永远开 fallback 那个端口（5179），
+        //    而 5179 上是 10-02 的 hypit-e2e 工程 ⇒ 用户看到"视频牛头不对马嘴"（2026-10-03 实测）。
+        //    hypit 的台必须由 presence 的 port 决定；没有 port 就不开 iframe（走进度台说清楚）。
+        return { known: true, intent: !!s.intent, up: !!s.up, url: s.url || (w.skill === "hypit" ? "" : w.fallback), port: s.port, run: s.run || "",
                  reason: s.reason || "", how: s.how_to_start || w.start || "", idle: s.idle_age,
-                 state: s.state || "", legs: s.active_legs || 0, progress: s.progress || null };
+                 state: s.state || "", legs: s.active_legs || 0, progress: s.progress || null,
+                 task: s.task || "" };
       });
     }
 
     function ProgressPanel(props) {
       const p = props.p || {}, sm = p.summary || {};
+      // 🔴 看片就地播，不跳转（2026-10-03 用户定）：以前那个 target=_blank 的链接会把人甩出 DSH。
+      //   能直接内嵌是因为主界面文档没有 CSP（唯一那条 content-security-policy 在配对页 handler 里），
+      //   而 8100 静态口已支持 206/Range（拖进度条要它）——两条都由 scripts/check-workbench-client.mjs 钉着。
+      const openS = React.useState({}), open = openS[0], setOpen = openS[1];
       const chip = (txt, bg, fg) => h("span", { key: txt, style: { padding: "1px 7px", borderRadius: 10,
         fontSize: 11, background: bg, color: fg || "#e6e9ef", marginRight: 5 } }, txt);
       const col = { succeeded: "#3fb950", failed: "#ff7b72", running: "#d29922", queued: "#6b7280" };
@@ -73,6 +91,21 @@ window.__ModuleLoader__.load({
           h("span", { style: { color: "#e6e9ef" }, title: s.id }, (s.label || s.id.slice(0, 8)) + " · " + s.model),
           h("span", { style: { color: "#6b7280", marginLeft: 6 } },
              s.seconds + "s" + (s.ago < 3600 ? " · " + s.ago + "秒前" : "") + (s.credits ? " · " + s.credits + "分" : "")),
+          // 🔴 成功的腿就地播：点一下展开播放器，再点收起；不新开页面、不离开右栏
+          s.output ? h("button", { style: { marginLeft: 8, padding: "1px 9px", fontSize: 11, borderRadius: 4,
+              cursor: "pointer", border: "1px solid #2f5a34", background: open[s.id] ? "#1d2f21" : "#12261a",
+              color: "#3fb950", fontWeight: 600 },
+              onClick: () => setOpen(x => Object.assign({}, x, { [s.id]: !x[s.id] })) },
+              open[s.id] ? "收起" : "看片") : null,
+          s.output ? h("span", { style: { color: "#6b7280", marginLeft: 6, fontSize: 11 } },
+              s.output.replace(/^https?:\/\/[^/]+\//, "").slice(0, 40)) : null,
+          // 🔴 段回传进工程的路径：导演台能看见片段就是因为它进了 clips/（装配工程引用的是本地素材，不是账本链接）
+          s.clip ? h("span", { style: { color: "#3fb950", marginLeft: 6, fontSize: 11 },
+              title: "已回传进工程：" + s.clip }, "→ " + s.clip.split("/").slice(-2).join("/")) : null,
+          // 就地播：8100 静态口给的是 206/Range，所以能拖进度条；preload=metadata 免得十二条行一起拉流
+          open[s.id] && s.output ? h("video", { controls: true, preload: "metadata", src: s.output,
+              style: { display: "block", width: "100%", maxHeight: 300, background: "#000",
+                       marginTop: 6, borderRadius: 4 } }) : null,
           s.error ? h("div", { style: { color: "#ff7b72", marginTop: 2, lineHeight: 1.5 } },
             s.error.slice(0, 130),
             s.upstream ? h("span", null, " 上游任务 ", h("code", { title: s.upstream }, s.upstream.slice(0, 16) + "…")) : null) : null
@@ -81,6 +114,7 @@ window.__ModuleLoader__.load({
                                  overflow: "auto", flex: 1 } },
         h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 4 } },
           props.generating ? "正在生成" : "生成进度（网关账本）"),
+        props.notice ? h("div", { style: { fontSize: 12, color: "#8b949e", marginBottom: 6 } }, props.notice) : null,
         props.generating ? h("div", { style: { fontSize: 12, color: "#d29922", marginBottom: 6 } },
           "studio 查看器没起，但引擎在工作——这里就是它的进度视图。") : null,
         h("div", { style: { fontSize: 12, marginBottom: 8 } },
@@ -114,7 +148,10 @@ window.__ModuleLoader__.load({
         const tick = () => stateOf(w, sid).then(x => {
           if (!alive) return;
           // 判定口没回话：有旧判定就沿用旧判定（别闪），一点判定都没有才承认"不知道"
-          if (x.known) setCur(p => Object.assign({}, p, { st: x, silent: false }));
+          if (x.known) setCur(p => Object.assign({}, p, { st: x, silent: false,
+            // 查看器"没起→起来"的上升沿：把视图交还给官方 studio。自绘进度台只做兜底，
+            // 不能因为用户之前点过一次就把官方界面永久挡住（同"别拿自绘视图抢官方界面"那条）
+            view: (x.up && p.st && !p.st.up && p.view === "panel") ? null : p.view }));
           else setCur(p => Object.assign({}, p, { silent: !p.st }));
         });
         tick();
@@ -155,30 +192,51 @@ window.__ModuleLoader__.load({
       }
       // ── hypit 的视图顺序（2026-10-03 定）：studio 是【查看器】，引擎在不在工作是另一件事 ──
       //   查看器活着 ⇒ 默认就给你官方 studio（任务页在左栏第三个 tab）；
-      //   查看器没起但账本里有腿 ⇒ 进度台，文案说"正在生成"，绝不再写"引擎没在跑"；
-      //   两者都没有 ⇒ 说"查看器没起、不影响生成"，不甩命令行给人抄。
+      //   查看器没起 ⇒ 一律给精简进度台（官方查看器非要 .svrun 才起得来，登记后那段真空不能只印文字）。
       const prog = st.progress || {};
       const hasLegs = !!prog.known;
       const act = ((prog.summary || {}).running || 0) + ((prog.summary || {}).queued || 0);
       const generating = st.state === "generating" || act > 0;
+      const noProj = st.state === "no-project";
+      const notice = noProj
+        ? "登记的工程还没有 .svrun（源文件正在写）。写出来那一刻查看器会自动起，你不用敲任何命令——这段时间这里就是进度视图。"
+        : (st.up || generating || hasLegs ? null : "studio 查看器没起，不影响生成——下面是网关账本。");
       const toPanel = () => setCur(x => Object.assign({}, x, { view: "panel" }));
       const toFrame = () => setCur(x => Object.assign({}, x, { view: "frame" }));
-      const panel = () => h(ProgressPanel, { p: prog, studio: !!st.up, generating: generating, onFrame: toFrame });
+      const panel = () => h(ProgressPanel, { p: prog, studio: !!st.up, generating: generating,
+                                             notice: notice, onFrame: toFrame });
       const frame = () => shell([
-        hasLegs ? h("div", { key: "sw", style: { padding: "6px 10px", borderBottom: "1px solid #232833", background: "#151821" } },
+        w.skill === "hypit" ? h("div", { key: "sw", style: { padding: "6px 10px", borderBottom: "1px solid #232833", background: "#151821" } },
           h("button", { style: ghost, onClick: toPanel }, "看精简进度（网关账本）")) : null,
         h("iframe", { key: "frame",
-          src: st.url || (w.skill === "hypit" ? "http://localhost:" + (st.port || 5179) + "/" : w.fallback),
+          src: st.url || (w.skill === "hypit" ? "http://localhost:" + st.port + "/" : w.fallback),
           title: w.label, style: { flex: 1, width: "100%", height: "100%", border: 0, background: "#0f1115" } })]);
 
-      if (cur.view === "panel" && hasLegs) return panel();
+      if (cur.view === "panel" && (hasLegs || w.skill === "hypit")) return panel();
+      // 🔴 hypit 的 iframe 只开 presence 报回来的那个端口。没有端口 ⇒ 回进度台，绝不回落到 5179
+      //    （5179 上是 10-02 的 hypit-e2e 工程，回落就等于把别人的工程当成你的导演台 —— 2026-10-03 实测）
+      if (w.skill === "hypit" && st.up && st.port) return frame();
+      if (w.skill === "hypit" && (st.up || hasLegs)) return panel();
+      // film 全流程看板:8100 同域静态页,up 恒 True,有意图就出 iframe
+      if (w.skill === "film" && st.intent) return frame();
+      // film 有意图但 8100 没回话(判定口静默):给"看板没连上"卡,别藏台
+      if (w.skill === "film" && !st.up) {
+        return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
+          h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } }, w.label + "：看板没连上"),
+          h("div", null, "8100 判定口没回话。看板页由 8100 托管（读 productions/ 项目文件），不影响出片。"),
+          h("div", { style: { marginTop: 6, fontSize: 12, color: "#6b7280" } }, "状态：", h("code", null, st.reason || "gateway-silent")));
+      }
       if (w.skill === "hypit" && st.up) return frame();
       if (w.skill === "hypit" && hasLegs) return panel();
       // ④ 有意图、但查看器不在：台不藏。说清"生成照常"，别把命令行丢给人
       if (!st.up) {
+        // 🔴 hypit 这一段不再走文字卡：精简版常驻，切换口一直在（用户 2026-10-03 定「精简版可以切换，挺好的」）
+        if (w.skill === "hypit") return shell(panel());
+        // 🔴 2026-10-03 分开两种"没起"：没有工程可打开 ≠ 起了但连不上（过去都印同一句，只能靠猜）
+        // ④′ 只有 omni 会走到这张卡（hypit 上面已经回面板了）：no-project / generating 是 studio 独有的状态，这里不再判
         return h("div", { style: { padding: "18px 16px", lineHeight: 1.8, fontSize: 13, color: "#9aa4b2" } },
           h("div", { style: { color: "#e6e9ef", fontWeight: 600, marginBottom: 6 } },
-             w.label + "：" + (generating ? "正在生成（studio 查看器没起）" : "studio 查看器没起")),
+             w.label + "：" + (generating ? "正在生成（引擎没在跑）" : "studio 查看器没起")),
           h("div", null, generating
             ? "网关账本里有 " + act + " 条腿在跑或排队，生成照常进行——这里只是看不到时间轴/预览，不是没在工作。"
             : "这不影响生成，只影响看不看得到时间轴与成片预览。"),
@@ -220,8 +278,48 @@ window.__ModuleLoader__.load({
       try { if (typeof c.closeTab === "function") ids.forEach(id => c.closeTab(id)); } catch (e) {}
     }
 
+    // ── 聊天区「过程行」降噪（2026-10-03 用户定：成功的命令/读取类行别刷屏；错误、进行中、交付物保留）──
+    // 为什么落在 CSS 层：内核【本来就会折叠】这些行 —— 但 dsh-client-ui-chat/lib/client.js:1586 的
+    // processWindowReady 里带 `processPresentation.turnClosed` ⇒ 只有整回合结束才折，回合进行中每一条
+    // tool-call 都直接铺成一行（用户截图那一堆 Pwsh/代码/读取图片 就是这个窗口期）。
+    // 回合结束后那行「N 次工具调用 · M 条消息」点开仍然能看到全部明细，所以这里只压"进行中"这一段。
+    // 用的钩子全是内核自己印的稳定属性：data-chat-flow-kind（chat:1637）、data-variant/data-tool/data-state（tool:1255-1258）。
+    // 只按【过程变体】收：bash/read/search/write/edit/code —— "others" 不碰（交付物 present、cordis_* 都落在里面）。
+    // 任何一条只要处于 error/stopped/running 就不匹配 ⇒ 出错命令必然留着。
+    // 浏览器不认 :has() 时整条规则被忽略 ⇒ 退化成"什么都不做"，不会误藏东西。
+    // 开关（不动内核 DOM、不用重启）：控制台 `window.weeksirProcessRows(false)` 立刻全显；
+    // 或 localStorage.weeksir_process_rows="1" 后 Ctrl+R 永久关。默认 on。
+    const NOISE_CSS = ':root[data-weeksir-noise="on"] [data-chat-flow-kind="tool-call"]' +
+      ':is(:has([data-variant="bash"]),:has([data-variant="read"]),:has([data-variant="search"]),' +
+      ':has([data-variant="write"]),:has([data-variant="edit"]),:has([data-variant="code"]))' +
+      ':has([data-state="ok"]):not(:has([data-state="error"])):not(:has([data-state="stopped"]))' +
+      '{display:none!important}';
+    function noiseOff() {
+      try { return localStorage.getItem("weeksir_process_rows") === "1"; } catch (e) { return false; }
+    }
+    function installProcessNoiseStyle() {
+      if (!document.getElementById("weeksir-process-noise")) {
+        const tag = document.createElement("style");
+        tag.id = "weeksir-process-noise";
+        tag.dataset.pluginCss = "weeksir-process-noise";
+        tag.textContent = NOISE_CSS;
+        document.head.append(tag);
+      }
+      const sync = () => { document.documentElement.dataset.weeksirNoise = noiseOff() ? "off" : "on"; };
+      sync();
+      try {
+        window.weeksirProcessRows = (on) => {
+          try { localStorage.setItem("weeksir_process_rows", on ? "0" : "1"); } catch (e) {}
+          sync();
+          return document.documentElement.dataset.weeksirNoise;
+        };
+      } catch (e) {}
+      return document.documentElement.dataset.weeksirNoise;
+    }
+
     function apply(ctx) {
       try { window.__OPS_GW_APPLY__ = true; } catch (e) {}
+      try { window.__OPS_GW_NOISE__ = installProcessNoiseStyle(); window.__OPS_GW_NOISE_CSS__ = NOISE_CSS; } catch (e) {}
       try {
         for (const w of WORKBENCHES) {
           ctx.effect(() => ctx.sidebarRightTabs.register({

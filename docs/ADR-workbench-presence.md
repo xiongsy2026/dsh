@@ -182,7 +182,7 @@ const WORKBENCHES = [
 ⇒ 意图必须是一个**有名字的命令**，而不是一个可选步骤：
 
 ```
-python D:/video-skill/backend/hypit_bridge.py intent "$DSH_SESSION_ID" <skill> [任务名]
+python scripts/intent.py <skill> [任务名]
 python ... intent-clear <会话id>      # 做完了收口
 python ... intent-show                # 运维：现在谁挂着哪条流水线
 ```
@@ -379,6 +379,40 @@ studio 只是它的一个查看窗口（`/__studio/library?section=tasks` 与 `/
 **服务端口不撤**：`/api/hypit/export`、`export_status`、`export_reconcile` 与那 29 条闸门断言全部保留
 （`plan` 的 providerRequestCount===0 / 路径白名单不走 shell / Origin 白名单 / 互斥），触发者回到 **agent 与 CLI**。
 所以：页签不再有烧钱入口，导出这条路仍然通。
+
+## 第七次修订（2026-10-03）：触发器不能绑在“agent 跑得动”之外
+
+**事故**：用户点了 `/hypit-pipeline` 要复刻一条视频，右栏却只显示 `not-claimed / studio 查看器没起`。
+那条会话的工具日志里连着两条失败：`Get DSH session id` 失败、`Register hypit intent` 失败，报
+`sandbox escalation to "workspace-write"/"danger-full-access" is not strictly wider`。
+
+**根因（三层，各自独立）**
+1. **L1 登记动作在工作区外**：`intent` 要写 `D:\video-skill\.gateway_intent.json`，DSH 的文件沙箱只让写工作区内 ⇒ 命令压根跑不动。
+   我们把“选了就要看到界面”绑在了一条**沙箱里必然失败**的命令上——这等于没有触发器。
+2. **L2 会话 id**：内核其实是通的（`dsh-tool-pwsh:373` 调 `shellEnv.collect(exec)`，`dsh-pwsh-local:300` 把 `...spec.dshEnv` 并进子进程，
+   `dsh-shell-env:85` 在 `execution.agent` 存在时写 `DSH_SESSION_ID`）。失败是 agent 用了 bash 写法 `$DSH_SESSION_ID` ⇒ 拿到空。
+   🔴 我一度据此断言“内核缺陷”，那是从一行日志下的结论，读了三处源码才推翻——**症状句要先验链**。
+3. **L3 文案混档**：`no-project`（名下解析不出工程）和“查看器起了但连不上”印成同一句，人只能猜。
+
+**改法**
+- 意图登记**两个源合并读**：主文件照旧，另认 `<工作区>\.dsh\intent.json`（同一会话取 `ts` 更新的）。工作区侧坏 JSON 不炸、不影响主登记。
+- 新增 `C:\dsh\scripts\intent.py`：只写工作区内文件、自己读 `$env:DSH_SESSION_ID`（拿不到就退出码 2 明说，绝不猜 id），
+  写完顺手打一次判定口，把 `intent/up/state/port` 回显给 agent——**登记完就知道界面会不会出**，不用等下一轮。
+- 起查看器从“agent 敲命令”搬到**判定口轮询**里：`viewer_tick(sid)` = 有 hypit 意图 + 名下解析得出工程 + 无 claim ⇒ 起。
+  同一会话 120 秒冷却；`studio_up` 要等最长 15 秒应答，所以**必须丢后台线程**（第一版同步起，实测把 5 秒一轮的判定口堵到 6 秒超时）。
+  测试/回归环境用 `HYPIT_NO_AUTOSTART=1` 彻底关掉，免得自测起一堆真进程。
+- `_session_project` 补认**工程目录**（过去只认 `.svrun/.svml` 后缀，文档却写着“可以传目录”——文档撒谎，agent 老实给目录就被判 no-project）。
+- 新增一档 `state=no-project`，右栏分开显示；`PV_BUILD` 升到 `pv-20261003c`。
+
+**实测**：工作区登记一条 `session-VERIFY-DIR`（任务给**目录**）→ 第一次判定口 **3.7ms** 返回 → 26 秒后 `up=True / state=viewer-up / port=5182 / run=productions/e2e-one/e2e.svrun`。
+验完清残留：`studio-release` 掉自测会话、杀掉 5182 那个 node、两份登记里自测条目删净（claim 只剩线上那条）。回归 **intent 47 / presence 46 / client 37 / progress 35 / lane 34 / export 29 / assets-range 14 / anchor 9**。
+
+**已补（同日·第八修）**：意图加了 **24 小时有效期**（`HYPIT_INTENT_TTL` 可调）。动机不是整洁——`viewer_tick` 会上面那条：
+没有 TTL，任何一条陈旧登记只要那个会话被点开一次、判定口被轮询一次，就会**再起一个 studio 进程**。过期＝不再弹台也不再自起，
+属于【自己到期】，不是被别的台挤掉，所以不违反「意图只能被显式覆盖/清除」；`set_intent` 写盘时顺带清扫过期条目，登记簿不再只涨不落。
+回归新增 6 条（10/10b…10f：过期不算意图、判定口回 no-intent、TTL 可缩短、写盘清扫、**过期绝不自动起查看器**），intent 套件 47→53。
+⚠️ 顺手抓到一处自己的残留：`studio_up` 的 claim 会**自钉意图**，我清扫之后它才写回主登记 ⇒ 自测会话 id 又活了；已再清一次并复验 `no-intent`。
+
 
 ## 相关
 
