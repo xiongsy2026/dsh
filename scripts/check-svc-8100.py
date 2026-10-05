@@ -62,6 +62,27 @@ check("B1 时间触发重复间隔 = PT1M（原来是 PT5M ⇒ 最长 5 分钟�
 check("B2 MultipleInstances=IgnoreNew（健康时不会叠第二份）", multi, "IgnoreNew")
 check("B3 ExecutionTimeLimit=PT0S（不限时，长任务不会被任务引擎掐）", limit, "PT0S")
 
+# ---- B4/B5 隐藏执行（2026-10-05：那条 1 分钟看门狗每分钟闪一个控制台窗，客户桌面被闪）----
+# 规则钉在"动作指向哪"，不钉"窗口有没有出现"（后者没法自动断言）。守卫逻辑仍只在 .cmd 一处，
+# vbs 只负责隐藏窗口 + 等子进程（保住 IgnoreNew 的"一次只重启一份"）+ 转发退出码。
+VBS = r"D:\video-skill\run_hidden.vbs"
+acts = ps("$r=@();foreach($n in 'WeeksirModelAdmin','WeeksirVideoUI'){$a=(Get-ScheduledTask -TaskName $n).Actions[0];" +
+          "$r+=$a.Execute+'|'+$a.Arguments}; $r -join ';'")
+lines = [l for l in acts.split(";") if l.strip()]
+hidden = [l for l in lines if "wscript.exe" in l.lower() and "run_hidden.vbs" in l.lower()]
+direct = [l for l in lines if re.search(r"cmd(\.exe)?\|", l, re.I) or l.lower().rstrip("|").endswith(".cmd")]
+check("B4 两条看门狗都走隐藏执行、没有一条还直接跑 .cmd（直接跑=每分钟闪一个窗）",
+      [len(lines), len(hidden), len(direct)], [2, 2, 0])
+check("B4b 隐藏执行仍各自指回原来那条 .cmd（守卫没被搬进 vbs，不留第二个入口）",
+      [any("start_model_admin.cmd" in l for l in hidden), any("start_video_ui.cmd" in l for l in hidden)], [True, True])
+vraw = open(VBS, "rb").read() if os.path.isfile(VBS) else b""
+vcode = "\n".join(l for l in vraw.decode("ascii", "replace").splitlines() if not l.strip().startswith("'"))
+check("B5 vbs 纯 ASCII（中文注释在 ANSI 脚本宿主里会 mojibake）", sum(1 for b in vraw if b > 127), 0)
+check("B5b vbs 用 style 0 且 wait=True（不等待的话每分钟都会叠一份重启尝试）",
+      bool(re.search(r",\s*0,\s*True\s*\)", vcode)), True)
+check("B5c vbs 把子进程退出码转出去（LastTaskResult 才有意义，不又是假保险）",
+      "WScript.Quit rc" in vcode, True)
+
 # ---- C 现在真的在答话 ----
 st, body = http("/api/model/caps")
 check("C1 /api/model/caps 回 200", st, 200)
@@ -91,8 +112,12 @@ except Exception:
 if sid:
     st3, body3 = http("/api/workbench/presence?session=" + sid)
     hh = (json.loads(body3).get("hypit") or {}) if st3 == 200 else {}
-    check("C5e 有意图会话: up 为真时必须同时回 port 与 run（客户端不许猜端口）",
-          (hh.get("up"), bool(hh.get("port")), bool(hh.get("run"))), (True, True, True))
+    # 钉的是【规则】不是【现场】：up 为真才要求 port/run 齐；studio 没起时 up=false 是合法态。
+    # 原来这里写死 (True,True,True)，于是同一道闸会在"查看器恰好没开着"时假红一次（3 次里中过 1 次）。
+    rule_ok = (not hh.get("up")) or (bool(hh.get("port")) and bool(hh.get("run")))
+    check("C5e 有意图会话: up 为真 ⇒ 必须同时回 port 与 run（客户端不许猜端口）", rule_ok, True)
+    print("      C5e 现场: up=%r port=%r run=%r（studio 没起 ⇒ 这条只验规则）"
+          % (hh.get("up"), hh.get("port"), hh.get("run")))
 else:
     print("SKIP C5e（工作区意图簿里没有 hypit 登记）")
 check("C6 无意图的会话不许谎报 up", h.get("up"), False)
