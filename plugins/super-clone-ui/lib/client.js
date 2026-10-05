@@ -82,57 +82,6 @@ body {
   box-shadow: 0 2px 12px rgba(250,111,8,.4);
 }
 
-/* ---- 账号切换器（替换原生"标准模式"下拉） ---- */
-.ws-acct-wrap { position: relative; display: inline-flex; }
-.ws-acct-btn {
-  appearance: none; outline: none; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 8px;
-  font-family: "Inter","Noto Sans SC",sans-serif;
-  font-size: 13px; font-weight: 600; letter-spacing: .02em;
-  color: #f5f5f5;
-  background: #1d1d1d; border: 1px solid rgba(255,255,255,.12);
-  transition: background .15s ease, border-color .15s ease;
-}
-.ws-acct-btn:hover { background: #232323; border-color: rgba(255,255,255,.2); }
-.ws-acct-btn.ws-open {
-  background: #2a2a2a; border-color: rgba(250,111,8,.55);
-  box-shadow: 0 0 0 3px rgba(250,111,8,.12);
-}
-.ws-acct-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: #969696; flex: 0 0 8px;
-}
-.ws-acct-btn[data-acct-state="active"] .ws-acct-dot { background: #4ade80; }
-.ws-acct-caret { font-size: 10px; color: #969696; margin-left: 2px; }
-.ws-acct-pop {
-  position: absolute; top: calc(100% + 6px); left: 0;
-  min-width: 220px; z-index: 9999;
-  background: #181818; border: 1px solid rgba(255,255,255,.14);
-  border-radius: 10px; padding: 6px;
-  box-shadow: 0 12px 32px rgba(0,0,0,.55);
-  display: flex; flex-direction: column; gap: 2px;
-}
-.ws-acct-sec-label {
-  font-size: 10.5px; font-weight: 700; letter-spacing: .12em;
-  color: #969696; padding: 6px 8px 4px; text-transform: uppercase;
-}
-.ws-acct-row {
-  appearance: none; outline: none; cursor: pointer;
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 8px; border-radius: 6px; border: none;
-  font-family: "Inter","Noto Sans SC",sans-serif;
-  font-size: 12.5px; font-weight: 500; color: #d9d9d9;
-  background: transparent; text-align: left; width: 100%;
-}
-.ws-acct-row:hover { background: rgba(255,255,255,.05); color: #fff; }
-.ws-acct-row.ws-active { background: rgba(250,111,8,.16); color: #fff; }
-.ws-acct-row .ws-acct-rowdot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: #5a5a5a; flex: 0 0 7px;
-}
-.ws-acct-row.ws-active .ws-acct-rowdot { background: #fa6f08; }
-.ws-acct-sep { height: 1px; background: rgba(255,255,255,.08); margin: 4px 0; }
 `;
 
     function injectCss() {
@@ -200,13 +149,22 @@ body {
       } catch (e) {}
     }
 
-    const inject = ["slots"];
+    // ⚠️ "remote" 与 "remote.skills" 必须显式声明：cordis 的 ctx 是个代理，没 inject 的属性一读就抛
+    //    `cannot get property "remote" without inject`（dsh-client-ui-skill 就是这么声明的）。
+    //    以前只声明 ["slots"] ⇒ dock 的 skills.list 一直静默失败、整个展示块从来没渲染过。
+    //    "sessions" 也要：新对话页的 props.session 有可能还没落库，兜底要读 ctx.sessions.list 的 current。
+    const inject = ["slots", "remote", "remote.skills", "sessions", "timer"];
 
     const HERO_TABS = [
       { id: "image", label: "电商作图" },
       { id: "video", label: "电商视频" },
     ];
-    const HERO_HEADLINES = ["专注AI落地！", "Focus on AI in Production!"];
+    // 首屏 tab 靠"找到标题那行"来挂载，所以这张表要跟内核文案同步。
+    // 三个值都留着：新文案（_setup/patch_hero_headline.py 钉的）、上一版文案、上游原文 ——
+    // 内核被重装/回退时 tab 行不至于静默消失。
+    const HERO_HEADLINES = ["专注电商AI落地！", "Focus on e-commerce AI in production!",
+                            "专注AI落地！", "Focus on AI in Production!",
+                            "探索未至之境", "Into the Unknown"];
 
     function buildHeroTabs() {
       const wrap = document.createElement("div");
@@ -235,7 +193,7 @@ body {
       let hit = null;
       for (let i = 0; i < spans.length; i++) {
         const t = spans[i].textContent;
-        if (t === HERO_HEADLINES[0] || t === HERO_HEADLINES[1]) {
+        if (HERO_HEADLINES.indexOf(t) >= 0) {
           hit = spans[i];
           break;
         }
@@ -256,14 +214,6 @@ body {
       });
       mo.observe(document.body, { childList: true, subtree: true });
     }
-
-    // ---- composer accessory: mode selector + skill/template panel ----
-    // 占位账号列表（UI 演示用）。后续接入真 session-bind 时，把此数组
-    // 改成读 c:\dsh\accounts\ 子目录即可，渲染逻辑不变。
-    const ACCOUNTS = [
-      { id: "account-1", label: "账号1" },
-      { id: "account-2", label: "账号2" },
-    ];
 
     // ---- 技能下拉框 ----
     // 客户选一个 skill 就走那个 skill 的工作流；
@@ -300,225 +250,6 @@ body {
         }
         return true;
       } catch (e) { return false; }
-    }
-
-    function insertComposerText(text) {
-      try {
-        const ce = document.querySelector('[contenteditable="true"]');
-        if (ce) {
-          ce.focus();
-          document.execCommand("insertText", false, text);
-          ce.dispatchEvent(new Event("input", { bubbles: true }));
-          return true;
-        }
-        const ta = document.querySelector('textarea[data-dsh], textarea[role="textbox"], textarea');
-        if (ta) {
-          const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value") ||
-                      Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "value");
-          if (set && set.set) set.set.call(ta, (ta.value || "") + text);
-          else ta.value = (ta.value || "") + text;
-          ta.dispatchEvent(new Event("input", { bubbles: true }));
-          ta.focus();
-          const v = ta.value.length; ta.setSelectionRange(v, v);
-          return true;
-        }
-      } catch (e) {}
-      try { window.__WEEKSIR_PENDING_PROMPT__ = text; } catch (e) {}
-      return false;
-    }
-
-    // ---- 账号切换器：替换原生"标准模式"下拉 ----
-    // PRD §4.1.1：默认未选择账号 = 不拉记忆；选号走 /session-bind。
-    // 用 MutationObserver 找包含"标准模式"文本的原生按钮，隐藏并在其
-    // 旁边挂载自己的账号切换器（纯 DOM，不动 React，避免崩溃）。
-    let __wsOutsideBound = false;
-    function buildNativeAccountSwitcher() {
-      const wrap = document.createElement("div");
-      wrap.className = "ws-acct-wrap";
-      wrap.setAttribute("data-ws-acct", "1");
-      // null = 未选择账号（标准模式，不拉记忆）；选号走 /session-bind
-      let currentAccount = null;
-      let open = false;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "ws-acct-btn";
-      btn.setAttribute("data-acct-state", "idle");
-      const dot = document.createElement("span");
-      dot.className = "ws-acct-dot";
-      btn.appendChild(dot);
-      const labelNode = document.createTextNode("请选择账号");
-      btn.appendChild(labelNode);
-      const caret = document.createElement("span");
-      caret.className = "ws-acct-caret"; caret.textContent = "▾";
-      btn.appendChild(caret);
-      const pop = document.createElement("div");
-      pop.className = "ws-acct-pop"; pop.style.display = "none";
-
-      function buildRow(name, isActive, onClick) {
-        const r = document.createElement("button");
-        r.type = "button";
-        r.className = "ws-acct-row" + (isActive ? " ws-active" : "");
-        const rd = document.createElement("span");
-        rd.className = "ws-acct-rowdot";
-        r.appendChild(rd);
-        const n = document.createElement("span");
-        n.className = "ws-acct-name";
-        n.textContent = name;
-        r.appendChild(n);
-        r.addEventListener("click", onClick);
-        return r;
-      }
-
-      // 行 1：未选择账号（默认；标准模式，不拉任何记忆）
-      const noneRow = buildRow("未选择账号", true, function (e) {
-        e.stopPropagation();
-        currentAccount = null;
-        try { window.__WEEKSIR_ACCOUNT__ = null; } catch (e2) {}
-        labelNode.nodeValue = "请选择账号";
-        btn.setAttribute("data-acct-state", "idle");
-        renderRows();
-        setOpen(false);
-      });
-      pop.appendChild(noneRow);
-
-      // 行 2+：占位账号列表（ACCOUNTS）。仅 UI 状态变更，不触发
-      // /session-bind（占位无真实记忆可拉）。后续接真账号时改
-      // ACCOUNTS 数据源 + 在 click 里 insertComposerText("/session-bind <id>")。
-      const acctRows = ACCOUNTS.map(function (a) {
-        const r = buildRow(a.label, false, function (e) {
-          e.stopPropagation();
-          currentAccount = a.id;
-          try { window.__WEEKSIR_ACCOUNT__ = a.id; } catch (e2) {}
-          labelNode.nodeValue = a.label;
-          btn.setAttribute("data-acct-state", "active");
-          renderRows();
-          setOpen(false);
-        });
-        pop.appendChild(r);
-        return r;
-      });
-
-      // 分隔 + 切换账号… → /session-bind skill 列号、选号、拉记忆
-      const sep = document.createElement("div");
-      sep.className = "ws-acct-sep";
-      pop.appendChild(sep);
-      const switchRow = buildRow("切换账号…", false, function (e) {
-        e.stopPropagation();
-        insertComposerText("/session-bind ");
-        setOpen(false);
-      });
-      pop.appendChild(switchRow);
-
-      function renderRows() {
-        noneRow.classList.toggle("ws-active", currentAccount === null);
-        acctRows.forEach(function (r, i) {
-          r.classList.toggle("ws-active", currentAccount === ACCOUNTS[i].id);
-        });
-        switchRow.classList.remove("ws-active");
-      }
-      function setOpen(v) {
-        open = v;
-        pop.style.display = open ? "flex" : "none";
-        btn.classList.toggle("ws-open", open);
-      }
-      btn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        setOpen(!open);
-      });
-      wrap.appendChild(btn); wrap.appendChild(pop);
-      renderRows();
-      try { window.__WEEKSIR_ACCOUNT__ = null; } catch (e) {}
-      return wrap;
-    }
-
-    // 找原生"标准模式"按钮（侧边栏顶部 mode trigger）。匹配文本完全
-    // 等于"标准模式"的可见元素，落到最近的可点击容器。
-    function findNativeModeTrigger() {
-      const candidates = document.querySelectorAll(
-        'button, [role="button"], a, span, div'
-      );
-      for (let i = 0; i < candidates.length; i++) {
-        const n = candidates[i];
-        const txt = (n.textContent || "").trim();
-        if (txt !== "标准模式") continue;
-        if (n.dataset.wsAcctReplaced === "1") continue;
-        const tag = (n.tagName || "").toLowerCase();
-        let host = n;
-        if (tag !== "button" && tag !== "a" && n.getAttribute("role") !== "button") {
-          host = n.closest('button, [role="button"], a') || n;
-        }
-        if (host.dataset.wsAcctReplaced === "1") continue;
-        return host;
-      }
-      return null;
-    }
-
-    let __wsAcctMounting = false;
-    function mountNativeAccountSwitcher() {
-      if (__wsAcctMounting) return;
-      const host = findNativeModeTrigger();
-      if (!host) return;
-      if (host.dataset.wsAcctReplaced === "1") return;
-      const parent = host.parentElement;
-      if (!parent) return;
-      // 只在当前 parent 内没有 ws-acct 节点时才挂载，不删除任何已挂节点
-      if (parent.querySelector('[data-ws-acct="1"]')) return;
-      __wsAcctMounting = true;
-      try {
-        host.style.setProperty("display", "none", "important");
-        host.dataset.wsAcctReplaced = "1";
-        parent.insertBefore(buildNativeAccountSwitcher(), host);
-      } catch (e) {
-      } finally {
-        if (typeof requestAnimationFrame === "function") {
-          requestAnimationFrame(function () { __wsAcctMounting = false; });
-        } else {
-          setTimeout(function () { __wsAcctMounting = false; }, 50);
-        }
-      }
-    }
-
-    function injectNativeAccountSwitcher() {
-      if (typeof document === "undefined" || !document.body) return;
-      try { mountNativeAccountSwitcher(); } catch (e) {}
-      // 节流：300ms 内只跑一次
-      let scheduled = false;
-      let lastRun = 0;
-      function onMutations() {
-        if (scheduled) return;
-        const now = Date.now();
-        if (now - lastRun < 300) return;
-        scheduled = true;
-        if (typeof requestAnimationFrame === "function") {
-          requestAnimationFrame(function () {
-            scheduled = false;
-            lastRun = Date.now();
-            try { mountNativeAccountSwitcher(); } catch (e) {}
-          });
-        } else {
-          setTimeout(function () {
-            scheduled = false;
-            lastRun = Date.now();
-            try { mountNativeAccountSwitcher(); } catch (e) {}
-          }, 50);
-        }
-      }
-      const mo = new MutationObserver(onMutations);
-      mo.observe(document.body, { childList: true, subtree: true });
-      if (!__wsOutsideBound) {
-        __wsOutsideBound = true;
-        document.addEventListener("click", function (e) {
-          document.querySelectorAll('[data-ws-acct="1"]').forEach(function (w) {
-            if (w.contains(e.target)) return;
-            const pop = w.querySelector('.ws-acct-pop');
-            if (pop && pop.style.display !== "none") {
-              pop.style.display = "none";
-              const b = w.querySelector('.ws-acct-btn');
-              if (b) b.classList.remove("ws-open");
-            }
-          });
-        });
-      }
     }
 
     // ---- 技能下拉框（composer 工具栏） ----
@@ -1015,95 +746,376 @@ body {
     // ===== 技能展示 dock（新对话页输入框下方，conversation.composer.dock 槽）=====
     // 皮肤全用 DSH/Weeksir 主题 var()，自动跟随 super-clone-ui 的橙色品牌；点击 = setDraft("/skill ") 填进输入框不自动发。
     const SKILL_DOCK_CSS_ID = "ws-skill-dock-css";
-    // 想只展示部分技能就填白名单（name 数组）；留空 = 展示 skills.list 返回的全部
-    const SKILL_DOCK_ALLOW = [];
+    // 排查"到底加载了哪一版 dock"用（选择器是启动时扫盘的快照，改完要 Ctrl+R 才生效）
+    const SKILL_DOCK_REV = "dock-20261004s";
+    // 展示元数据：title/tagline/cover/order 只在这一处（PRD §4 说该住 SKILL.md 的 display 块，
+    // 但 skills.list 目前不回传自定义 frontmatter —— 等能回传再把这张表搬过去，不留两份）。
+    // 封面 v2（2026-10-04）：画面内容按 PRD §8.6「功能 → 画面动作」逐张设计，一套管线出全套；
+    // v1 那批（各自一个 prompt、底色构图不统一、3 张都是白鞋）留在盘上不覆盖，换回只改这几行 URL。
+    const SKILL_DOCK_META = {
+      "super-clone": { title: "超级复刻", tagline: "原片换产品 · 可选换脸换背景", order: 1,
+                       cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-super-clone-v4.png" },
+      "hypit-pipeline": { title: "Hypit 视频裂变", tagline: "video-as-code 工程化出片", order: 2,
+                          cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-hypit-pipeline-v4.png" },
+      omni: { title: "Omni 出片", tagline: "竖屏产品广告 · 剧本到成片", order: 3,
+             cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-omni-v4.png" },
+      "short-drama": { title: "短剧 agent 带货", tagline: "剧情设计驱动的八阶段链路", order: 4,
+                      cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-short-drama-v4.png" },
+      // v3-clean 是 v1 那批里唯一没商标问题的，但主体仍是白鞋、和另外两张撞车 ⇒ 一并换 v2。
+      "video-dewatermark": { title: "视频去水印", tagline: "清掉 Sora/Seedance 的文字与图标", order: 5,
+                            cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-video-dewatermark-v4.png" },
+    };
+    // 白名单：只把这几条露给客户（其余 30 条是内部/提示词库技能，以前留空 = 全量倒给客户看）
+    const SKILL_DOCK_ALLOW = Object.keys(SKILL_DOCK_META);
+    const SKILL_RECENT_MAX = 8;   // PRD §6「最近使用」上限（以前代码写死 6，与 PRD 不一致）
+    const SKILL_TAB_MIN = 4;      // PRD §5：技能数到 4 才上 tab 栏
+    // 只在【新会话首页】出卡，进入对话就整块撤掉。判据照内核自己那条（dsh-client-ui-conversation:14775/14854）：
+    //   shellPhase = activeTargets>0 || (!blank && !awaitingFirstTurn) || running ? "active"
+    //                : promptAttempted ? "engaging" : "blank"
+    //   hero       = sessionId===void 0 || shellPhase==="blank" && (openState==="open" || summaryBlank===true)
+    // activeTargets 是会话内浮层目标，dock 拿不到也不该拿，其余字段都在 session 快照里（session.js:720-736）。
+    // openState 那半条没抄：它只管 settling 一帧的骨架态，为这个让卡片闪进闪出不值。
+    function isHeroSession(s) {
+      if (!s) return true;                                     // 还没有 session = 首页
+      if (s.blank === false) return false;                     // 已经有内容 = 对话中
+      if (s.running === true) return false;
+      if (s.promptAttempted === true) return false;            // 已提交首轮：内核此时已切到对话态
+      return true;
+    }
+    // 兜底读当前会话（ops-gateway 里同一写法）：props.session 在新对话页可能还没落库。
+    function currentSessionId(ctx) {
+      try { return (ctx.sessions && ctx.sessions.list && ctx.sessions.list.getSnapshot().current) || ""; } catch (e) { return ""; }
+    }
     function skillDockCss() {
       if (typeof document === "undefined") return;
       if (document.getElementById(SKILL_DOCK_CSS_ID)) return;
       const st = document.createElement("style");
       st.id = SKILL_DOCK_CSS_ID;
       st.textContent = `
-.ws-dock{margin:10px 2px 2px}
-.ws-dock-head{display:flex;align-items:center;gap:10px;margin:0 2px 8px}
+/* 外层 .ws-dock：上边距 18px（2026-10-04 他说"推荐技能到顶上间隔太小"）。
+   宽度一律 100% —— 卡宽由 JS 实测容器后算（SkillDock 里的 pageW / cardW）。
+   ⚠️ 别再写死像素：右栏挂着浏览器面板时输入卡实际只有 ~830px，写死 948 就把第 4 张切成半张
+      （2026-10-04 截屏实证，用户原话"没改过来啊"；他要的是"4 个图要全部露出来"）。 */
+.ws-dock{margin:18px 2px 2px;box-sizing:border-box;width:100%}
+/* tab 模式下 SkillSection 是【嵌在 .ws-dock 里】的，两层 margin-top 会叠加 ⇒ 收掉内层 */
+.ws-dock .ws-dock{margin-top:0}
+.ws-dock-head{display:flex;align-items:center;gap:10px;margin:0 2px 4px}
 .ws-dock-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary,#cfd3d6)}
 .ws-dock-sub{font-size:12px;color:var(--dsw-alias-label-tertiary,#969696)}
-.ws-dock-nav{margin-left:auto;display:flex;gap:6px}
+/* 分页轮播（2026-10-04 用户定）：一屏只露 WS_PAGE_SIZE 张，第 5 张靠箭头整页翻进来。
+   不用 overflow-x 自由滚动 —— 那会露出"半张卡"，看着像布局坏了。 */
+.ws-dock-page{overflow:hidden;width:100%}
+.ws-dock-track{display:flex;gap:12px;transition:transform .28s cubic-bezier(.2,.7,.3,1)}
+.ws-dock-dots{margin-left:auto;display:flex;align-items:center;gap:5px}
+.ws-dock-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-border-l3,#ffffff2b)}
+.ws-dock-dot.on{background:var(--dsw-alias-brand-primary,#fa6f08);width:16px;border-radius:3px}
+.ws-dock-nav{margin-left:12px;display:flex;gap:6px}
 .ws-dock-nav button{width:28px;height:28px;border-radius:50%;background:var(--dsw-alias-bg-layer-2,#232327);
   border:1px solid var(--dsw-alias-border-l1,#ffffff14);color:var(--dsw-alias-label-secondary,#cfd3d6);
   cursor:pointer;font-size:15px;line-height:1;display:grid;place-items:center}
-.ws-dock-nav button:hover{border-color:var(--dsw-alias-brand-primary,#fa6f08);color:var(--dsw-alias-label-primary,#f5f5f5)}
-.ws-dock-row{display:flex;gap:12px;overflow-x:auto;scroll-behavior:smooth;padding:2px 2px 8px;scrollbar-width:none}
-.ws-dock-row::-webkit-scrollbar{display:none}
-.ws-skill{flex:0 0 auto;width:200px;border-radius:12px;overflow:hidden;cursor:pointer;
+.ws-dock-nav button:hover:not([disabled]){border-color:var(--dsw-alias-brand-primary,#fa6f08);color:var(--dsw-alias-label-primary,#f5f5f5)}
+.ws-dock-nav button[disabled]{opacity:.32;cursor:default}
+/* 卡宽不在 CSS 里写死：由 SkillDock 量完容器宽度后按 (页宽-间距)/4 逐张下发（inline style） */
+.ws-skill{flex:0 0 auto;border-radius:12px;overflow:hidden;cursor:pointer;position:relative;
   background:var(--dsw-alias-bg-layer-1,#171717);border:1px solid var(--dsw-alias-border-l1,#ffffff14);
   transition:transform .16s cubic-bezier(.2,.7,.3,1),border-color .16s,box-shadow .16s}
 .ws-skill:hover{border-color:var(--dsw-alias-brand-primary,#fa6f08);transform:translateY(-3px);
   box-shadow:0 14px 30px -16px rgba(0,0,0,.7)}
-.ws-skill .cv{height:96px;display:grid;place-items:center;font-size:30px;color:#fff;
+/* 封面区 236×132 = PRD §8 的 16:9 卡；文字【叠在封面底部】（不是另起一块） */
+/* 封面区跟着卡宽走 16:9（卡宽是算出来的，高度就不能再写死 132） */
+.ws-skill .cv{aspect-ratio:16/9;display:grid;place-items:center;font-size:30px;color:#fff;position:relative;
   background:linear-gradient(135deg,var(--dsw-alias-brand-primary,#fa6f08),#b118d6)}
-.ws-skill .bd{padding:9px 11px 11px}
-.ws-skill .nm{font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary,#f5f5f5);line-height:19px}
-.ws-skill .ds{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#969696);line-height:16px;margin-top:3px;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}`;
+.ws-skill .cv img{width:100%;height:100%;object-fit:cover;display:block}
+.ws-skill .cv::after{content:"";position:absolute;inset:auto 0 0 0;height:58%;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(8,9,12,.82))}
+.ws-skill .bd{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:10px 12px 11px}
+.ws-skill .nm{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary,#f5f5f5);line-height:20px}
+.ws-skill .ds{font-size:12px;color:var(--dsw-alias-label-tertiary,#c7cbd1);line-height:17px;margin-top:2px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* tab 栏（PRD §5：技能数 ≥4 才上；§6：最近使用为空就不显示那个 tab） */
+.ws-tabs{display:flex;align-items:center;gap:4px;margin:0 2px 6px}
+.ws-tab{font:inherit;font-size:12.5px;line-height:18px;padding:5px 10px;border-radius:8px;cursor:pointer;
+  color:var(--dsw-alias-label-tertiary,#969696);background:transparent;border:1px solid transparent}
+.ws-tab:hover{color:var(--dsw-alias-label-primary,#f5f5f5);background:var(--dsw-alias-bg-layer-2,#232327)}
+.ws-tab.on{color:var(--dsw-alias-brand-primary,#fa6f08);background:var(--dsw-alias-bg-layer-2,#232327);
+  border-color:var(--dsw-alias-border-l1,#ffffff14);font-weight:600}`;
       document.head.appendChild(st);
+      try { console.log("[skill-dock]", SKILL_DOCK_REV, "白名单 " + SKILL_DOCK_ALLOW.length + " 条"); } catch (e) {}
     }
     const RECENT_KEY = "ws-skill-recent";
     function loadRecent() { try { return JSON.parse((typeof localStorage !== "undefined" && localStorage.getItem(RECENT_KEY)) || "[]"); } catch (e) { return []; } }
-    function saveRecent(a) { try { localStorage.setItem(RECENT_KEY, JSON.stringify(a.slice(0, 6))); } catch (e) {} }
+    function saveRecent(a) { try { localStorage.setItem(RECENT_KEY, JSON.stringify(a.slice(0, SKILL_RECENT_MAX))); } catch (e) {} }
 
     function makeSkillDockBody(ctx) {
-      // 单个分区（标题 + 一行可左右滚动的卡片）。独立组件 → 各自持有 ref，挂载/卸载安全。
+      // 一屏几张 + 间距。卡宽【不在这里定】：SkillDock 量完容器实际宽度再算（见 cardW）。
+      const WS_PAGE_SIZE = 4, WS_GAP = 12, WS_MIN_CARD = 150, WS_CARD_FALLBACK = 228;
+      const WS_AUTO_MS = 10000;   // 整页自动轮播间隔（2026-10-04 用户定"一排一排滚，10 秒"）
+      const dockNav = (onPage, page, pages) => h("span", { className: "ws-dock-nav" },
+        h("button", { onClick: () => onPage(page - 1), disabled: page <= 0, "aria-label": "上一页" }, "‹"),
+        h("button", { onClick: () => onPage(page + 1), disabled: page >= pages - 1, "aria-label": "下一页" }, "›"));
+      // 一个分页卡片区：外层裁掉超出部分，内层 track 按"起始第几张卡"整段平移
       function SkillSection(props) {
-        const ref = React.useRef(null);
-        const scroll = (d) => { try { if (ref.current) ref.current.scrollBy({ left: d * 212, behavior: "smooth" }); } catch (e) {} };
-        return h("div", { className: "ws-dock" },
-          h("div", { className: "ws-dock-head" },
-            h("span", { className: "ws-dock-title" }, props.title),
-            h("span", { className: "ws-dock-nav" },
-              h("button", { onClick: () => scroll(-1), "aria-label": "左滚" }, "‹"),
-              h("button", { onClick: () => scroll(1), "aria-label": "右滚" }, "›"))),
-          h("div", { className: "ws-dock-row", ref: ref },
-            props.items.map(s => h("div", { key: props.title + ":" + s.name, className: "ws-skill", onClick: () => props.onPick(s.name) },
-              h("div", { className: "cv" }, (s.name || "·").slice(0, 1).toUpperCase()),
-              h("div", { className: "bd" },
-                h("div", { className: "nm" }, s.name),
-                s.desc ? h("div", { className: "ds" }, s.desc) : null)))));
+        return h("div", { className: "ws-dock-page", ref: props.pageRef },
+          h("div", { className: "ws-dock-track",
+                     style: { transform: "translateX(" + (-props.offset * (props.cardW + WS_GAP)) + "px)" } },
+            props.items.map(s => {
+              const m = SKILL_DOCK_META[s.name] || {};
+              return h("div", { key: s.name, className: "ws-skill", style: { width: props.cardW + "px" },
+                                onClick: () => props.onPick(s.name) },
+                h("div", { className: "cv" }, m.cover ? h("img", { src: m.cover, alt: "", loading: "lazy" })
+                                                      : (s.name || "·").slice(0, 1).toUpperCase()),
+                h("div", { className: "bd" },
+                  h("div", { className: "nm" }, m.title || s.name),
+                  (m.tagline || s.desc) ? h("div", { className: "ds" }, m.tagline || s.desc) : null));
+            })));
       }
+      const dots = (page, pages) => h("span", { className: "ws-dock-dots" },
+        Array.from({ length: pages }, (_, i) =>
+          h("i", { key: i, className: "ws-dock-dot" + (i === page ? " on" : "") })));
 
       return function SkillDock(props) {
-        const sessionId = props && props.sessionId;
+        // 槽位实际传进来的 props 是 { session, input }（dsh-client-ui-conversation:14855 的 extensionZone），
+        // 不是 { sessionId } —— 读错键 = sessionId 永远 undefined = skills.list 报 session/not-found。
+        const sessionId = (props && props.session && props.session.sessionId) || (props && props.sessionId) || currentSessionId(ctx);
+        const hero = isHeroSession(props && props.session);
         const actions = props && props.inputActions;
+        const draft = (props && props.input && props.input.draft) || "";
         const [skills, setSkills] = React.useState([]);
         const [recent, setRecent] = React.useState(loadRecent);
+        const [tab, setTab] = React.useState("reco");     // PRD §6：默认选中「推荐技能」
+        // 分页（2026-10-04 用户定："这里露出 4 个，第 5 个通过按钮切换出现"）：一屏 4 张，箭头整页翻。
+        const [page, setPage] = React.useState(0);
+        const goPage = (n) => setPage(Math.max(0, Math.min(n, 99)));
+        // 卡宽要"4 张刚好铺满"，就只能量了再算：右栏面板一开合、窗口一缩放，容器宽度都会变。
+        // ResizeObserver 是主路，setInterval 是兜底（宿主在某些时机不触发 RO，比如字体/侧栏动画后）。
+        const pageRef = React.useRef(null);
+        const [pageW, setPageW] = React.useState(0);
         React.useEffect(() => {
+          const el = pageRef.current;
+          if (!el) return;
+          const read = () => { const w = el.clientWidth || 0; setPageW((p) => (Math.abs(p - w) > 1 ? w : p)); };
+          read();
+          let ro = null;
+          try { ro = new ResizeObserver(read); ro.observe(el); } catch (e) {}
+          const timer = setInterval(read, 800);
+          return () => { clearInterval(timer); try { if (ro) ro.disconnect(); } catch (e) {} };
+        }, [hero, skills.length]);
+        const cardW = pageW > 0 ? Math.max(WS_MIN_CARD, Math.floor((pageW - (WS_PAGE_SIZE - 1) * WS_GAP) / WS_PAGE_SIZE))
+                                : WS_CARD_FALLBACK;
+        React.useEffect(() => {
+          if (!hero) { setSkills([]); return; }           // 对话中不查目录、不挂卡
           let alive = true;
+          const abort = new AbortController();
           (async () => {
             try {
-              const raw = await ctx.remote.skills.list({ sessionId: sessionId });
-              const list = Array.isArray(raw) ? raw : (raw && (raw.skills || raw.items)) || [];
+              if (!sessionId) {
+                try { console.warn("[skill-dock] 拿不到 sessionId（props.session 与 ctx.sessions 都空）⇒ 不查目录"); } catch (e) {}
+                if (alive) setSkills([]);
+                return;
+              }
+              // 🔴 skills.list 回的是 Remote 信封 { ok, value: { skills }, error }，不是数组
+              //    （内核 dsh-client-ui-skill/lib/client.js:253 就这么拆）。上一版直接把返回值当数组 ⇒ 恒空。
+              const res = await ctx.remote.skills.list({ sessionId }, abort.signal);
+              if (!res || res.ok !== true) {
+                const err = res && res.error;
+                try { console.warn("[skill-dock] skills/list 失败:", err && err.code, err && err.message, "(sessionId=" + sessionId + ")"); } catch (e) {}
+                if (alive) setSkills([]);
+                return;
+              }
+              const list = (res.value && res.value.skills) || [];
+              // 挂载了但一条没渲染出来时，控制台要能自己说清是哪一步空的（别让人靠猜）
+              try { console.log("[skill-dock]", SKILL_DOCK_REV, "skills.list 返回", list.length, "条，名字前 40:",
+                                list.map(s => s.name).slice(0, 40)); } catch (e) {}
               let arr = list.map(s => ({
-                name: s.name || s.title || s.id || "",
-                desc: s.description || s.tagline || s.whenToUse || ""
+                name: s.name || "",
+                desc: s.description || s.whenToUse || ""
               })).filter(x => x.name);
               if (SKILL_DOCK_ALLOW.length) arr = arr.filter(x => SKILL_DOCK_ALLOW.indexOf(x.name) >= 0);
+              // 名字对不上会让整个 dock 静默消失（skills.list 的 name 才是键），所以把原始名字打出来，别让人靠猜
+              if (alive && !arr.length && list.length) {
+                try { console.warn("[skill-dock] 白名单一条都没命中；skills.list 返回的名字是:",
+                                   list.map(s => s.name).slice(0, 40)); } catch (e) {}
+              }
+              arr.sort((a, b) => ((SKILL_DOCK_META[a.name] || {}).order || 99) - ((SKILL_DOCK_META[b.name] || {}).order || 99));
               if (alive) setSkills(arr);
-            } catch (e) { if (alive) setSkills([]); }
+            } catch (e) { if (alive) setSkills([]); try { console.warn("[skill-dock] skills.list 调用失败:", e && e.message); } catch (e2) {} }
           })();
-          return () => { alive = false; };
-        }, [sessionId]);
-        if (!skills.length) return null;
-        skillDockCss();
+          return () => { alive = false; try { abort.abort(); } catch (e) {} };
+        }, [sessionId, hero]);
+        // ↓↓↓ 纯计算（无副作用）：先算出"当前这一组 + 共几页"，自动轮播的 effect 要用它
         const byName = {}; skills.forEach(s => { byName[s.name] = s; });
         const recentSkills = recent.map(n => byName[n]).filter(Boolean);
+        const pages = (n) => Math.max(1, Math.ceil(n / WS_PAGE_SIZE));
+        // PRD §5：技能数 ≥4 才上 tab 栏（最近使用 / 推荐技能）；§6：最近使用为空就不显示那个 tab。
+        const tabbed = skills.length >= SKILL_TAB_MIN;
+        const tabs = [];
+        if (tabbed && recentSkills.length) tabs.push({ id: "recent", label: "最近使用", items: recentSkills });
+        if (tabbed) tabs.push({ id: "reco", label: "推荐技能", items: skills });
+        const cur = tabbed ? (tabs.filter(t => t.id === tab)[0] || tabs[tabs.length - 1]) : { id: "reco", items: skills };
+        const np = pages(cur.items.length);
+        const [paused, setPaused] = React.useState(false);
+        // 整页自动轮播：每 WS_AUTO_MS 翻一页，翻到底回第一页（2026-10-04 用户定 10 秒一排）。
+        // 三种情况必须停：不在首页（本来就该整块消失）／只有一页（没得翻）／鼠标停在块上
+        // （否则客户正要点的那张会自己滑走）。page 进依赖 ⇒ 手动点箭头后这 10 秒重新计时。
+        React.useEffect(() => {
+          if (!hero || np <= 1 || paused) return;
+          const t = setInterval(() => setPage((p) => (p + 1) % np), WS_AUTO_MS);
+          return () => clearInterval(t);
+        }, [hero, np, paused, page, tab, cardW]);
+        if (!hero || !skills.length) return null;
+        skillDockCss();
+        const pg = Math.min(page, np - 1);
+        // 🔴 尾页【回退一格补齐】：5 张 ÷ 每页 4 张 = 2 页，若按 0/4 切，第 2 页只剩 1 张、左边空一大片
+        //    （2026-10-04 截图实证）。起始位封顶在 `总数-每页数` ⇒ 每一页都是满 4 张。
+        const off = Math.min(pg * WS_PAGE_SIZE, Math.max(0, cur.items.length - WS_PAGE_SIZE));
         const onPick = (name) => {
-          try { if (actions && actions.setDraft) actions.setDraft("/" + name + " "); } catch (e) {}
-          const next = [name].concat(loadRecent().filter(n => n !== name)).slice(0, 6);
+          // setDraft 是整体替换，所以把当前草稿带上；带尾空格 = 和内核 / 选择器 onPick 一致，方便接着打字。
+          if (!(actions && actions.setDraft)) {
+            try { console.warn("[skill-dock] 卡片能点但填不进输入框：slot props 里没有 inputActions.setDraft（键名 =",
+                               Object.keys(props || {}).join(","), "）"); } catch (e) {}
+            return;
+          }
+          try { actions.setDraft(draft + "/" + name + " "); } catch (e) {}
+          const next = [name].concat(loadRecent().filter(n => n !== name)).slice(0, SKILL_RECENT_MAX);
           saveRecent(next); setRecent(next);
         };
-        return h("div", null,
-          recentSkills.length ? h(SkillSection, { title: "最近使用", items: recentSkills, onPick: onPick }) : null,
-          h(SkillSection, { title: "推荐技能", items: skills, onPick: onPick }));
+        // 悬停即停表（用户："如果鼠标悬停，停止滚动"）
+        const hover = { onMouseEnter: () => setPaused(true), onMouseLeave: () => setPaused(false) };
+        if (tabbed) {
+          // 箭头 + 页码指示与 tab 同排（tab 左、指示与箭头右）：单独占一行会把 tab 顶离封面一整行。
+          return h("div", Object.assign({ className: "ws-dock" }, hover),
+            h("div", { className: "ws-tabs" },
+              tabs.map(t => h("button", { key: t.id, className: "ws-tab" + (t.id === cur.id ? " on" : ""),
+                onClick: () => { setTab(t.id); setPage(0); } }, t.label)),
+              np > 1 ? dots(pg, np) : null,
+              np > 1 ? dockNav(goPage, pg, np) : null),
+            h(SkillSection, { pageRef: pageRef, cardW: cardW, offset: off,
+                              items: cur.items, onPick: onPick }));
+        }
+        // 不足一页（≤4 张）：不给箭头也不轮播，只把两块摆出来（PRD §5 不给孤零零的 tab）
+        return h("div", Object.assign({ className: "ws-dock" }, hover),
+          recentSkills.length ? h("div", null,
+            h("div", { className: "ws-dock-head" }, h("span", { className: "ws-dock-title" }, "最近使用")),
+            h(SkillSection, { pageRef: pageRef, cardW: cardW, offset: 0,
+                              items: recentSkills, onPick: onPick })) : null,
+          h("div", { className: "ws-dock-head" }, h("span", { className: "ws-dock-title" }, "推荐技能")),
+          h(SkillSection, { pageRef: pageRef, cardW: cardW, offset: 0,
+                            items: skills, onPick: onPick }));
       };
+    }
+
+    // ===== 执行中分组（2026-10-05 用户要 Qoder 那种「一个组 + 逐行进度」）=====
+    // 差别不是"DSH 没有折叠"，而是它的折叠要等这一轮结束：
+    //   dsh-client-ui-chat/lib/client.js:1581  processWindowReady = … && compactTranscript && … && **turnClosed**
+    // ⇒ 正在跑的那一轮全程平铺。实测一条会话：7 轮 / 123 步里 `assistant/message` 有 122 条 ⇒ 每步一条旁白糊在正文里。
+    // 三条自律（详见 docs/PRD-chat-progress.md §3）：
+    //   ① 只用内核的 data-* 语义属性选元素，绝不依赖 CSS Modules 的哈希 class（升级会漂）；
+    //   ② 不搬 React 节点 —— 只 setAttribute + 组首插一个头（全文件仅此一处插节点）；
+    //   ③ 官方折过的（打了 data-turn-process-hidden）立刻让位，不做第二套折叠。
+    const WS_TURN_REV = "turn-fold-20261005b";
+    const WS_TURN_CSS_ID = "ws-turn-fold-css";
+    const WS_FLOW_ITEM = "[data-chat-flow-kind][data-chat-turn]";
+    // 永远留在正文里的 kind（客户说的话、报错、轮次收尾、官方那条折叠行）；其余一律收进组 ——
+    // 未知的新 kind 默认收，宁可少刷屏也别让正文又糊满。
+    const WS_TURN_KEEP = ["user", "steering", "turn-tail", "turn-error", "turn-process", "system-prompt", "boundary"];
+    const turnFirstSeen = new Map();   // turn → 第一次见到它的时间戳（组头的计时用）
+
+    function turnFoldCss() {
+      if (typeof document === "undefined" || !document.body) return;
+      if (document.getElementById(WS_TURN_CSS_ID)) return;
+      const st = document.createElement("style");
+      st.id = WS_TURN_CSS_ID;
+      st.textContent =
+        ".ws-turn-head{display:flex;align-items:center;gap:8px;margin:2px 0 6px;padding:2px 6px;" +
+        "font-size:12px;line-height:20px;cursor:pointer;user-select:none;color:var(--dsw-alias-label-secondary,#cfd3d6)}" +
+        ".ws-turn-head:hover{color:var(--dsw-alias-label-primary,#f5f5f5)}" +
+        ".ws-turn-head .ws-dot{width:6px;height:6px;border-radius:50%;flex:none;" +
+        "background:var(--dsw-alias-brand-primary,#fa6f08)}" +
+        ".ws-turn-head .ws-n{color:var(--dsw-alias-label-tertiary,#969696)}" +
+        "[data-ws-fold=\"1\"]{display:none!important}";
+      document.body.appendChild(st);
+    }
+
+    // 把一组过程条目"放开"：去掉我们的标记 + 撤掉头 + 忘掉计时（交还给官方 compact）
+    function turnRelease(list, head, key) {
+      for (const el of list) el.removeAttribute("data-ws-fold");
+      if (head) head.remove();
+      turnFirstSeen.delete(key);
+    }
+
+    function turnFoldTick() {
+      if (typeof document === "undefined" || !document.body) return;
+      turnFoldCss();
+      const nodes = document.querySelectorAll(WS_FLOW_ITEM);
+      if (!nodes.length) return;
+      const groups = new Map();
+      for (const el of nodes) {
+        const t = el.getAttribute("data-chat-turn") || "?";
+        if (!groups.has(t)) groups.set(t, []);
+        groups.get(t).push(el);
+      }
+      const keys = Array.from(groups.keys());
+      const lastKey = keys[keys.length - 1];
+      for (const key of keys) {
+        const list = groups.get(key);
+        const parent = list[0].parentNode;
+        if (!parent) continue;
+        let head = list[0].previousElementSibling;
+        if (!head || !head.classList || !head.classList.contains("ws-turn-head")) head = null;
+        // 只有"最后那一轮 + 官方还没折"才归我们管
+        const officialFolded = list.some(el => el.hasAttribute("data-turn-process-hidden"));
+        if (key !== lastKey || officialFolded) { turnRelease(list, head, key); continue; }
+        const proc = list.filter(el => WS_TURN_KEEP.indexOf(el.getAttribute("data-chat-flow-kind")) < 0);
+        if (proc.length < 2) { turnRelease(list, head, key); continue; }
+        if (!turnFirstSeen.has(key)) turnFirstSeen.set(key, Date.now());
+        const secs = Math.max(0, Math.round((Date.now() - turnFirstSeen.get(key)) / 1000));
+        const open = !!(head && head.getAttribute("data-ws-turn-open") === "1");
+        // 🔴 open 必须真的作用到标记上 —— 第一版只拿它改了文案，结果"展开看过程"点了个寂寞
+        for (const el of proc) {
+          if (open) el.removeAttribute("data-ws-fold");
+          else el.setAttribute("data-ws-fold", "1");
+        }
+        // 🔴 收起态下最后一条【永远露着】当"当前动作"——全收起来客户会以为卡死（PRD 非目标 2）
+        if (!open) proc[proc.length - 1].removeAttribute("data-ws-fold");
+        if (!head) {
+          head = document.createElement("div");
+          head.className = "ws-turn-head";
+          head.setAttribute("data-ws-turn-head", key);
+          head.addEventListener("click", function () {
+            head.setAttribute("data-ws-turn-open", head.getAttribute("data-ws-turn-open") === "1" ? "0" : "1");
+            turnFoldTick();
+          });
+          parent.insertBefore(head, list[0]);   // 全文件仅此一处插节点
+        }
+        head.textContent = "";
+        const dot = document.createElement("span"); dot.className = "ws-dot"; head.appendChild(dot);
+        const txt = document.createElement("span");
+        txt.textContent = "执行中 · " + proc.length + " 步 · " + secs + "s";
+        head.appendChild(txt);
+        const hint = document.createElement("span");
+        hint.className = "ws-n"; hint.textContent = open ? "收起" : "展开看过程";
+        head.appendChild(hint);
+      }
+    }
+
+    function mountTurnFold(ctx) {
+      if (typeof document === "undefined" || !document.body) return;
+      let queued = false;
+      const later = () => {
+        if (queued) return;
+        queued = true;
+        setTimeout(() => { queued = false; try { turnFoldTick(); } catch (e) {} }, 250);
+      };
+      try {
+        turnFoldTick();
+        const mo = new MutationObserver(later);
+        mo.observe(document.body, { childList: true, subtree: true });
+        // 组头的秒数在"没有 DOM 变化"时也要走字（内核不会重绘我们插的头）⇒ 1 秒一跳
+        if (ctx && typeof ctx.setInterval === "function") ctx.setInterval(later, 1000);
+        try { console.log("[ws-turn-fold] mounted", WS_TURN_REV); } catch (e) {}
+      } catch (e) {
+        try { console.warn("[ws-turn-fold] 挂载失败:", e && e.message); } catch (e2) {}
+      }
     }
 
     function apply(ctx) {
@@ -1121,13 +1133,20 @@ body {
           })
         )
       );
-      injectNativeAccountSwitcher();
       injectNativeSkillPicker();
+      // 执行中分组：把正在跑的这一轮收进「执行中 · N 步 · Xs」一个头，最后一步仍露着（2026-10-05）
+      mountTurnFold(ctx);
       // 新对话页输入框下方的技能展示 dock（最近使用 + 推荐技能）
+      // ⚠️ 日志是故意留的：dock 不出现时，"槽没注册成功"/"注册了但 skills 拿不到"要能一眼分开。
+      //    另：这个插件在开发态会被两条路径各加载一次（Cordis 打包口 + HMR 直读），控制台会看到两行；
+      //    这里不做"先到先占"的去重 —— 那会让缓存里那份旧代码赢（旧版连 inject 都没声明）。
       try {
         ctx.slots.inject("conversation.composer.dock", () =>
           ctx.slots.register({ name: "conversation.composer.dock", id: "weeksir-skill-dock", order: 10 }, makeSkillDockBody(ctx)));
-      } catch (e) {}
+        try { console.log("[skill-dock] 已挂进 conversation.composer.dock", SKILL_DOCK_REV); } catch (e) {}
+      } catch (e) {
+        try { console.warn("[skill-dock] 挂载失败（槽不存在或签名变了）:", e && e.message); } catch (e2) {}
+      }
     }
 
     exports.apply = apply;

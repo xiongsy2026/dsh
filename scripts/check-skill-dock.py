@@ -88,8 +88,11 @@ check("21a 默认选中「推荐技能」", 'React.useState("reco")' in src, Tru
 check("21b 空的「最近使用」不生成 tab", "if (tabbed && recentSkills.length) tabs.push" in src, True)
 check("22 点卡片同时写最近使用（tab 有内容才会长出来）", "saveRecent(next); setRecent(next);" in src, True)
 # 23-25：这三条是 2026-10-04 那次"dock 从写下那天起就没渲染过"的直接教训
+# 钉"成员在不在"，不钉整行字面量 —— 加一项依赖（如 timer）不该让这条闸红（钉现场=假保险）
+_inj = src[src.find("const inject = ["):]
+_inj = _inj[:_inj.find("];") + 2]
 check("23 声明了 remote/skills/sessions 依赖（cordis 的 ctx 是代理，没 inject 一读就抛，且被 catch 静默吞掉）",
-      'const inject = ["slots", "remote", "remote.skills", "sessions"];' in src, True)
+      [k in _inj for k in ('"slots"', '"remote"', '"remote.skills"', '"sessions"')], [True] * 4)
 check("24 挂载成功/失败各自有日志（不许再出现「什么都没发生」）",
       "已挂进 conversation.composer.dock" in src and "挂载失败（槽不存在或签名变了）" in src, True)
 check("25 skills.list 拿到几条、名字是什么，也要打出来（白名单对不上时能自证）",

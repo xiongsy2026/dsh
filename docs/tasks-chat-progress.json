@@ -23,7 +23,7 @@
       "id": "T1",
       "layer": "本体",
       "title": "turnFoldTick：按 data-chat-turn 分组 + 组头「执行中 · N 步 · Xs」+ 收起非当前步",
-      "status": "reverted-ready",
+      "status": "done",
       "depends_on": [],
       "files": [
         "plugins/super-clone-ui/lib/client.js"
@@ -36,14 +36,14 @@
         "W4 官方折过的组我们不出现"
       ],
       "est": "2h",
-      "note": "已写过 109 行并主动回退（08:2x），形态待排期后重放；回退原因=先出文档 + 该文件当时被另一会话改写",
+      "note": "2026-10-05 重放并加了行为闸：假 DOM 跑 turnFoldTick 15 条真值表。它抓到两个真 bug——① open 只改了文案、没真的解除折叠（点开是空的）；② 我自己的假 DOM 不清子节点导致误判。组头文案「执行中 · N 步 · Xs」，收起态最后一条永远露着。",
       "risk": "ctx.setInterval 要在 exports.inject 里声明 \"timer\"，否则 guard 静默拒 ⇒ 秒数不动"
     },
     {
       "id": "T2",
       "layer": "本体",
       "title": "触发器：MutationObserver 节流 250ms + 1 秒一跳的计时",
-      "status": "pending",
+      "status": "done",
       "depends_on": [
         "T1"
       ],
@@ -53,13 +53,14 @@
       "verify": [
         "无 DOM 变化时秒数仍在走；有变化时不抖（一帧内不重复重排）"
       ],
-      "est": "0.5h"
+      "est": "0.5h",
+      "note": "MutationObserver 节流 250ms + ctx.setInterval 1s 一跳；inject 已声明 timer。"
     },
     {
       "id": "T3",
       "layer": "闸",
       "title": "check-chat-progress.py：钉源码纪律 + 内核契约漂移",
-      "status": "pending",
+      "status": "done",
       "depends_on": [
         "T1"
       ],
@@ -72,13 +73,14 @@
         "W7 chat bundle 里 data-chat-turn / data-chat-flow-kind / data-turn-process-hidden / turnClosed / DEFAULT_TRANSCRIPT_VIEW_MODE=\"compact\" 仍在"
       ],
       "est": "1h",
-      "risk": "闸要钉规则不钉现场：不许断言「某个进程活着」"
+      "risk": "闸要钉规则不钉现场：不许断言「某个进程活着」",
+      "note": "两篇：check-chat-progress.py（源码形状 16 条：零哈希 class / insertBefore==1 / 无 removeChild / KEEP 含 user+turn-error / 内核契约仍在）+ check-chat-progress-dom.mjs（行为 15 条），由前者聚合成一个入口。"
     },
     {
       "id": "T4",
       "layer": "实测",
       "title": "真界面点一遍：起一条多步任务，截图看组头与逐行追加",
-      "status": "pending",
+      "status": "blocked-on-focus",
       "depends_on": [
         "T1",
         "T2"
@@ -90,7 +92,9 @@
       "verify": [
         "截图里能看到组头计数递增、最后一步可见、点开能看全部步骤；轮次结束后官方 compact 接管、我们的头消失（W4）"
       ],
-      "est": "0.5h"
+      "est": "0.5h",
+      "note": "真界面截图这步【主动停做】：DSH 窗口前台被企业微信抢占，那扇窗口里正有人在打字，往桌面发按键有误发风险 ⇒ 不赌。行为已由假 DOM 真值表覆盖，截图只差一次肉眼确认。",
+      "remaining": "等一条正在跑的会话（或你允许我点「新会话」发一条零成本的本地指令）再截一张图。"
     },
     {
       "id": "T5",
