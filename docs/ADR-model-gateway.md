@@ -33,6 +33,9 @@
 ```
 python gateway.py caps
 python gateway.py resolve <capability> [purpose]        # 脱敏摘要 + 预估积分
+python gateway.py quote   <capability> [purpose] --json '<params>'   # 只算不花钱：分档后的预计扣分（按时长计费的腿必须用它，光看单价算不出）
+python gateway.py prices                                  # 价目源（外置 json / 内置兜底）+ 每条路由的分
+python gateway.py credits                                 # 余额 + 按路由的流水汇总
 python gateway.py call  <capability> <purpose> --json '<params>'   # 归一 JSON 返回
 python gateway.py test                                   # 各 route 真探活
 ```
@@ -115,6 +118,23 @@ hypit 的 Provider 协议只认 HTTP（`POST /uploads`、`POST /videos`、`GET /
 3. **`.env` 要 base+key 齐**：`.env` 原本只有 `MIMO_API_KEY`（base 靠 config.py 默认），而 video-ui 要求两者齐 ⇒ 已把 `MIMO_BASE_URL` 经 8100 管理接口写入 `.env`（不在 video-ui 复制常量，保持单一真相源）。
 
 ⚠️ 两点提醒：mimo 爱在正文后附"设计思路"，剧本/运镜的 prompt 要锁死"只出正文/严格 JSON"；生效需**重启 8765**（用户自己终端起的进程，别擅自 kill）。
+
+## 2026-10-04 新增三条非文本腿（都进同一预扣/结算/审计，不再各自硬编码厂商）
+
+| capability/purpose | provider | 入口 | 计费 | 状态 |
+|---|---|---|---|---|
+| `audio.generate/seed-audio` | bytedance-audio | `POST /api/v3/tts/create`（**X-Api-Key 头**，不是 Bearer；401/403 才换 Bearer 重试一次） | 分/**千字**（不是分/条） | 已接，**未实跑** |
+| `image.generate/doubao` | doubao-web | 子进程 `video-ui/doubao.py gen`（Playwright 驱动本机 Chrome） | 记 0（不花钱，烧登录态） | 已接·**有头才行**（无头被风控） |
+| `image.generate/gflow` | gflow-cli | `gflow image t2i\|i2i --json` | 记 0（烧的是 Flow 配额，不是我方现金） | 已接·**上游 bot check 拦着**（`PUBLIC_ERROR_UNUSUAL_ACTIVITY`，未扣费） |
+| `video.edit/dewatermark` | runninghub | AI App `2012077432525824001`：上传→`/openapi/v2/run/ai-app/<id>`→`/openapi/v2/query`→落盘 | 分/**10 秒档**（占位 20 分/档） | 已接，**未实跑** |
+
+**三条硬规矩（都是踩出来的）：**
+1. 🔴 **占位价必须标出来，且要能校准**。`video.edit/dewatermark` 的 20 分/档是照同一家 `image.edit/faceswap` 借的**占位数**（源码里写明"没有实测价"）——RunningHub 按 GPU 秒真扣钱，而"1 元=几分"未定。为此给 `runninghub_client.query_task()` 补了 **`usage` 透传**（`taskCostTime`/`consumeMoney`/`consumeCoins`；之前归一化时被丢掉，于是所有按 GPU 秒的腿都拿不到实测数）。跑通第一条后按这个数改 `model_prices.json`，不用动代码。
+2. **网页/CLI 型腿没有密钥可验**，`test_route` 只能验"登录态文件在不在"（doubao）或 `auth status`（gflow），**不许把这种"reachable"当"真能出图"**——那两条都要实跑才算通。
+3. **按条计费的腿一律强制 `output_path`**：上游链接 24 小时失效（RunningHub）或成功但拿不到东西（音频二进制体），不落盘 = 白花钱；参数校验全部排在**建预扣之前**，拒了就不该出现 hold 记录。
+
+**闸**（默认 0 网络 0 花费，假传输层跑真代码）：`scripts/check-audio-generate.py` 23 条 · `scripts/check-web-image-lanes.py` 44 条 · `scripts/check-dewatermark-lane.py` 47 条。
+🔴 假客户端**只许换传输层**（换 `httpx.AsyncClient`），把被测函数整块替掉 = 全绿也漏网（agnes 那条就这么骗过我一次）。
 
 ## 积分系统（账本适配层·对齐 PRD §6.x）
 **原则：单一账本在 weeksir.com，网关只做"调用前预扣 / 成功提交 / 失败回滚"的适配，绝不在 DSH 另建用户/积分表。**（PRD:276/283）
