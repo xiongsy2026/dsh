@@ -27,8 +27,13 @@
       "layer": "R3",
       "title": "唤醒预算 3 → 64（preset overlay）",
       "status": "done-code-unverified",
-      "files": ["_setup/patch_wake_budget.py", "scripts/check-wake-budget.py"],
-      "verify": ["闸 10 条 0 失败（含「内核默认值仍是 3 ⇒ 我们是 overlay 不是改内核」）"],
+      "files": [
+        "_setup/patch_wake_budget.py",
+        "scripts/check-wake-budget.py"
+      ],
+      "verify": [
+        "闸 10 条 0 失败（含「内核默认值仍是 3 ⇒ 我们是 overlay 不是改内核」）"
+      ],
       "remaining": "真链路实测：跑一条多阶段 omni/hypit 任务，走开几分钟看它会不会自己回来交片",
       "est": "0.5h（实测）"
     },
@@ -37,8 +42,14 @@
       "layer": "规则层",
       "title": "全局行为层 $DSH_HOME/AGENTS.md（95% 阈值 + 交付/验收纪律）",
       "status": "done-code-unverified",
-      "files": ["%APPDATA%/dsh-desktop/harness/AGENTS.md", "weeksir-skills/AGENTS.global.md", "scripts/check-global-agents.py"],
-      "verify": ["闸 14 条 0 失败；全文 ≤2600 字节（≈700 token/轮）"],
+      "files": [
+        "%APPDATA%/dsh-desktop/harness/AGENTS.md",
+        "weeksir-skills/AGENTS.global.md",
+        "scripts/check-global-agents.py"
+      ],
+      "verify": [
+        "闸 14 条 0 失败；全文 ≤2600 字节（≈700 token/轮）"
+      ],
       "remaining": "端到端确认注入（会话账本里出现 Instructions from: $DSH_HOME/AGENTS.md）；装机脚本写进客户机",
       "est": "0.5h"
     },
@@ -48,9 +59,16 @@
       "title": "义务台账 delivery.json：schema + 读写器（工作区内，DSH 沙箱可写）",
       "status": "pending",
       "depends_on": [],
-      "files": ["D:/video-skill/backend/delivery_ledger.py", "C:/dsh/.dsh/delivery.json"],
+      "files": [
+        "D:/video-skill/backend/delivery_ledger.py",
+        "C:/dsh/.dsh/delivery.json"
+      ],
       "spec": "记录 {session,task,skill,expected[{seq,path,kind}],budget_credits,created_at,ttl_sec,closed_at}；产物文件真出现（size>0）才销账；全销⇒closed；TTL 到期⇒作废",
-      "verify": ["V1 提交后清单立刻出现且条数=段数（假传输层，0 分）", "V2 落盘自动销账", "V4 ttl=1s 重跑⇒不再拦"],
+      "verify": [
+        "V1 提交后清单立刻出现且条数=段数（假传输层，0 分）",
+        "V2 落盘自动销账",
+        "V4 ttl=1s 重跑⇒不再拦"
+      ],
       "est": "3h",
       "risk": "不许拿 mtime 猜目录（no-project 的老坑）：期望路径必须由提交方给出"
     },
@@ -59,25 +77,36 @@
       "layer": "R2",
       "title": "三个写入锚点绑在必然发生的动作上（不留可选步骤）",
       "status": "pending",
-      "depends_on": ["T3"],
+      "depends_on": [
+        "T3"
+      ],
       "files": [
         "D:/video-skill/workflow.py:204 create_run_dir()（omni 建 run 的唯一入口，实测存在）",
         "D:/video-skill/backend/hypit_bridge.py:227（studio-claim 顺手钉意图，实测存在）",
         "D:/video-skill/backend/gateway.py call video.edit 成功返回处"
       ],
-      "verify": ["每条锚点各一条断言：动作发生⇒清单出现；agent 不跑任何额外命令"],
+      "verify": [
+        "每条锚点各一条断言：动作发生⇒清单出现；agent 不跑任何额外命令"
+      ],
       "est": "2h",
       "risk": "登记炸了不许让提交本身失败（照 check-intent-anchor.py 的「登记失败也得出片」先例）",
-      "unverified": "🔴 记忆里「omni 建 run 自动钉意图 = store.create_run()」这个函数名在盘上 grep 不到（全仓只有 create_run_dir）⇒ T4 第一步先坐实那处到底在哪/还在不在，不许当已存在"
+      "unverified": "已核实（2026-10-05）：全仓 grep 只有 workflow.py:204 create_run_dir()，store.create_run() 在盘上不存在 ⇒ omni 侧真实锚点就是 create_run_dir；hypit 侧 hypit_bridge.py:227 已证实存在。剩下要坐实的只有一件：create_run_dir 那一层拿不拿得到会话 id（意图双源读的是 <工作区>\\.dsh\\intent.json）"
     },
     {
       "id": "T5",
       "layer": "R2",
       "title": "8100 读口 GET /api/delivery/pending?session=（右栏/拦截/闸共用一个口）",
       "status": "pending",
-      "depends_on": ["T3"],
-      "files": ["D:/video-skill/backend/model_admin.py", "docs/ADR-model-gateway.md"],
-      "verify": ["presence 一样返回三态：known/没回话/有清单；没回话≠没欠账"],
+      "depends_on": [
+        "T3"
+      ],
+      "files": [
+        "D:/video-skill/backend/model_admin.py",
+        "docs/ADR-model-gateway.md"
+      ],
+      "verify": [
+        "presence 一样返回三态：known/没回话/有清单；没回话≠没欠账"
+      ],
       "est": "1h",
       "risk": "不再开第二个判定口（presence 五修教训）"
     },
@@ -86,9 +115,15 @@
       "layer": "R4",
       "title": "交付三件套自动化 deliver_pack.py（路径+8100直链+抽帧贴图）",
       "status": "pending",
-      "depends_on": ["T3"],
-      "files": ["C:/dsh/scripts/deliver_pack.py"],
-      "verify": ["V6 对既有成片跑一遍⇒三样都在（视频不能内联是既成事实，贴图是唯一可视证据）"],
+      "depends_on": [
+        "T3"
+      ],
+      "files": [
+        "C:/dsh/scripts/deliver_pack.py"
+      ],
+      "verify": [
+        "V6 对既有成片跑一遍⇒三样都在（视频不能内联是既成事实，贴图是唯一可视证据）"
+      ],
       "est": "1.5h"
     },
     {
@@ -96,9 +131,18 @@
       "layer": "P0 汇总",
       "title": "交付闭环回归闸 check-delivery-loop.py",
       "status": "pending",
-      "depends_on": ["T3", "T4", "T5"],
-      "files": ["C:/dsh/scripts/check-delivery-loop.py"],
-      "verify": ["V1/V2/V4/V7 各条；纯函数整块抠出来跑真值表，不依赖外部进程活着（假保险禁令）", "遵守 mock_rule：只换传输层，不许整块替换被测函数"],
+      "depends_on": [
+        "T3",
+        "T4",
+        "T5"
+      ],
+      "files": [
+        "C:/dsh/scripts/check-delivery-loop.py"
+      ],
+      "verify": [
+        "V1/V2/V4/V7 各条；纯函数整块抠出来跑真值表，不依赖外部进程活着（假保险禁令）",
+        "遵守 mock_rule：只换传输层，不许整块替换被测函数"
+      ],
       "est": "2h"
     },
     {
@@ -106,9 +150,16 @@
       "layer": "R1",
       "title": "路线 A 探针：自有 Cordis 模块能否注册成 server 侧并触发 followup",
       "status": "pending",
-      "depends_on": ["T5"],
-      "files": ["packages/bundle/base/cordis.patch.yml", "packages/jobs/tool-jobs/src/index.ts"],
-      "verify": ["结论二选一并写回本 PRD §4：A 可行 / A 不可行改走 B"],
+      "depends_on": [
+        "T5"
+      ],
+      "files": [
+        "packages/bundle/base/cordis.patch.yml",
+        "packages/jobs/tool-jobs/src/index.ts"
+      ],
+      "verify": [
+        "结论二选一并写回本 PRD §4：A 可行 / A 不可行改走 B"
+      ],
       "est": "4h",
       "risk": "客户端插件没有往 agent turn 注入的权限（预判），别当已证事实"
     },
@@ -117,20 +168,36 @@
       "layer": "R1",
       "title": "收工拦截：completed 判据加「且义务清单为空」",
       "status": "pending",
-      "depends_on": ["T8"],
-      "files": ["_setup/patch_delivery_gate.py（新）", "rebuild_weeksir_desktop.py 的 PATCHES"],
-      "verify": ["V3 中途断链的会话会自己续跑到终态", "V5 同因 3 次失败必须停并报 taskId/账本 error/上游原文"],
+      "depends_on": [
+        "T8"
+      ],
+      "files": [
+        "_setup/patch_delivery_gate.py（新）",
+        "rebuild_weeksir_desktop.py 的 PATCHES"
+      ],
+      "verify": [
+        "V3 中途断链的会话会自己续跑到终态",
+        "V5 同因 3 次失败必须停并报 taskId/账本 error/上游原文"
+      ],
       "est": "1~2d",
-      "risk": "改的是编译产物⇒必须过 verify_kernel_consistency.py，内核升级会漂"
+      "risk": "改的是编译产物 ⇒ 必须过 _setup/verify_kernel_consistency.py，内核升级会漂"
     },
     {
       "id": "T10",
       "layer": "R0",
       "title": "驱动契约改成「一次提交跑到终态」，砍掉阶段间手调",
       "status": "pending",
-      "depends_on": ["T3"],
-      "files": [".dsh/skills/omni/SKILL.md", ".dsh/skills/hypit-pipeline/SKILL.md", ".dsh/skills/video-dewatermark/SKILL.md"],
-      "verify": ["SKILL.md 里每个阶段都写明「谁轮询到终态」，不留『下一步请人确认』式断点"],
+      "depends_on": [
+        "T3"
+      ],
+      "files": [
+        ".dsh/skills/omni/SKILL.md",
+        ".dsh/skills/hypit-pipeline/SKILL.md",
+        ".dsh/skills/video-dewatermark/SKILL.md"
+      ],
+      "verify": [
+        "SKILL.md 里每个阶段都写明「谁轮询到终态」，不留『下一步请人确认』式断点"
+      ],
       "est": "3h"
     },
     {
@@ -138,8 +205,12 @@
       "layer": "实测",
       "title": "实测唤醒预算 64：真跑一条 2 段 omni（≈80 分），人不插手看它会不会自己回来交片",
       "status": "blocked-on-approval",
-      "depends_on": ["T1"],
-      "verify": ["从建 run 到成片落盘全程无人工续跑；交付三件套齐全（路径+直链+贴图）"],
+      "depends_on": [
+        "T1"
+      ],
+      "verify": [
+        "从建 run 到成片落盘全程无人工续跑；交付三件套齐全（路径+直链+贴图）"
+      ],
       "est": "1h（含等待）",
       "risk": "要花钱：跑之前按报价口径列 路由/单价/段数/预计总扣分/当前余额",
       "note": "不被 P1 挡住 —— T1 补丁已落，这是最便宜的根治证据，先跑它"
@@ -149,24 +220,58 @@
       "layer": "实测",
       "title": "实测收工拦截：造一条「中途故意断」的链路，看它是否自己续跑到终态",
       "status": "pending",
-      "depends_on": ["T9"],
-      "verify": ["V3 放行被拦、V4 TTL 到期放行、V5 同因 3 次即停并报 taskId/账本 error/上游原文"],
+      "depends_on": [
+        "T9"
+      ],
+      "verify": [
+        "V3 放行被拦、V4 TTL 到期放行、V5 同因 3 次即停并报 taskId/账本 error/上游原文"
+      ],
       "est": "2h"
     },
     {
       "id": "T12",
       "layer": "清理",
       "title": "摘掉 persona 与全局层 §5 的重复入口；补装机脚本写全局层",
-      "status": "pending",
-      "depends_on": ["T2"],
-      "files": ["_setup/patch_persona_delivery.py", "_setup/rebuild_weeksir_desktop.py"],
-      "verify": ["同一件事只剩一处正文；check-global-agents.py D 段仍绿"],
-      "est": "1h"
+      "status": "done-partial",
+      "depends_on": [
+        "T2"
+      ],
+      "files": [
+        "_setup/patch_persona_delivery.py",
+        "_setup/rebuild_weeksir_desktop.py"
+      ],
+      "verify": [
+        "同一件事只剩一处正文（preset 里 Delivery rule 命中数 = 0）",
+        "重打包后 preset 仍不含 Delivery rule（= 复发被堵住）",
+        "check-global-agents.py D 段仍绿（骨架与本机逐字一致）"
+      ],
+      "est": "1h",
+      "note": "2026-10-05 上午：preset 里的 Delivery rule 已摘（agent.cordis.yml:28-29 现只剩标准一句），铁律没丢（全局层 §5 + 工作区 agents.md 交付节都在）⇒ 同一件事回到一处正文。",
+      "risk": "🔴 会复发：_setup/rebuild_weeksir_desktop.py 的 PATCHES 里仍注册着 patch_persona_delivery.py（2026-10-05 实测 grep=1）⇒ 下次重打包/重装修会把 Delivery rule 贴回 persona，设置页又变不标准。",
+      "remaining": [
+        "摘除或反转 patch_persona_delivery.py 的注册（防重打包回贴）",
+        "装机脚本把 weeksir-skills/AGENTS.global.md 写进客户机 $DSH_HOME/AGENTS.md",
+        "跑 check-global-agents.py 确认 14 条仍绿"
+      ]
     }
   ],
   "milestones": {
-    "P0": ["T3", "T4", "T5", "T6", "T7", "T11"],
-    "P1": ["T8", "T9", "T13"],
-    "P2": ["T10", "T12"]
+    "P0": [
+      "T3",
+      "T4",
+      "T5",
+      "T6",
+      "T7",
+      "T11"
+    ],
+    "P1": [
+      "T8",
+      "T9",
+      "T13"
+    ],
+    "P2": [
+      "T10",
+      "T12"
+    ]
   }
 }

@@ -47,9 +47,9 @@ for prdRel, jsnRel, pre, nums in PAIRS:
           [x for t in tasks for x in t.get("depends_on", []) if x not in ids], [])
     check(tag + " S2 里程碑里的任务 id 都存在",
           [x for ms, arr in d["milestones"].items() for x in arr if x not in ids], [])
-    check(tag + " S3 非 done 的任务都排进了里程碑",
+    check(tag + " S3 done* 之外的任务都排进了里程碑",
           sorted([i for i in ids if not any(i in a for a in d["milestones"].values())
-                  and next(t for t in tasks if t["id"] == i)["status"] not in ("done", "done-code-unverified")]), [])
+                  and not next(t for t in tasks if t["id"] == i)["status"].startswith("done")]), [])
     check(tag + " S4 每个任务都有 verify（全局层 §4：动手前先写验收）", [t["id"] for t in tasks if not t.get("verify")], [])
     check(tag + " S5 JSON 指向的 PRD 就是这份", d["prd"], prdRel)
 

@@ -25,9 +25,16 @@
       "title": "turnFoldTick：按 data-chat-turn 分组 + 组头「执行中 · N 步 · Xs」+ 收起非当前步",
       "status": "reverted-ready",
       "depends_on": [],
-      "files": ["plugins/super-clone-ui/lib/client.js"],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js"
+      ],
       "spec": "KEEP=[user,steering,turn-tail,turn-error,turn-process,system-prompt,boundary]；未知 kind 默认收；只处理最后一组且未被官方折叠；组首插 .ws-turn-head（全文件仅此一处插节点）",
-      "verify": ["W1 组头存在且文本含步数与秒", "W2 最后一条无 data-ws-fold", "W3 user/turn-error 不被收", "W4 官方折过的组我们不出现"],
+      "verify": [
+        "W1 组头存在且文本含步数与秒",
+        "W2 最后一条无 data-ws-fold",
+        "W3 user/turn-error 不被收",
+        "W4 官方折过的组我们不出现"
+      ],
       "est": "2h",
       "note": "已写过 109 行并主动回退（08:2x），形态待排期后重放；回退原因=先出文档 + 该文件当时被另一会话改写",
       "risk": "ctx.setInterval 要在 exports.inject 里声明 \"timer\"，否则 guard 静默拒 ⇒ 秒数不动"
@@ -37,9 +44,15 @@
       "layer": "本体",
       "title": "触发器：MutationObserver 节流 250ms + 1 秒一跳的计时",
       "status": "pending",
-      "depends_on": ["T1"],
-      "files": ["plugins/super-clone-ui/lib/client.js"],
-      "verify": ["无 DOM 变化时秒数仍在走；有变化时不抖（一帧内不重复重排）"],
+      "depends_on": [
+        "T1"
+      ],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js"
+      ],
+      "verify": [
+        "无 DOM 变化时秒数仍在走；有变化时不抖（一帧内不重复重排）"
+      ],
       "est": "0.5h"
     },
     {
@@ -47,9 +60,17 @@
       "layer": "闸",
       "title": "check-chat-progress.py：钉源码纪律 + 内核契约漂移",
       "status": "pending",
-      "depends_on": ["T1"],
-      "files": ["scripts/check-chat-progress.py"],
-      "verify": ["W5 零哈希 class", "W6 insertBefore 次数==1", "W7 chat bundle 里 data-chat-turn / data-chat-flow-kind / data-turn-process-hidden / turnClosed / DEFAULT_TRANSCRIPT_VIEW_MODE=\"compact\" 仍在"],
+      "depends_on": [
+        "T1"
+      ],
+      "files": [
+        "scripts/check-chat-progress.py"
+      ],
+      "verify": [
+        "W5 零哈希 class",
+        "W6 insertBefore 次数==1",
+        "W7 chat bundle 里 data-chat-turn / data-chat-flow-kind / data-turn-process-hidden / turnClosed / DEFAULT_TRANSCRIPT_VIEW_MODE=\"compact\" 仍在"
+      ],
       "est": "1h",
       "risk": "闸要钉规则不钉现场：不许断言「某个进程活着」"
     },
@@ -58,9 +79,17 @@
       "layer": "实测",
       "title": "真界面点一遍：起一条多步任务，截图看组头与逐行追加",
       "status": "pending",
-      "depends_on": ["T1", "T2"],
-      "files": ["scripts/dsh_win_focus.ps1", "scripts/dsh_click.ps1"],
-      "verify": ["截图里能看到组头计数递增、最后一步可见、点开能看全部步骤；轮次结束后官方 compact 接管、我们的头消失（W4）"],
+      "depends_on": [
+        "T1",
+        "T2"
+      ],
+      "files": [
+        "scripts/dsh_win_focus.ps1",
+        "scripts/dsh_click.ps1"
+      ],
+      "verify": [
+        "截图里能看到组头计数递增、最后一步可见、点开能看全部步骤；轮次结束后官方 compact 接管、我们的头消失（W4）"
+      ],
       "est": "0.5h"
     },
     {
@@ -69,8 +98,17 @@
       "title": "旁白源头：全局层 §6 输出纪律 + check-output-style.py 密度闸",
       "status": "pending",
       "depends_on": [],
-      "files": ["%APPDATA%/dsh-desktop/harness/AGENTS.md", "weeksir-skills/AGENTS.global.md", "scripts/check-output-style.py"],
-      "verify": ["W8 assistant/message ÷ step/start ≤ 0.3", "正文不含工具报错原文", "不含「接下来我会…」式预告", "两处 AGENTS.md 逐字一致（check-global-agents.py 仍绿）"],
+      "files": [
+        "%APPDATA%/dsh-desktop/harness/AGENTS.md",
+        "weeksir-skills/AGENTS.global.md",
+        "scripts/check-output-style.py"
+      ],
+      "verify": [
+        "W8 assistant/message ÷ step/start ≤ 0.3",
+        "正文不含工具报错原文",
+        "不含「接下来我会…」式预告",
+        "两处 AGENTS.md 逐字一致（check-global-agents.py 仍绿）"
+      ],
       "est": "2h",
       "risk": "账本是【多帧 zstd 拼接】：zlib.zstdDecompressSync 一次只解第一帧，必须按魔数 28 B5 2F FD 切帧循环解（实测 429 帧 / 1.56MB）"
     },
@@ -79,9 +117,17 @@
       "layer": "路线B",
       "title": "（可选·后置）放宽 turnClosed ⇒ 官方执行中就折",
       "status": "pending",
-      "depends_on": ["T4"],
-      "files": ["_setup/patch_chat_progress.py（新）", "_setup/rebuild_weeksir_desktop.py 的 PATCHES"],
-      "verify": ["先坐实内核为何要等轮次结束（怀疑：中途折叠会把正在生成的答案一起折掉）⇒ 结论写回 PRD §5 再动码", "过 verify_kernel_consistency.py"],
+      "depends_on": [
+        "T4"
+      ],
+      "files": [
+        "_setup/patch_chat_progress.py（新）",
+        "_setup/rebuild_weeksir_desktop.py 的 PATCHES"
+      ],
+      "verify": [
+        "先坐实内核为何要等轮次结束（怀疑：中途折叠会把正在生成的答案一起折掉）⇒ 结论写回 PRD §5 再动码",
+        "过 _setup/verify_kernel_consistency.py"
+      ],
       "est": "1d",
       "risk": "改官方渲染=升级会漂；T1 的插件形态验证过再决定要不要固化"
     },
@@ -89,17 +135,33 @@
       "id": "T7",
       "layer": "清账",
       "title": "查 08:23 谁删了 injectNativeAccountSwitcher（原生账号切换器）并决定恢复还是接受",
-      "status": "pending",
+      "status": "done",
       "depends_on": [],
-      "files": ["plugins/super-clone-ui/lib/client.js"],
-      "verify": ["逐块 diff HEAD 与工作区给出被删清单；要么恢复（HEAD 有原文），要么明确记录「该功能已移除」并同步文档"],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js"
+      ],
+      "verify": [
+        "逐块 diff 已给出被删清单：injectNativeAccountSwitcher 整块移除 + apply() 里的调用一并撤掉",
+        "决定已记录：不恢复；session-bind 类 skill 保留，只是不再占 UI 位"
+      ],
       "est": "0.5h",
-      "risk": "🔴 并发写入：本工作区同时有 DSH 会话 / Trae / 另一个 Qoder 在改同一个盘，动手前必须先看盘"
+      "risk": "🔴 并发写入：本工作区同时有 DSH 会话 / Trae / 另一个 Qoder 在改同一个盘，动手前必须先看盘",
+      "decision": "接受移除（2026-10-05 拍板：账号绑定占位方案推翻，UI 还原标准模式选择）"
     }
   ],
   "milestones": {
-    "P0": ["T1", "T2", "T3", "T4"],
-    "P1": ["T5", "T7"],
-    "P2": ["T6"]
+    "P0": [
+      "T1",
+      "T2",
+      "T3",
+      "T4"
+    ],
+    "P1": [
+      "T5",
+      "T7"
+    ],
+    "P2": [
+      "T6"
+    ]
   }
 }

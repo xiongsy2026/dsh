@@ -83,7 +83,8 @@ if (toolCalls.length === 0) return { kind: 'completed' }   // _setup/dsh-harness
 
 - **P0 ≈ 10.5h**（不碰内核，先把状态立起来）：T3 台账 + T4 三个写入锚点 + T5 8100 读口 + T6 交付三件套 + T7 闸 + **T11 实测唤醒 64**（T1 已打补丁，只差真跑一条，不被 P1 挡住）。
 - **P1 ≈ 1~2d**：T8 路线 A 探针 → T9 收工拦截（判据）→ T13 实测拦截效果。
-- **P2**：T10 R0 驱动契约改写（omni / hypit / 去水印三份 SKILL.md）+ T12 规则层收尾（摘 persona 与全局层 §5 的重复入口、装机脚本写 `$DSH_HOME/AGENTS.md`）。
+- **P2**：T10 R0 驱动契约改写（omni / hypit / 去水印三份 SKILL.md）+ T12 规则层收尾。
+  ⚠️ **T12 已做一半但会复发**（2026-10-05 实测）：preset 里的 Delivery rule 已摘（`agent.cordis.yml:28-29` 命中数 0），但 `_setup/rebuild_weeksir_desktop.py` 的 `PATCHES` 仍注册着 `patch_persona_delivery.py`（grep=1）⇒ 下次重打包/重装修会把它贴回去。剩三件：摘/反转该注册、装机脚本写 `$DSH_HOME/AGENTS.md`、复跑 `check-global-agents.py`。
 
 ## 8. 两份文档的映射（自查用，改任何一边都要同步）
 
