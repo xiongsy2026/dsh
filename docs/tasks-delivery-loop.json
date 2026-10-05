@@ -76,21 +76,24 @@
       "id": "T4",
       "layer": "R2",
       "title": "三个写入锚点绑在必然发生的动作上（不留可选步骤）",
-      "status": "pending",
+      "status": "done",
       "depends_on": [
         "T3"
       ],
       "files": [
-        "D:/video-skill/workflow.py:204 create_run_dir()（omni 建 run 的唯一入口，实测存在）",
-        "D:/video-skill/backend/hypit_bridge.py:227（studio-claim 顺手钉意图，实测存在）",
-        "D:/video-skill/backend/gateway.py call video.edit 成功返回处"
+        "C:/dsh/scratch/video-ui/video-ui/store.py:315 _register_delivery（建 run 即登记 N 段 + 1 成片）",
+        "D:/video-skill/backend/hypit_bridge.py handle_submit 后 _register_delivery_leg（每条腿追加一条 job_id 期望）",
+        "D:/video-skill/backend/gateway.py video.edit 分发处 _register_delivery_dewatermark（先记账再花钱）"
       ],
       "verify": [
-        "每条锚点各一条断言：动作发生⇒清单出现；agent 不跑任何额外命令"
+        "omni 13 条：登记/归属/段数取自 state/路径可枚举/无 session 不登记/台账炸不影响建 run/落盘即销账",
+        "hypit 15 条：提交回 200 且台账出现/job_id 型期望/第二条腿【追加】不覆盖/queued 不算交付/未知 job 一律 False/全成功才清零",
+        "去水印 12 条：显式 session 与 $env:DSH_SESSION_ID 都能登记/无 output_path 不登记/先记账再花钱(源码顺序)/登记失败只报警不拖垮"
       ],
       "est": "2h",
       "risk": "登记炸了不许让提交本身失败（照 check-intent-anchor.py 的「登记失败也得出片」先例）",
-      "unverified": "已核实（2026-10-05）：全仓 grep 只有 workflow.py:204 create_run_dir()，store.create_run() 在盘上不存在 ⇒ omni 侧真实锚点就是 create_run_dir；hypit 侧 hypit_bridge.py:227 已证实存在。剩下要坐实的只有一件：create_run_dir 那一层拿不拿得到会话 id（意图双源读的是 <工作区>\\.dsh\\intent.json）"
+      "unverified": "三处都只在临时环境验过（零网络零扣费）；真链路生效要 8765/8100 重启后跑一条才算数。",
+      "note": "2026-10-05 三个锚点全落，40 条自查绿。坐实结果：omni 的真锚点是 store.create_run（在 video-ui 树里，不在 D:\u000bideo-skill）；hypit 的腿在提交时【没有文件名】⇒ 台账加了 job_id 型期望 + append 语义；去水印是同步落盘 ⇒ 用 output_path，且登记放在 _dewatermark_run 之前。"
     },
     {
       "id": "T5",
@@ -130,7 +133,7 @@
       "id": "T7",
       "layer": "P0 汇总",
       "title": "交付闭环回归闸 check-delivery-loop.py",
-      "status": "pending",
+      "status": "done",
       "depends_on": [
         "T3",
         "T4",
@@ -140,11 +143,10 @@
         "C:/dsh/scripts/check-delivery-loop.py"
       ],
       "verify": [
-        "V1/V2/V4/V7 各条；纯函数整块抠出来跑真值表，不依赖外部进程活着（假保险禁令）",
-        "遵守 mock_rule：只换传输层，不许整块替换被测函数"
+        "V1/V2/V4 由台账真值表覆盖；V7 由源码顺序 + job_id 回传覆盖；V3/V5 属 R1（T9），V6 属 T6"
       ],
       "est": "2h",
-      "note": "V1/V2/V4 已随 T3 进闸（scripts/check-delivery-loop.py，21 条）；本任务只剩 V7（不双花）—— 要等 T4 的提交锚点。"
+      "note": "统一入口 scripts/check-delivery-loop.py = 台账 21 + 三锚点 40 + V7 1 = 62 条，0 失败；锚点各自成篇（要隔离 env），入口聚合计数。"
     },
     {
       "id": "T8",

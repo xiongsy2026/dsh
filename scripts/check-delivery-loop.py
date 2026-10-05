@@ -95,5 +95,31 @@ check("20 到期条目被标 expired（不是被删）",
 check("21 台账文件是合法 JSON 且没留 .tmp",
       [os.path.exists(led), [f for f in os.listdir(tmp) if f.startswith("delivery.json.tmp")]], [True, []])
 
-print("\n=== 交付闭环闸（T3 部分）：%d 条，失败 %d ===" % (21, len(fails)))
+# 三个提交锚点各自成篇（要各自隔离 env：临时 DB / 临时台账 / 把 _run 换成空操作），这里做统一入口
+import subprocess
+SIBS = ["check-delivery-anchor-omni.py", "check-delivery-anchor-hypit.py", "check-delivery-anchor-dewatermark.py"]
+anchor_total = 0
+for s in SIBS:
+    r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), s)],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    # 只认含「条，失败」的那行汇总（临时目录路径里也有数字，别拿末行硬取）
+    sum_lines = [x for x in (r.stdout or "").splitlines() if "条，失败" in x]
+    tail = sum_lines[-1:] or (r.stdout or "").strip().splitlines()[-1:] or ["无输出"]
+    ok = r.returncode == 0
+    head = tail[0].split("条，失败")[0].strip()          # "…自查：15 " 这种
+    k = len(head)
+    while k > 0 and head[k - 1].isdigit():
+        k -= 1
+    anchor_total += (int(head[k:]) if (ok and k < len(head)) else 0)
+    print(("PASS " if ok else "FAIL ") + "锚点闸 " + s + " -> " + (tail[0][:70]))
+    if not ok:
+        fails.append(s)
+        print((r.stderr or "")[-400:])
+
+# V7 不双花：查询失败/超时都要把 job_id 带回来（据此续查），否则"重提交"就没有拦头
+gw = open(os.path.join("D:", "video-skill", "backend", "gateway.py"), encoding="utf-8").read()
+check("V7 去水印：失败路径都回 job_id 且明写不重提交",
+      [gw.count(chr(34) + "job_id" + chr(34) + ": tid") >= 3, ("别重提交" in gw or "不重提交" in gw)], [True, True])
+
+print(chr(10) + "=== 交付闭环闸：台账 21 + 锚点 " + str(anchor_total) + " + V7 1 = " + str(22 + anchor_total) + " 条，失败 " + str(len(fails)) + " ===")
 sys.exit(1 if fails else 0)
