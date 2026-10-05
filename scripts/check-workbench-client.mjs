@@ -73,8 +73,8 @@ globalThis.window = { __ModuleLoader__: { load: m => { loaded = m; } } };
 new Function("window", "require", readFileSync(SRC, "utf8"))(globalThis.window, () => React);
 const mod = loaded.factory(() => React);
 const captured = {};
-function makeCtx(sidRef) {
-  const calls = { open: [], close: [], tick: null, subs: [] };
+function makeCtx(sidRef, titles = {}) {
+  const calls = { open: [], close: [], tick: null, ticks: [], subs: [], renames: [] };
   const ctx = {
     effect: fn => { fn(); return () => { } },
     slots: {
@@ -86,8 +86,13 @@ function makeCtx(sidRef) {
       openTab: (key, options) => calls.open.push([key, !!(options && options.revealIfOpened)]),
       closeIn: (sessionId, tabId) => calls.close.push([sessionId, tabId]),
     },
-    sessions: { list: { getSnapshot: () => ({ current: sidRef.v }), subscribe: fn => calls.subs.push(fn) } },
-    setInterval: fn => { calls.tick = fn; return 1; },
+    // byId 供标题前缀读现标题；binding().session.rename 记录调用（真内核里它写 user 源标题）
+    sessions: {
+      list: { getSnapshot: () => ({ current: sidRef.v, byId: { [sidRef.v]: { title: titles[sidRef.v] || "" } } }),
+              subscribe: fn => calls.subs.push(fn) },
+      binding: id => ({ session: { rename: t => { calls.renames.push([id, t]); return Promise.resolve({}); } } }),
+    },
+    setInterval: fn => { calls.ticks.push(fn); if (!calls.tick) calls.tick = fn; return 1; },
   };
   return { ctx, calls };
 }
@@ -333,6 +338,67 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
         JSON.stringify(render(captured[HKEY + "|body"], { sessionId: "session-PLAY" })).includes('"tag":"video"'), false);
 check("19z 查看器起来的上升沿把视图交还官方 studio（自绘台不永久挡官方界面）",
       SRC_TXT.includes("!p.st.up && p.view === \"panel\""), true);
+
+// ── 会话标题前缀（2026-10-05 用户："确定了意图就在会话名前加 [超级复刻]/[omni出片]"）──
+  // 最后一条 setInterval 是 titlePrefixTick（第一条是 reconcile）；推钟是为了跨过 presence 的 5 秒缓存
+  const tickTitle = async (calls, n = 1) => {
+    for (let i = 0; i < n; i++) { advance(); calls.ticks[calls.ticks.length - 1](); await settle(); }
+  };
+  const bytesOf = s => new TextEncoder().encode(s).length;
+
+  {
+    const ref = { v: "session-TITLE-1" };
+    const t = { [ref.v]: "鼻贴成片方案" };
+    payload = { omni: omni(true), hypit: hypit(false, false) };
+    const e = makeCtx(ref, t);
+    mod.apply(e.ctx);
+    await settle();
+    check("20 有 omni 意图 ⇒ 会话名加 [omni出片] 前缀（只动当前会话）", e.calls.renames, [[ref.v, "[omni出片] 鼻贴成片方案"]]);
+    t[ref.v] = e.calls.renames[0][1];
+    await tickTitle(e.calls, 2);
+    check("20b 已经带前缀 ⇒ 不再 rename（不每 30 秒刷一次标题）", e.calls.renames.length, 1);
+    payload = { omni: omni(false, false), hypit: hypit(true) };
+    t[ref.v] = "[omni出片] 鼻贴成片方案";
+    await tickTitle(e.calls);
+    check("20c 换流水线 ⇒ 剥掉旧前缀再挂新的（不叠罗汉）", e.calls.renames[1], [ref.v, "[hypit] 鼻贴成片方案"]);
+    check("20d 标题前缀是一条独立的 setInterval，不只在 apply 时跑一次",
+          [e.calls.ticks.length, SRC_TXT.includes("ctx.setInterval(titlePrefixTick, 30000)")], [2, true]);
+  }
+
+  {   // 内核 maxTitleBytes=80，超了直接拒 rename ⇒ 必须自己按 UTF-8 字节截，且不能切出半个汉字
+    const ref = { v: "session-TITLE-LONG" };
+    const t = { [ref.v]: "电".repeat(40) };
+    payload = { omni: omni(true), hypit: hypit(false, false) };
+    const e = makeCtx(ref, t);
+    mod.apply(e.ctx);
+    await settle();
+    const given = (e.calls.renames[0] || [null, ""])[1];
+    check("21 长标题截到 80 字节以内，且不切半个字（前缀 13 字节 + 22 个汉字 = 79）",
+          [given, bytesOf(given) <= 80], ["[omni出片] " + "电".repeat(22), true]);
+  }
+
+  {   // 无意图 / 读不到会话 / 还没标题：三种都不许乱改
+    const refN = { v: "session-TITLE-NONE" };
+    payload = { omni: omni(false, false), hypit: hypit(false, false) };
+    const eN = makeCtx(refN, { [refN.v]: "随便一条闲聊" });
+    mod.apply(eN.ctx);
+    await settle();
+    check("22 没登记意图 ⇒ 一个标题都不改（和「新会话零 UI」是同一条铁律）", eN.calls.renames, []);
+
+    const ref0 = { v: "" };
+    payload = { omni: omni(true), hypit: hypit(false, false) };
+    const e0 = makeCtx(ref0, {});
+    mod.apply(e0.ctx);
+    await settle();
+    check("22c 读不到当前会话 id ⇒ 不动任何标题（绝不猜一条会话去改）", e0.calls.renames, []);
+
+    const refB = { v: "session-TITLE-BLANK" };
+    const eB = makeCtx(refB, {});
+    mod.apply(eB.ctx);
+    await settle();
+    check("23 内核还没给标题 ⇒ 拿会话 id 兜底，不 rename 成光杆前缀", eB.calls.renames,
+          [[refB.v, "[omni出片] session-TITL"]]);
+  }
 
   console.log("\n=== %d 条断言，失败 %d ===", total, fails.length);
   for (const [n, g, w] of fails) console.log("  FAIL", n, "got", g, "want", w);

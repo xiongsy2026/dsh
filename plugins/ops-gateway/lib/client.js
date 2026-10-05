@@ -375,11 +375,45 @@ window.__ModuleLoader__.load({
         // 换会话：不清记忆（每个会话有自己的边沿），只把探测缓存作废，重查一次新会话的判定
         function resetAndReconcile() { cache = { sid: null, at: 0, p: cache.p }; reconcile(curSession()); }
 
+        // 会话标题前缀（2026-10-05 用户要："确定了意图就在会话名前加 [超级复刻]/[omni出片]"）。
+        // 只动【当前会话】、30 秒一次、已带前缀就不再 rename。rename 写的是 user 源标题，
+        // 内核的自动摘要不会覆盖它（session-title: onUserMessage 直接 return）⇒ 安全。
+        // 冷会话拿不到 binding ⇒ 静默跳过（那条会话被打开时自然会补上）。
+        const TITLE_PREFIX = { "super-clone": "[复刻] ", hypit: "[hypit] ", omni: "[omni出片] ",
+                               film: "[短剧] ", "product-video": "[产品片] " };
+        const TITLE_MAX_BYTES = 80;   // 内核 maxTitleBytes:80，超了会被拒
+        function utf8len(s) { try { return new TextEncoder().encode(s).length; } catch (e) { return s.length; } }
+        function cutBytes(s, n) { let out = ""; for (const ch of s) { if (utf8len(out + ch) > n) break; out += ch; } return out; }
+        function titlePrefixTick() {
+          const sid = curSession();
+          if (!sid) return;
+          presence(sid).then(j => {
+            if (!j) return;
+            let skill = "";
+            for (const w of WORKBENCHES) if (w.skill && (j[w.skill] || {}).intent) skill = w.skill;
+            const pre = TITLE_PREFIX[skill];
+            if (!pre) return;
+            const snap = ctx.sessions.list.getSnapshot();
+            const cur = (snap.byId && snap.byId[sid] && snap.byId[sid].title) || "";
+            if (cur.indexOf(pre) === 0) return;
+            const stripped = cur.replace(/^\[(复刻|hypit|omni出片|短剧|产品片)\]\s*/, "");
+            const next = pre + cutBytes(stripped || sid.slice(0, 12), TITLE_MAX_BYTES - utf8len(pre));
+            try {
+              const b = ctx.sessions.binding && ctx.sessions.binding(sid);
+              if (b && b.session && typeof b.session.rename === "function") {
+                b.session.rename(next).catch(() => {});
+              }
+            } catch (e) {}
+          }).catch(() => {});
+        }
+
         if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === "function" &&
             typeof ctx.setInterval === "function" && ctx.sessions && ctx.sessions.list) {
           try { ctx.sessions.list.subscribe(() => resetAndReconcile()); } catch (e) {}
           ctx.setInterval(() => reconcile(curSession()), 4000);
+          ctx.setInterval(titlePrefixTick, 30000);
           resetAndReconcile();
+          titlePrefixTick();
         }
       } catch (e) {
         // 绝不因运维面板拖垮 DSH
