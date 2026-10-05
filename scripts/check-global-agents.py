@@ -43,7 +43,8 @@ k = KERNEL.read_text(encoding="utf-8", errors="replace") if KERNEL.is_file() els
 check("A1 全局 AGENTS.md 存在", GLOBAL.is_file(), True)
 lines = [l for l in g.splitlines() if l.strip()]
 check("A2 非空行 ≤ 22（超了就是又开始啰嗦；这条每轮都要付 token）", len(lines) <= 22, True)
-check("A3 全文 ≤ 2600 字节（实测 ~700 token/轮，别再涨）", len(g.encode("utf-8")) <= 2600, True)
+check("A3 全文 ≤ 2900 字节（2026-10-05 加了 §6 说话纪律：2131→2722，≈700→≈900 token/轮；再涨要先报成本）",
+      len(g.encode("utf-8")) <= 2900, True)
 
 # ---- B 口径：95% 阈值 + 四类必停 + 不许旧口径回潮 ----
 check("B1 全局 §1 写的是 95% 把握阈值", bool(re.search(r"95%\s*以上把握", g)), True)

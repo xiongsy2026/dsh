@@ -9,7 +9,7 @@
 | 维度 | Qoder | DSH 现状 |
 |---|---|---|
 | 一轮执行 | **一个组**：组头「正在执行中 · 37s」，组内每步一行「图标 + 动作 + 目标 chip」，随进度**逐行追加** | 无组：旁白、工具卡、报错原文**平铺在正文流里**，一路往下糊 |
-| 模型旁白 | ≈0（动作即界面） | **每步一条**：实测一条会话 7 轮 / 123 步，`assistant/message` 有 **122 条**（`tool/call` 156）⇒ 1.28 : 1 |
+| 模型旁白 | ≈0（动作即界面） | 实测 51 条会话：**含正文的 assistant 消息 ÷ 步数 = 平均 0.42**（单条会话最高 0.5），正文平均 200~850 字，单会话最多 56 次「接下来我/我先…」式预告。⚠️ 更正：早前一版写"122 条=每步一条旁白"是**误读** —— `assistant/message` 多数只装 tool-call（每步一条是内核正常节奏），密度必须按 text 块算 |
 | 失败 | 进卡片状态，不打断阅读 | `编辑 · Error: old_string was not found in "…local_compose.py"` 原文摊在正文里 |
 
 ## 2. 根因（实测 file:line，不是"没这功能"）
@@ -48,10 +48,10 @@ DSH **有**精简视图，而且默认就是开的：
 
 把 `:1581` 的 `turnClosed` 放宽 ⇒ 官方行为，最正统。⚠️ **未验证**它为什么要等轮次结束（很可能为了答案锚点稳定：中途折叠会把正在生成的正文一起折掉）。要动就得：注册进 `rebuild_weeksir_desktop.py` 的 `PATCHES` + 过 `verify_kernel_consistency.py`，并接受内核升级漂移。
 
-## 6. 配套：旁白源头（治 122 条 `assistant/message`）
+## 6. 配套：旁白源头（治正文密度 0.42）
 
 全局层 `$DSH_HOME/AGENTS.md` 加 §6 输出纪律：正文只在**阶段完成 / 需要批准 / 判死**三种时刻说话；禁止"接下来我会…"式预告（这条同时掐掉"谎报完成"的言语来源）；禁止把工具报错原文抄进正文。
-配闸 `scripts/check-output-style.py`：解会话账本统计 —— 每轮 `assistant/message` 条数 / 步数 比值（目标 ≤0.3）、正文是否含 `Error:` 原文、是否含预告句式。
+量具 `scripts/audit-output-style.mjs`（已跑，51 条会话基线：**正文块 ÷ 步数 = 0.42**、均字数 200~850、单会话预告最多 56 次）：统计正文块密度、均字数、预告句式、正文含 Error。
 ⚠️ 账本是**多帧 zstd 拼接**，`zlib.zstdDecompressSync` 一次只解第一帧 ⇒ 必须按魔数 `28 B5 2F FD` 切帧循环解（已实测：429 帧 / 1.56MB）。
 
 ## 7. 一条必须记住的风险：这个文件有并发写入者
@@ -71,7 +71,7 @@ DSH **有**精简视图，而且默认就是开的：
 | W5 | 源码只用 `data-*` 选元素，零哈希 class | 闸扫源码（正则匹配 `xxxxxx_` 形式 class） |
 | W6 | 不搬 React 节点 | 闸数 `insertBefore(` 出现次数 == 1（仅组首插头） |
 | W7 | 内核契约漂移要红 | 闸断言 chat bundle 里 `data-chat-turn` / `data-chat-flow-kind` / `data-turn-process-hidden` / `turnClosed` / `DEFAULT_TRANSCRIPT_VIEW_MODE = "compact"` 仍在 |
-| W8 | 旁白密度下降 | `check-output-style.py`：`assistant/message` ÷ `step/start` ≤ 0.3 |
+| W8 | 旁白密度下降 | `node scripts/audit-output-style.mjs`：正文块 ÷ 步数 ≤ 0.3（基线 0.42，未达标） |
 
 ## 9. 验收 ↔ 任务映射（改任何一边都要同步，闸会红）
 
@@ -83,6 +83,6 @@ DSH **有**精简视图，而且默认就是开的：
 | T2 | MutationObserver 节流 + 1 秒计时 | W1（秒数走字） | P0 |
 | T3 | `scripts/check-chat-progress.py`（源码纪律 + 内核契约漂移） | W5 W6 W7 | P0 |
 | T4 | 真界面点一遍 + 截图 | W1 W2 W4 | P0 |
-| T5 | 全局层 §6 输出纪律 + `check-output-style.py` 密度闸 | W8 | P1 |
+| T5 | 全局层 §6 输出纪律 + `audit-output-style.mjs` 密度量具 | W8 | P1 |
 | T6 | 路线 B：放宽 `turnClosed`（先坐实为什么要等） | §5 结论 | P2 |
 | T7 | 查 08:23 谁删了账号切换器并决定恢复/接受 | §7 | P1 |

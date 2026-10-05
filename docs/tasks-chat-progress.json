@@ -100,7 +100,7 @@
       "id": "T5",
       "layer": "配套",
       "title": "旁白源头：全局层 §6 输出纪律 + check-output-style.py 密度闸",
-      "status": "pending",
+      "status": "done-partial",
       "depends_on": [],
       "files": [
         "%APPDATA%/dsh-desktop/harness/AGENTS.md",
@@ -108,13 +108,17 @@
         "scripts/check-output-style.py"
       ],
       "verify": [
-        "W8 assistant/message ÷ step/start ≤ 0.3",
-        "正文不含工具报错原文",
-        "不含「接下来我会…」式预告",
-        "两处 AGENTS.md 逐字一致（check-global-agents.py 仍绿）"
+        "W8 密度 ≤0.3（当前 0.42，未达标，持续用审计脚本跟）",
+        "正文里不出现工具报错原文（审计列 含Error 计数）",
+        "全局层与骨架那份逐字一致（check-global-agents.py D2）"
       ],
       "est": "2h",
-      "risk": "账本是【多帧 zstd 拼接】：zlib.zstdDecompressSync 一次只解第一帧，必须按魔数 28 B5 2F FD 切帧循环解（实测 429 帧 / 1.56MB）"
+      "risk": "账本是【多帧 zstd 拼接】：zlib.zstdDecompressSync 一次只解第一帧，必须按魔数 28 B5 2F FD 切帧循环解（实测 429 帧 / 1.56MB）",
+      "note": "2026-10-05：全局层 §6 说话纪律已写入并装机（2722 字节 ≈891 token/轮 ≈8.9 分/轮，闸 A3 上限同步为 2900 并把成本写进断言名）；量具 scripts/audit-output-style.mjs 跑通，51 条会话基线：正文块÷步数 平均 0.42、单会话预告最多 56 次。🔴 密度闸【故意先不挂】—— 规则刚落地就挂是永远红的假保险，等 ≤0.3 再变成闸。",
+      "remaining": [
+        "观察一周密度是否下降（审计脚本重跑对比）",
+        "达标后把阈值变成闸"
+      ]
     },
     {
       "id": "T6",
