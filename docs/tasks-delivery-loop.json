@@ -158,38 +158,40 @@
       "id": "T8",
       "layer": "R1",
       "title": "路线 A 探针：自有 Cordis 模块能否注册成 server 侧并触发 followup",
-      "status": "pending",
+      "status": "done",
       "depends_on": [
         "T5"
       ],
       "files": [
-        "packages/bundle/base/cordis.patch.yml",
-        "packages/jobs/tool-jobs/src/index.ts"
+        "@deepseek-ai/dsh-agent-loop/lib/index.js",
+        "@deepseek-ai/dsh-tool-jobs/lib/index.js",
+        "@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml"
       ],
       "verify": [
         "结论二选一并写回本 PRD §4：A 可行 / A 不可行改走 B"
       ],
       "est": "4h",
+      "result": "A 可行（2026-10-05 逐行坐实，证据在 PRD §4）：host 侧模块 = package.json 的 main；收工钩子 = agent-loop :967 的 dispatch.serial('agent/turn-stopping')；注入 = Agent.followup（:789）。⇒ T9 走 A，不 patch 编译产物。",
       "risk": "客户端插件没有往 agent turn 注入的权限（预判），别当已证事实"
     },
     {
       "id": "T9",
       "layer": "R1",
-      "title": "收工拦截：completed 判据加「且义务清单为空」",
+      "title": "收工拦截：自有 host 插件挂 agent/turn-stopping，义务未清就 followup（T8 定案＝路线 A，不 patch 判据源码）",
       "status": "pending",
       "depends_on": [
         "T8"
       ],
       "files": [
-        "_setup/patch_delivery_gate.py（新）",
-        "rebuild_weeksir_desktop.py 的 PATCHES"
+        "weeksir-skills/delivery-gate（新：host 侧 Cordis 模块，package.json 的 main 指 lib/index.js）",
+        "_setup/patch_agent_modules.py（把该模块注册进 presets/standard/agent.cordis.yml）"
       ],
       "verify": [
         "V3 中途断链的会话会自己续跑到终态",
         "V5 同因 3 次失败必须停并报 taskId/账本 error/上游原文"
       ],
-      "est": "1~2d",
-      "risk": "改的是编译产物 ⇒ 必须过 _setup/verify_kernel_consistency.py，内核升级会漂"
+      "est": "0.5~1d（比原估 1~2d 小：不碰编译产物）",
+      "risk": "仍要过 _setup/verify_kernel_consistency.py（注册行走补丁）；followup 计数吃 maxConsecutiveWakes，预算用尽会降级成 inject（不唤醒）⇒ 表现为『它知道自己该续跑但没醒』，要能在台账里看出来"
     },
     {
       "id": "T10",

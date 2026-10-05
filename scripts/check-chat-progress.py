@@ -55,8 +55,26 @@ klist = re.findall(r'"([a-z-]+)"', keep.group(1)) if keep else []
 check("W3 用户消息与报错永远不收（user/steering/turn-error 必须在 KEEP 里）",
       [k in klist for k in ("user", "steering", "turn-error")], [True, True, True])
 check("W2 最后一步永远露着（全收起来客户以为卡死）",
-      "proc[proc.length - 1].removeAttribute(\"data-ws-fold\")" in block, True)
-check("W4 官方折过的立刻让位（不做第二套折叠）", "data-turn-process-hidden" in block, True)
+      "const keep = open ? null : shown[shown.length - 1];" in block, True)
+# 🔴 钉"怎么露"：必须在循环里就跳过。先 setAttribute 再 removeAttribute 视觉上看不出差别，
+#    但每跳写 2 次 DOM ⇒ 在真浏览器里点着我们自己的 MutationObserver 转圈（2026-10-05 行为闸抓到）。
+check("W2b 『当前动作』是循环里跳过的，不是打上再摘掉（稳态写入必须 0）",
+      "if (el === keep) { rmIfHas(el, \"data-ws-fold\"); continue; }" in block
+      and "if (!open) rmIfHas(shown[shown.length - 1]" not in block, True)
+check("W2c 展开态记在内存 Map 里，不记在会被内核抹掉的头节点上",
+      "const turnOpen = new Map();" in block and "turnOpen.get(key) === true" in block, True)
+check("W2d 重挂是同步的（MutationObserver 回调直接 tick），不许退回 setTimeout 节流",
+      "new MutationObserver(run)" in block and "setTimeout(() => { queued = false" not in block, True)
+# 🔴 W4 这次线上翻车的正主：旧判据"组里有任何 data-turn-process-hidden 就是官方已折"是反的 ——
+#    那个属性挂在 turn-process 控制行上时含义是 controllerInactive（官方【没】折），于是每轮都让位、永远不折。
+_norm = re.sub(r"\s+", " ", block)
+check("W4 让位只认『官方那条折叠行活着』（kind=turn-process 且不带 hidden）",
+      'el.getAttribute("data-chat-flow-kind") === "turn-process" && !el.hasAttribute("data-turn-process-hidden")' in _norm, True)
+check("W4c 禁止退回『有 hidden 属性 = 官方已折』的反判据",
+      'some(el => el.hasAttribute("data-turn-process-hidden"))' in _norm, False)
+check("W4d 触发只数看得见的（虚拟列表藏起来的不算）", "shown.length < 2" in block, True)
+check("W4e 正文答案永远不收（data-turn-process-answer 要排除）",
+      'data-turn-process-answer")' in _norm, True)
 check("W1 组头带步数与秒数", ("执行中 · " in block and " 步 · " in block), True)
 check("W1b 计时靠第一次见到该轮的时间戳（不是每帧重算）", "turnFirstSeen" in block, True)
 check("W4b 让位时会撤掉自己的头（不留双头）", "if (head) head.remove();" in block, True)

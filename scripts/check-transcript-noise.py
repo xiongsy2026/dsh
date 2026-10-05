@@ -117,8 +117,13 @@ def main():
           bool(tool_bak) and tool_bak == tool, True)
     conv_bak = read(os.path.join(BAK, "dsh-client-ui-conversation.client.js.bak"))
     orphans = [l for l in conv_bak.splitlines() if l not in conv.splitlines()]
-    check("8b 内核 ui-conversation 与出厂只差那 6 行孤儿 locale（没删别的）",
-          [len(orphans), all("executionDetails" in l for l in orphans)], [6, True])
+    # 🔴 判据钉的是【规则】不是某一次的行数：出厂比现在多出来的行必须全是 locale 文案行（hero.* / tool.*），
+    #    一条逻辑行都不许少。原来写死 [6, True] —— hero.headline 那条合法补丁一加就多 2 行，闸变成假红。
+    check("8b 内核 ui-conversation 相对出厂只少了 locale 文案行，逻辑行零残骸",
+          [bool(orphans) and all(re.match(r'\s*"(hero\.|tool\.)', l) for l in orphans),
+           any(("function " in l or "const " in l or "=>" in l) for l in orphans),
+           len(orphans) >= 6],
+          [True, False, True])
     deli_bak = read(os.path.join(BAK, "dsh-client-ui-deliverables.client.js.bak"))
     diff = [l for l in deli_bak.splitlines() if l not in deli.splitlines()]
     check("8c 内核 ui-deliverables 只改了 8 条 locale 行（zh4+en4 的 row.*），逻辑行零改动",

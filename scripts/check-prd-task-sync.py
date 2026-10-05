@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""PRD ↔ 任务清单的匹配度闸（2026-10-05 自查时建，现覆盖两份 PRD）。
+"""PRD ↔ 任务清单的匹配度闸（2026-10-05 自建，现覆盖三份 PRD：delivery-loop / chat-progress / composer-entry）。
 
 为什么钉这条：PRD 和任务清单是人写的两份文档，一旦漂移，"按 JSON 干活"就会做出 PRD 禁止的事。
 第一次自查抓出 6 处不一致（边界条数不同、实测任务被 P1 挡住、任务在 PRD 里没归属、
@@ -19,7 +19,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # 每对 = (PRD, JSON, 验收条目前缀, 前缀后的序号列表)
 PAIRS = [
     ("docs/PRD-delivery-loop.md", "docs/tasks-delivery-loop.json", "V", [1, 2, 3, 4, 5, 6, 7]),
-    ("docs/PRD-chat-progress.md", "docs/tasks-chat-progress.json", "W", [1, 2, 3, 4, 5, 6, 7, 8]),
+    ("docs/PRD-chat-progress.md", "docs/tasks-chat-progress.json", "W", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+    ("docs/PRD-composer-entry.md", "docs/tasks-composer-entry.json", "X", [1, 2, 3, 4]),
 ]
 out = []
 
@@ -82,7 +83,7 @@ for prdRel, jsnRel, pre, nums in PAIRS:
           [x for a, b in zip(prdB, jsnB) if a != b for x in [(a[:20], b[:20])]], [])
 
     # 验收条目互指
-    found = sorted({int(n) for n in re.findall(r"\b" + pre + r"(\d)\b", prd)})
+    found = sorted({int(n) for n in re.findall(r"\b" + pre + r"(\d+)\b", prd)})
     check(tag + " C1 PRD 验收条目 = " + pre + "1.." + pre + str(max(nums)), found, nums)
     allv = " ".join(v for t in tasks for v in t.get("verify", []))
     check(tag + " C2 每条 " + pre + " 都被某任务的 verify 引用",

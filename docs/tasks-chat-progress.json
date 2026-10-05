@@ -10,7 +10,7 @@
     "hooks": "内核语义钩子（不用哈希 class）：data-chat-turn / data-chat-flow-kind / data-turn-process-member|-hidden|-answer"
   },
   "hard_boundaries": [
-    "不做第二套折叠：官方已打 data-turn-process-hidden 的轮次立刻让位",
+    "不做第二套折叠：官方那条 turn-process 折叠行【活着】（不带 data-turn-process-hidden）的轮次立刻让位",
     "不把当前动作藏掉 —— 最后一步必须始终可见（全收起来客户以为卡死）",
     "不搬 React 节点：只 setAttribute + 组首插一个头",
     "不依赖 CSS Modules 哈希 class（xzv4MW_/hWmORq_ 升级必漂）",
@@ -28,21 +28,25 @@
       "files": [
         "plugins/super-clone-ui/lib/client.js"
       ],
-      "spec": "KEEP=[user,steering,turn-tail,turn-error,turn-process,system-prompt,boundary]；未知 kind 默认收；只处理最后一组且未被官方折叠；组首插 .ws-turn-head（全文件仅此一处插节点）",
+      "spec": "KEEP=[user,steering,turn-tail,turn-error,turn-process,system-prompt,boundary]；未知 kind 默认收；只处理最后一组、且该组的官方 turn-process 折叠行没活着时才接管；带 data-turn-process-answer 的正文答案不收；组首插 .ws-turn-head（全文件仅此一处插节点）",
       "verify": [
         "W1 组头存在且文本含步数与秒",
         "W2 最后一条无 data-ws-fold",
         "W3 user/turn-error 不被收",
-        "W4 官方折过的组我们不出现"
+        "W4 官方折过的组我们不出现",
+        "W9 连跳五次逐跳不抖（折上的仍算可见，不再拿实时可见数判）",
+        "W11 稳态那一跳零 DOM 写入（当前动作在循环里跳过，不先打后摘）",
+        "W12 展开态跨内核重绘不丢（选择记在内存 Map，不记在头节点上）",
+        "W10 带 data-turn-process-answer 的正文答案不收"
       ],
       "est": "2h",
-      "note": "2026-10-05 重放并加了行为闸：假 DOM 跑 turnFoldTick 15 条真值表。它抓到两个真 bug——① open 只改了文案、没真的解除折叠（点开是空的）；② 我自己的假 DOM 不清子节点导致误判。组头文案「执行中 · N 步 · Xs」，收起态最后一条永远露着。",
+      "note": "2026-10-05 两版：①行为闸（假 DOM 真值表）抓到 open 只改文案没真解除折叠；②【活的内核页面】实测抓到折叠永不生效的真根因——把 data-turn-process-hidden 读反了。该属性挂在 turn-process 控制行上时含义是 controllerInactive（内核 :1597）= 官方【没】折，旧判据于是每一轮都让位。改成「折叠行活着才让位」后又暴露第二个 bug：折上的条目被我们自己 CSS 藏掉 ⇒ 实时可见数掉到 1 ⇒ 下一跳撤销 ⇒ 250ms 一次自激抖动（6 次采样 0/1 交替）。两条都已修 + 各钉一条能红的断言（反向对照验过：去掉修复就有断言翻红）。",
       "risk": "ctx.setInterval 要在 exports.inject 里声明 \"timer\"，否则 guard 静默拒 ⇒ 秒数不动"
     },
     {
       "id": "T2",
       "layer": "本体",
-      "title": "触发器：MutationObserver 节流 250ms + 1 秒一跳的计时",
+      "title": "触发器：MutationObserver 同步重挂（不再 250ms 节流）+ 1 秒一跳的计时",
       "status": "done",
       "depends_on": [
         "T1"
@@ -51,7 +55,9 @@
         "plugins/super-clone-ui/lib/client.js"
       ],
       "verify": [
-        "无 DOM 变化时秒数仍在走；有变化时不抖（一帧内不重复重排）"
+        "无 DOM 变化时秒数仍在走；有变化时不抖（一帧内不重复重排）",
+        "W11 稳态零 DOM 写入：重挂必须同步（observer 回调跑在微任务里，赶在下一帧之前把头补回来）",
+        "W12 展开态跨重绘不丢：重挂要能把用户的选择重新贴回去"
       ],
       "est": "0.5h",
       "note": "MutationObserver 节流 250ms + ctx.setInterval 1s 一跳；inject 已声明 timer。"
@@ -59,13 +65,14 @@
     {
       "id": "T3",
       "layer": "闸",
-      "title": "check-chat-progress.py：钉源码纪律 + 内核契约漂移",
+      "title": "check-chat-progress.py + -dom.mjs：钉源码纪律 + 行为真值表 + 内核契约漂移",
       "status": "done",
       "depends_on": [
         "T1"
       ],
       "files": [
-        "scripts/check-chat-progress.py"
+        "scripts/check-chat-progress.py",
+        "scripts/check-chat-progress-dom.mjs"
       ],
       "verify": [
         "W5 零哈希 class",
@@ -74,7 +81,7 @@
       ],
       "est": "1h",
       "risk": "闸要钉规则不钉现场：不许断言「某个进程活着」",
-      "note": "两篇：check-chat-progress.py（源码形状 16 条：零哈希 class / insertBefore==1 / 无 removeChild / KEEP 含 user+turn-error / 内核契约仍在）+ check-chat-progress-dom.mjs（行为 15 条），由前者聚合成一个入口。"
+      "note": "两篇：check-chat-progress.py（源码形状 20 组：零哈希 class / insertBefore==1 / 无 removeChild / KEEP 含 user+turn-error / 让位判据不许退回反写法 / 内核契约仍在）+ check-chat-progress-dom.mjs（行为 20 条），由前者聚合成一个入口。"
     },
     {
       "id": "T4",
@@ -93,8 +100,8 @@
         "截图里能看到组头计数递增、最后一步可见、点开能看全部步骤；轮次结束后官方 compact 接管、我们的头消失（W4）"
       ],
       "est": "0.5h",
-      "note": "真界面截图这步【主动停做】：DSH 窗口前台被企业微信抢占，那扇窗口里正有人在打字，往桌面发按键有误发风险 ⇒ 不赌。行为已由假 DOM 真值表覆盖，截图只差一次肉眼确认。",
-      "remaining": "等一条正在跑的会话（或你允许我点「新会话」发一条零成本的本地指令）再截一张图。"
+      "note": "2026-10-05 在【活的内核页面】(127.0.0.1:43129，另一条正在跑的会话) 验穿，并据此修掉用户点名的两个体感问题：① 执行中点「展开看过程」看不到 ⇒ 展开态原本记在会被内核抹掉的头节点上，改记内存 Map（W12）；② 运行中页面上下闪缩 ⇒ 重挂被 setTimeout(250) 延迟，浏览器先画展开再折回收起，改成 observer 回调里同步重挂 + 稳态零 DOM 写入（W11，其中「当前动作先打上再摘掉」每跳写 2 次 DOM，在真浏览器里会点着自己的 observer 转圈）。rev turn-fold-20261005d 实测：组头稳定、3 秒内属性写入 0 次、高度大幅跳变 0 次、点开跨 5 次重绘仍保持展开、再点收回。",
+      "remaining": "在你自己的 DSH 窗口按一次 Ctrl+R 复核观感（工作区插件重载即生效）。"
     },
     {
       "id": "T5",

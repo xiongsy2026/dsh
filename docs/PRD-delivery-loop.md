@@ -44,8 +44,13 @@ if (toolCalls.length === 0) return { kind: 'completed' }   // _setup/dsh-harness
 
 ## 4. R1 的两条实现路线（P1 先探 A，A 不通才走 B）
 
-- **A. 服务端模块挂 wake 通道**（不碰判据源码）：义务未清 + 会话空闲 ⇒ 由服务端模块触发一次 followup（复用 `completionDelivery:'wakeup'` 现成通道，只是触发者从"任务完成"换成"想收工"）。
-  ⚠️ **待坐实**：我们自有的 Cordis 模块能不能注册成 **server 侧**（客户端插件没有往 agent turn 注入的权限）。探针：`packages/bundle/base/cordis.patch.yml` 的挂载能力 + `tool-jobs` 的 `owner.followup` 归属。
+- **A. 服务端模块挂 wake 通道**（不碰判据源码）：义务未清 + 会话空闲 ⇒ 由服务端模块触发一次 followup。
+  ✅ **T8 探针已坐实（2026-10-05，逐条对着安装产物读过）：A 可行。**
+  - 插件可以跑在 **host/server 侧**：包 `package.json` 的 `"main"` 指向 `lib/index.js` 即 host 模块（对照 `dsh-tool-jobs/package.json:12` 只有 main、`dsh-client-ui-chat/package.json:12-45` main+client 两条都有）。挂载点：`dsh-agent-presets/presets/standard/agent.cordis.yml` 的模块行；动态插件走 `dsh-cordis-host-runner/lib/index.js:2061` 的 `code.host`。
+  - **注入 followup 的钥匙就在 Agent 类上**：`dsh-agent-loop/lib/index.js:789-797` —— `followup→send(input,'next-turn',true)`、`steer→'next-step' 唤醒`、`inject→'next-step' 不唤醒`。已有 5 个 host 插件这么用（`dsh-goal-round-driver:154`、`dsh-schedule:934`、`dsh-sdk-jsonrpc-server:153`、`dsh-acp:839`、`dsh-tool-jobs:223`）⇒ 不是我们自创的口子。
+  - **收工那一刻有钩子**：`dsh-agent-loop/lib/index.js:967` `await this.dispatch.serial("agent/turn-stopping", { agent, turn, signal })`，判定点在 `:1117`（`toolCalls.length===0 ⇒ {kind:'completed'}`）。现成用法两条：`dsh-hooks-claude-code/lib/index.js:292`、`dsh-hooks-codex/lib/index.js:272` 都是 `ctx.on("agent/turn-stopping", …)`。
+  - ⇒ **T9 的形态定了**：自有 host 插件 `ctx.on("agent/turn-stopping")` 查义务台账，未清就 `agent.followup(...)`，与 tool-jobs 唤醒同一条通道；**不需要 patch 编译产物那两行判据**（B 降为兜底，不做）。
+  - ⚠️ 仍未验证：HTTP 备选入口（`dsh-api-session-controller/lib/index.js:819-820` 的 `mode:"steer"`）的鉴权与 CORS/origin 限制。
 - **B. 直接 patch 编译产物里那两行判据**：加"义务清单非空 ⇒ 不许 completed"。风险=内核升级漂移 ⇒ 必须注册进 `rebuild_weeksir_desktop.py` 的 `PATCHES`，并过 `verify_kernel_consistency.py`。
 - 🔴 两条都要有**兜底出口**：同一原因连续 3 次不通 ⇒ 停下报证据（taskId / 账本 error / 上游原文），防止"不许停"退化成无限循环烧钱。
 

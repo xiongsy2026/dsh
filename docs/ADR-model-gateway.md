@@ -80,6 +80,25 @@ hypit 的 Provider 协议只认 HTTP（`POST /uploads`、`POST /videos`、`GET /
   - **未证实**：同期 Google Flow 公告（"Image uploads are failing for some users"）与我们的 `参考图` 类失败**没有证据表明同源**——vinted 与 Google Flow 是不同上游，只是症状同名；对照实验（同一条 1 段工程只换参考图托管源）用户决定暂不跑。
 - **license 边界**：hypit = *Apache-2.0 with conditions*（非纯开源）。自用、以及用它是给我们自己客户出片（产物归我们）可走；**把 hypit 打包分发给客户、或多租户对外服务，需 Hypit.AI 书面授权**（sales）。3.0 服务端化前先把这条谈定。
 
+## DSH agent 脑的准入判据（2026-10-05 AFS/chat2api 事故 · 回归 `scripts/check-agent-brain-lane.py` 7 条）
+
+事故形态：往 `settings.yaml` 加了个 `providers.glm`，baseURL 指 `http://127.0.0.1:8080/v1`，model id 手写 `GLM-5.3 / GLM-5.3-thinking / Kimi3 / Kimi-K3.1`。8080 上是 **AFS（内部名 chat2api）**——它把 chatglm.cn / kimi **网页会员账号里的托管智能体**包成 OpenAI 形状：对面自带沙箱、自带系统提示、自带工具，**拿不到也不执行 DSH 的 39 个本地工具**。拿 DSH 真实请求重放，它回 `{"name":"finish"}`（上游智能体的收尾哨兵，不在我们工具表里 ⇒ DSH 派发不到）。
+
+**判据（一句话）**：agent 脑必须是**裸模型 API + 真 function calling**。账号桥只能当**文本腿**，且当腿时 `basis` 不许是 `usage`（四条 lane 的 usage 实测恒为 `prompt_tokens:1, completion_tokens:1` = 假计量）。
+
+**关键事实：接云端 GLM/Kimi 不需要装任何插件。** DSH 的模型层（`@earendil-works/pi-ai`，`dsh-llm-pi-ai` 经 `providers/all` 的 `getBuiltinProviders` 枚举）已经把官方裸模型端点内置在册：
+
+| provider id | 端点 | 在册模型（节选） | 鉴权 env |
+|---|---|---|---|
+| `zai-coding-cn` | `https://open.bigmodel.cn/api/coding/paas/v4` | **glm-5.3** / glm-5.3-flash / glm-5.2 / glm-4.7 | `ZAI_CODING_CN_API_KEY` |
+| `zai`（国际站） | `https://api.z.ai/api/coding/paas/v4` | glm-5.3 / glm-5.2 / glm-4.7 | `ZAI_API_KEY` |
+| `moonshotai-cn` | `https://api.moonshot.cn/v1` | **kimi-k3** / kimi-k2.7-code / kimi-k2.6 | `MOONSHOT_API_KEY` |
+| `kimi-coding` | `https://api.kimi.com/coding`（`anthropic-messages`） | k3 / k3-256k / kimi-for-coding | `KIMI_API_KEY` |
+
+官方 `glm-5.3` 的 `compat` 里带 `thinkingFormat:"zai"` + `zaiToolStream:true` —— **工具流有专门适配**，这正是桥完全没有的那部分。所以"名字叫 GLM-5.3"从来不等于"接的是 GLM 的 API"，差别只在 baseURL 与一把 key。
+
+**闸钉了什么 / 故意没钉什么**：L1–L3 钉默认脑不得解析到 loopback provider、model id 不得落在桥 lane 名单里；L4 钉桥地址只准出现在 `scripts/probe_*.py`（任何 skill/插件/文档硬编码它 = 长出第二条调用轨）；L5–L7 钉上表这三份注册表文件确实在册。**故意不钉**"AFS 进程活着没""托管开关在不在关闭"——那是外部进程状态，钉了就是随机假红的假保险；桥 lane 将来登记进网关时的 `basis != usage` 也留到登记那一刻再断言。
+
 ## 推理脑注册表（2026-10-01 全中转实测 · `text.complete` 现有 8 条腿，2026-10-04 下线 2 条后）
 模型名集中在 `config.py` 的「文本推理脑注册表」字段（.env 可覆盖），不散在代码里；单价按实测 token 分档（≈100 tok/分）。
 

@@ -218,13 +218,10 @@ body {
     // ---- 技能下拉框 ----
     // 客户选一个 skill 就走那个 skill 的工作流；
     // 默认不选 = 不挂任何 skill，纯对话。
-    // 列表来源：c:\dsh\.dsh\skills\<name>\SKILL.md 的 name 字段
-    const SKILLS = [
-      { id: "omni", label: "Omni 出片", prompt: "/omni " },
-      { id: "super-clone", label: "超级复刻", prompt: "/super-clone " },
-      { id: "hypit", label: "Hypit 时间轴", prompt: "/hypit " },
-      // 后续真账号接入后，从 .dsh/skills 目录扫描自动生成
-    ];
+    // 🔴 名单只有一个源 = 下面的 SKILL_DOCK_META（首页 dock 那张表），这里只留壳，装载在 META 之后（:~770）。
+    //    原来这里手写 3 条，其中 `hypit` 全目录没有这个命令（实名 hypit-pipeline）⇒ 点下去填的 `/hypit ` 是空炮；
+    //    而 dock 宣传的 short-drama / video-dewatermark 又不在下拉里。两份名单必然漂，所以合并成一份（2026-10-05 T2）。
+    const SKILLS = [];
 
     // 切换技能：清掉旧的 /技能 命令再放新的，避免叠加（命令置前，描述在后）。
     function setSkillPrompt(prompt) {
@@ -239,7 +236,13 @@ body {
         const out = txt ? (prompt + txt) : prompt;
         if (ce) {
           ce.focus();
-          document.execCommand("selectAll", false, null);
+          // 🔴 不能用 document.execCommand("selectAll")：这个编辑器里它选不中输入框内容，insertText 于是静默无效
+          //    ⇒ 框里已有文字时点任何技能都没反应（2026-10-05 真界面实测：空框能填、有字就失效）。
+          //    改成显式 Range 覆盖整个 contenteditable 再 insertText —— 语义不变（清旧前缀 / 命令置前 / 描述在后）。
+          const rg = document.createRange();
+          rg.selectNodeContents(ce);
+          const sel = document.getSelection && document.getSelection();
+          if (sel) { sel.removeAllRanges(); sel.addRange(rg); }
           document.execCommand("insertText", false, out);
           ce.dispatchEvent(new Event("input", { bubbles: true }));
         } else {
@@ -767,6 +770,12 @@ body {
     };
     // 白名单：只把这几条露给客户（其余 30 条是内部/提示词库技能，以前留空 = 全量倒给客户看）
     const SKILL_DOCK_ALLOW = Object.keys(SKILL_DOCK_META);
+    // 🔴 SKILLS 从这张表派生（顺序照 order）——下拉与 chips 与首页 dock 三处共用一份名单，不留第二份。
+    Object.keys(SKILL_DOCK_META)
+      .sort((a, b) => SKILL_DOCK_META[a].order - SKILL_DOCK_META[b].order)
+      .forEach(function (id) {
+        SKILLS.push({ id: id, label: SKILL_DOCK_META[id].title, prompt: "/" + id + " " });
+      });
     const SKILL_RECENT_MAX = 8;   // PRD §6「最近使用」上限（以前代码写死 6，与 PRD 不一致）
     const SKILL_TAB_MIN = 4;      // PRD §5：技能数到 4 才上 tab 栏
     // 只在【新会话首页】出卡，进入对话就整块撤掉。判据照内核自己那条（dsh-client-ui-conversation:14775/14854）：
@@ -1012,7 +1021,7 @@ body {
     //   ① 只用内核的 data-* 语义属性选元素，绝不依赖 CSS Modules 的哈希 class（升级会漂）；
     //   ② 不搬 React 节点 —— 只 setAttribute + 组首插一个头（全文件仅此一处插节点）；
     //   ③ 官方折过的（打了 data-turn-process-hidden）立刻让位，不做第二套折叠。
-    const WS_TURN_REV = "turn-fold-20261005b";
+    const WS_TURN_REV = "turn-fold-20261005d";
     const WS_TURN_CSS_ID = "ws-turn-fold-css";
     const WS_FLOW_ITEM = "[data-chat-flow-kind][data-chat-turn]";
     // 永远留在正文里的 kind（客户说的话、报错、轮次收尾、官方那条折叠行）；其余一律收进组 ——
@@ -1036,15 +1045,33 @@ body {
       document.body.appendChild(st);
     }
 
-    // 把一组过程条目"放开"：去掉我们的标记 + 撤掉头 + 忘掉计时（交还给官方 compact）
+    // 🔴 展开态记在【内存】里，不记在组头节点上：内核每次重绘都会把我们插的那个头抹掉重建，
+    //    记在节点上 = 用户点了"展开看过程"，下一次重绘就自己悄悄收回去了（2026-10-05 用户点名）。
+    const turnOpen = new Map();     // turn → 是否展开
+    const turnLabel = new Map();    // turn → 组头当前渲染的文案（只在变了的时候才动 DOM）
+    let ticking = false;
+
+    // 只在值真的变了时才写 DOM。同步重挂之后，"没有变化的 tick" 必须产生零条 mutation，
+    // 否则我们自己点着 MutationObserver ⇒ 整块高度来回变 = 页面上下闪缩（2026-10-05 用户点名）。
+    function setIfDiff(el, name, val) { if (el.getAttribute(name) !== val) el.setAttribute(name, val); }
+    function rmIfHas(el, name) { if (el.hasAttribute(name)) el.removeAttribute(name); }
+
+    // 把一组过程条目"放开"：去掉我们的标记 + 撤掉头 + 忘掉计时（交还给官方 compact）。用户的展开选择保留。
     function turnRelease(list, head, key) {
-      for (const el of list) el.removeAttribute("data-ws-fold");
+      for (const el of list) rmIfHas(el, "data-ws-fold");
       if (head) head.remove();
       turnFirstSeen.delete(key);
+      turnLabel.delete(key);
     }
 
     function turnFoldTick() {
       if (typeof document === "undefined" || !document.body) return;
+      if (ticking) return;          // 我们自己的写入也会触发 observer ⇒ 挡重入，别把一跳变成一串
+      ticking = true;
+      try { turnFoldTickInner(); } finally { ticking = false; }
+    }
+
+    function turnFoldTickInner() {
       turnFoldCss();
       const nodes = document.querySelectorAll(WS_FLOW_ITEM);
       if (!nodes.length) return;
@@ -1062,35 +1089,47 @@ body {
         if (!parent) continue;
         let head = list[0].previousElementSibling;
         if (!head || !head.classList || !head.classList.contains("ws-turn-head")) head = null;
-        // 只有"最后那一轮 + 官方还没折"才归我们管
-        const officialFolded = list.some(el => el.hasAttribute("data-turn-process-hidden"));
+        // 让位给官方折叠的唯一正确信号：那条 turn-process 控制行【活着】（没挂 data-turn-process-hidden）。
+        // 挂上它 = controllerInactive = 官方这轮没折 ⇒ 以前拿"有 hidden 属性"当"官方已折"，每一轮都让位，等于永远不折。
+        const officialFolded = list.some(el =>
+          el.getAttribute("data-chat-flow-kind") === "turn-process" && !el.hasAttribute("data-turn-process-hidden"));
         if (key !== lastKey || officialFolded) { turnRelease(list, head, key); continue; }
-        const proc = list.filter(el => WS_TURN_KEEP.indexOf(el.getAttribute("data-chat-flow-kind")) < 0);
-        if (proc.length < 2) { turnRelease(list, head, key); continue; }
+        const proc = list.filter(el => WS_TURN_KEEP.indexOf(el.getAttribute("data-chat-flow-kind")) < 0
+          && !el.hasAttribute("data-turn-process-answer"));   // 正文答案永远不收，否则收完看不到结果
+        // 只数"真的看得见"的：虚拟列表把视口外的行用 CSS 藏了，拿总数判会虚高。
+        // 🔴 但【被我们自己折上的】必须算回可见 —— 不然折完 shown 掉到 1 ⇒ 下一跳判"没得折"就撤销 ⇒ 又折 ⇒ 250ms 一次自激抖动（2026-10-05 实测）
+        const shown = proc.filter(el => !el.hidden && (el.offsetParent !== null || el.getAttribute("data-ws-fold") === "1"));
+        if (shown.length < 2) { turnRelease(list, head, key); continue; }
         if (!turnFirstSeen.has(key)) turnFirstSeen.set(key, Date.now());
         const secs = Math.max(0, Math.round((Date.now() - turnFirstSeen.get(key)) / 1000));
-        const open = !!(head && head.getAttribute("data-ws-turn-open") === "1");
-        // 🔴 open 必须真的作用到标记上 —— 第一版只拿它改了文案，结果"展开看过程"点了个寂寞
+        const open = turnOpen.get(key) === true;
+        // 🔴 收起态下最后一条【永远露着】当"当前动作"（PRD 非目标 2）。它必须在循环里就跳过，
+        //    不能"先打上再摘掉"——那样每跳写 2 次 DOM，在真浏览器里会点着我们自己的 MutationObserver 无限循环（2026-10-05 闸抓到）。
+        const keep = open ? null : shown[shown.length - 1];
         for (const el of proc) {
-          if (open) el.removeAttribute("data-ws-fold");
-          else el.setAttribute("data-ws-fold", "1");
+          if (el === keep) { rmIfHas(el, "data-ws-fold"); continue; }
+          if (open) rmIfHas(el, "data-ws-fold");
+          else setIfDiff(el, "data-ws-fold", "1");
         }
-        // 🔴 收起态下最后一条【永远露着】当"当前动作"——全收起来客户会以为卡死（PRD 非目标 2）
-        if (!open) proc[proc.length - 1].removeAttribute("data-ws-fold");
         if (!head) {
           head = document.createElement("div");
           head.className = "ws-turn-head";
           head.setAttribute("data-ws-turn-head", key);
           head.addEventListener("click", function () {
-            head.setAttribute("data-ws-turn-open", head.getAttribute("data-ws-turn-open") === "1" ? "0" : "1");
+            turnOpen.set(key, turnOpen.get(key) !== true);
             turnFoldTick();
           });
           parent.insertBefore(head, list[0]);   // 全文件仅此一处插节点
+          turnLabel.delete(key);                 // 头是刚建的空节点，必须重画一次
         }
+        const label = "执行中 · " + proc.length + " 步 · " + secs + "s|" + (open ? "o" : "c");
+        setIfDiff(head, "data-ws-turn-open", open ? "1" : "0");
+        if (turnLabel.get(key) === label) continue;   // 文案没变就一个字节都不写（防自激重挂）
+        turnLabel.set(key, label);
         head.textContent = "";
         const dot = document.createElement("span"); dot.className = "ws-dot"; head.appendChild(dot);
         const txt = document.createElement("span");
-        txt.textContent = "执行中 · " + proc.length + " 步 · " + secs + "s";
+        txt.textContent = label.split("|")[0];
         head.appendChild(txt);
         const hint = document.createElement("span");
         hint.className = "ws-n"; hint.textContent = open ? "收起" : "展开看过程";
@@ -1100,18 +1139,15 @@ body {
 
     function mountTurnFold(ctx) {
       if (typeof document === "undefined" || !document.body) return;
-      let queued = false;
-      const later = () => {
-        if (queued) return;
-        queued = true;
-        setTimeout(() => { queued = false; try { turnFoldTick(); } catch (e) {} }, 250);
-      };
+      const run = () => { try { turnFoldTick(); } catch (e) {} };
       try {
-        turnFoldTick();
-        const mo = new MutationObserver(later);
+        run();
+        // 🔴 同步重挂，不再 setTimeout 250ms：MutationObserver 回调跑在微任务里，赶在浏览器画下一帧之前
+        //    就把头补回来。延迟那版会先画出"展开"再折回"收起"，整页高度来回跳（= 用户点名的"上下闪缩"）。
+        const mo = new MutationObserver(run);
         mo.observe(document.body, { childList: true, subtree: true });
         // 组头的秒数在"没有 DOM 变化"时也要走字（内核不会重绘我们插的头）⇒ 1 秒一跳
-        if (ctx && typeof ctx.setInterval === "function") ctx.setInterval(later, 1000);
+        if (ctx && typeof ctx.setInterval === "function") ctx.setInterval(run, 1000);
         try { console.log("[ws-turn-fold] mounted", WS_TURN_REV); } catch (e) {}
       } catch (e) {
         try { console.warn("[ws-turn-fold] 挂载失败:", e && e.message); } catch (e2) {}

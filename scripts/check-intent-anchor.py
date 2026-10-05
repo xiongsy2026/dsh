@@ -21,6 +21,11 @@ if os.path.exists(INTENT):
 
 os.environ["VIDEO_UI_RUNS"] = RUNS                    # store.py 的 run 根目录
 os.environ["HYPIT_INTENT_MARK"] = INTENT              # hypit_bridge 的意图登记文件
+# 🔴 store.create_run() 现在会顺手登记交付义务（omni 锚点），台账默认落在 <DSH_WORKSPACE>/.dsh/delivery.json，
+#    而 DSH_WORKSPACE 没设时回落 C:\dsh ⇒ 这个老闸每跑一次就往【生产】台账塞 2 条假欠账（实测积了 12 条）。
+os.environ["DSH_WORKSPACE"] = os.path.join(SCRATCH, "anchor_ws")
+os.environ["DELIVERY_LEDGER"] = os.path.join(SCRATCH, "anchor_ws", ".dsh", "delivery.json")
+os.environ["HYPIT_NO_AUTOSTART"] = "1"                # 别顺手拉起 studio 进程
 sys.path.insert(0, r"C:\dsh\scratch\video-ui\video-ui")   # 常驻 8765 跑的就是这一份
 sys.path.insert(0, r"D:\video-skill\backend")
 

@@ -13,9 +13,12 @@ sys.path.insert(0, r"D:\video-skill\backend")
 import delivery_ledger as L  # noqa: E402
 
 fails = []
+TOTAL = 0
 
 
 def check(name, got, want):
+    global TOTAL
+    TOTAL += 1
     a, b = json.dumps(got, ensure_ascii=False, default=str), json.dumps(want, ensure_ascii=False, default=str)
     print(("PASS " if a == b else "FAIL ") + name + ("" if a == b else " => %r 期望 %r" % (got, want)))
     if a != b:
@@ -95,6 +98,18 @@ check("20 到期条目被标 expired（不是被删）",
 check("21 台账文件是合法 JSON 且没留 .tmp",
       [os.path.exists(led), [f for f in os.listdir(tmp) if f.startswith("delivery.json.tmp")]], [True, []])
 
+# 🔴 防复发：任何会 store.create_run() 的闸都必须自己隔离台账，否则它每跑一次就往【生产】台账塞假欠账
+#    （2026-10-05 实测：check-intent-anchor.py 漏了这条，积下 14 条测试登记 / 33 件假欠账）。
+import glob as _glob
+_leaky = []
+for _f in sorted(_glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-*.py"))):
+    _t = open(_f, encoding="utf-8", errors="replace").read()
+    if "create_run(" not in _t:
+        continue
+    if "DELIVERY_LEDGER" not in _t and "DSH_WORKSPACE" not in _t:
+        _leaky.append(os.path.basename(_f))
+check("21 会建 run 的闸全部隔离了交付台账（零漏网）", _leaky, [])
+
 # 三个提交锚点各自成篇（要各自隔离 env：临时 DB / 临时台账 / 把 _run 换成空操作），这里做统一入口
 import subprocess
 SIBS = ["check-delivery-anchor-omni.py", "check-delivery-anchor-hypit.py",
@@ -123,5 +138,5 @@ gw = open(os.path.join("D:", "video-skill", "backend", "gateway.py"), encoding="
 check("V7 去水印：失败路径都回 job_id 且明写不重提交",
       [gw.count(chr(34) + "job_id" + chr(34) + ": tid") >= 3, ("别重提交" in gw or "不重提交" in gw)], [True, True])
 
-print(chr(10) + "=== 交付闭环闸：台账 21 + 锚点与读口 " + str(anchor_total) + " + V7 1 = " + str(21 + anchor_total + 1) + " 条，失败 " + str(len(fails)) + " ===")
+print(chr(10) + "=== 交付闭环闸：本篇 " + str(TOTAL) + " + 锚点与读口 " + str(anchor_total) + " = " + str(TOTAL + anchor_total) + " 条，失败 " + str(len(fails)) + " ===")
 sys.exit(1 if fails else 0)

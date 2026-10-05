@@ -1,0 +1,109 @@
+{
+  "name": "composer-entry",
+  "title": "对话框里加 /omni —— composer 常驻技能入口（skill chips）",
+  "prd": "docs/PRD-composer-entry.md",
+  "date": "2026-10-05",
+  "root_cause": {
+    "judge": "plugins/super-clone-ui/lib/client.js:778 isHeroSession —— skill dock 只在新会话首页出卡，进对话整块撤掉 ⇒ 对话里没有 /omni 的直达位",
+    "stale_table": ":222-227 SKILLS 硬编码 3 条：hypit 不是真命令（.dsh/skills/hypit-pipeline/SKILL.md 的 name 是 hypit-pipeline），且 hypit-pipeline/short-drama/video-dewatermark 都不在表里",
+    "reuse": ":230 setSkillPrompt（填命令标准动作）、:263 buildNativeSkillPicker + :570 mountNativeSkillPicker（挂载套路）、:612 injectNativeSkillPicker（300ms 节流 observer，搭车不新开）"
+  },
+  "hard_boundaries": [
+    "不做「敲 / 弹候选」的命令面板（要接管键盘事件与光标定位，另立任务）",
+    "不把首页 skill dock 整块搬进对话里常驻 —— 卡片式 dock 仍只在首页，对话里只加轻量 chips",
+    "不新增技能、不改任何 SKILL.md —— 只对齐 SKILLS 表与实况（客户可见面仍限 SKILL_DOCK_ALLOW 那 5 条）",
+    "不动 DSH 内核（@deepseek-ai/dsh-*）与官方 composer DOM 结构 —— 只插自己的节点",
+    "不依赖 CSS Modules 哈希 class（升级必漂），只克隆原生按钮 className + data-ws-* 标记",
+    "不改 setSkillPrompt 的命令置前语义（清旧 /技能 前缀、命令置前、描述在后）",
+    "动 plugins/super-clone-ui/lib/client.js 前先 git diff --numstat 对一遍，只用精确插入式编辑，禁止整文件覆盖与 git checkout --"
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "layer": "本体",
+      "title": "~~常驻技能 chips~~ ⇒ 已撤销：技能选择恢复成只有一个下拉（用户判定 UI 乱）",
+      "status": "withdrawn",
+      "depends_on": [
+        "T2"
+      ],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js"
+      ],
+      "spec": "照抄 buildNativeSkillPicker（:263）套路：克隆 templateBtn 的 className 定外观、data-ws-skill-chip 标记、幂等判据（host 已有 chip 容器就 return）、禁止 cloneNode(true)（:284 老坑：保留 React state 引用会触发原下拉）。挂载位 = findComposerActionsHost（:562-565）的发送按钮之前；触发搭 injectNativeSkillPicker（:612）的 300ms 节流 observer，不新开。chips 数据源 = SKILLS 表（T2 对齐后的 5 条），逐个点击 = setSkillPrompt(s.prompt)，/omni 排第一个。",
+      "verify": [
+        "X2 只有一个入口：下拉 3 个挂载点在位 + chips 零残留（不许复活、不留死代码）"
+      ],
+      "est": "1.5h",
+      "risk": "组件重渲染会整块换掉工具栏 DOM ⇒ 幂等判据要查容器而不是查变量；挂载失败别静默吞（catch 里至少 console 一次）",
+      "note": "落过码（skill-chips-20261005b，含轻量胶囊样式 + 结构兜底锚点 + 幂等挂载），用户看到工具栏后判定「之前这个技能选择框都没问题」⇒ 整块删除：不留第二入口、不留死代码，mountNativeSkillPicker 的 3 个调用点原样还回。X1/X2/X4/X7 随之作废。"
+    },
+    {
+      "id": "T2",
+      "layer": "本体",
+      "title": "SKILLS 表对齐 .dsh/skills 实况：hypit → hypit-pipeline，补 short-drama、video-dewatermark",
+      "status": "done",
+      "depends_on": [],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js"
+      ],
+      "spec": ":222 的 SKILLS 改成 5 条：omni、super-clone、hypit-pipeline（prompt `/hypit-pipeline `，原 `hypit` 指向不存在的命令）、short-drama、video-dewatermark；顺序照 SKILL_DOCK_META 的 order（super-clone 1 / hypit-pipeline 2 / omni 3 / short-drama 4 / video-dewatermark 5，chips 里 omni 提到第一个由 T1 的渲染顺序管）。id 一律取 .dsh/skills/<dir>/SKILL.md 的 name 字段（表头注释本来就是这么规定的）。chips 与下拉同源这一张表，不留两份名单。",
+      "verify": [
+        "X1 名单单源且逐条对得上 .dsh/skills 的 name:",
+        "X3 点技能能写进输入框（含框里已有文字），命令置前语义不变"
+      ],
+      "est": "0.5h",
+      "risk": "setSkillPrompt 的清前缀正则（:233）用 SKILLS 的 id 拼出来 ⇒ 改 id 后旧文本里的 /hypit 前缀不再被清，属可接受残留（用户手动删）",
+      "note": "SKILLS 改为由 SKILL_DOCK_META 派生（顺序照 order）：下拉从 3 条变 5 条，空炮命令 /hypit 消失（实名 hypit-pipeline），标签统一取 dock 那张表。另留一处不改布局的修复：setSkillPrompt 原来用 execCommand('selectAll')，在这个编辑器里选不中已有内容 ⇒ 输入框有字时点技能没反应（空框才生效），改成显式 Range 再 insertText，命令置前/清旧前缀/描述在后三条语义未动。"
+    },
+    {
+      "id": "T3",
+      "layer": "闸",
+      "title": "scripts/check-composer-entry.py 回归闸：源码纪律 + 锚点漂移 + 改动范围",
+      "status": "done",
+      "depends_on": [
+        "T1",
+        "T2"
+      ],
+      "files": [
+        "scripts/check-composer-entry.py"
+      ],
+      "spec": "三段断言：①源码纪律——零 CSS Modules 哈希 class（正则 [A-Za-z]+_ 形式）、cloneNode(true) 计数为 0、chips 点击确实走 setSkillPrompt；②锚点漂移——SKILLS / setSkillPrompt / buildNativeSkillPicker / isHeroSession 符号仍在 client.js（升级漂了要红）；③改动范围——git diff --name-only 只允许 plugins/super-clone-ui/lib/client.js 与 scripts/check-composer-entry.py 自己。只读、不改文件；stdout 头部 reconfigure utf-8（GBK 控制台别学 check-delivery-loop.py 的崩法）。",
+      "verify": [
+        "X1 X2 X3 X4 全部由本闸判",
+        "两条反向对照：把 selectAll 塞回去、把 chips 留在源码里，闸必须红"
+      ],
+      "est": "1h",
+      "risk": "断言别拿行号当锚点（client.js 有并发写入者，行号必漂）⇒ 一律按符号名/函数名 grep 定位",
+      "note": "check-composer-entry.py 15 条：A 组钉名单单源与实况对齐（逐条对 .dsh/skills/<id>/SKILL.md 的 name:），B 组钉『下拉仍在挂载 + chips 零残留 + setSkillPrompt 写入路径与语义』，C 组钉改动范围。两处反向对照验过：把 selectAll 塞回去 B3 会红、chips 残留会红。"
+    },
+    {
+      "id": "T4",
+      "layer": "验收",
+      "title": "真界面点一遍 + 截图（DSH 窗口 Ctrl+R 后）",
+      "status": "withdrawn",
+      "depends_on": [
+        "T1",
+        "T2",
+        "T3"
+      ],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js"
+      ],
+      "spec": "Ctrl+R 重载工作区插件后，在真对话界面：断言 chips 出现、点 /omni chip 输入框出 `/omni `、切换另一个 chip 前缀正确替换、下拉里 5 条齐全且 hypit-pipeline 可用；截图贴任务 note。截图里要能看到 chips 与输入框内容两张证据。",
+      "verify": [
+        "X2 撤销状态由闸长期守着（不再要求截图销账）"
+      ],
+      "est": "0.5h",
+      "risk": "改完必须 Ctrl+R（选择器是启动时扫盘的快照，SKILL_DOCK_REV 同款老坑）",
+      "note": "随 T1 撤销。留一张撤销前的截图 .tmp-chips.png 作为『为什么撤』的证据。"
+    }
+  ],
+  "milestones": {
+    "P0": [
+      "T2",
+      "T1",
+      "T3",
+      "T4"
+    ]
+  }
+}
