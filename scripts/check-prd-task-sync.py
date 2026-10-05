@@ -42,6 +42,26 @@ for prdRel, jsnRel, pre, nums in PAIRS:
     tag = prdRel.split("/")[-1].replace(".md", "")
     print("\n---- " + tag)
 
+    # 0) 控制字符：heredoc 会把路径里的   吃成控制字符（2026-10-05 审核抓到；
+    #    JSON 里存成  肉眼看不见，所以要解析后按字符判 —— 这里刻意不用反斜杠字面量）
+    CTRL = set(chr(c) for c in list(range(0, 9)) + [11, 12] + list(range(14, 32)) + [127])
+    ctrl = []
+
+    def _walk(x, path):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                _walk(v, path + "/" + str(k))
+        elif isinstance(x, list):
+            for i, v in enumerate(x):
+                _walk(v, path + "[%d]" % i)
+        elif isinstance(x, str):
+            for ch in x:
+                if ch in CTRL:
+                    ctrl.append(path + ":" + hex(ord(ch)))
+
+    _walk(d, "")
+    check(tag + " C0 JSON 里零控制字符（路径一律写正斜杠，防 heredoc 吃字符）", ctrl, [])
+
     # 结构自洽
     check(tag + " S1 depends_on 都指到真实任务",
           [x for t in tasks for x in t.get("depends_on", []) if x not in ids], [])

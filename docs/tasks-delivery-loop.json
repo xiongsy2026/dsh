@@ -70,7 +70,7 @@
       ],
       "est": "3h",
       "risk": "不许拿 mtime 猜目录（no-project 的老坑）：期望路径必须由提交方给出",
-      "note": "2026-10-05 落地并自查：`D:\u000bideo-skill\backend\\delivery_ledger.py`（decide 纯函数 + 读写器 + TTL + sweep），21 条真值表全绿（临时目录跑，绝不动生产台账）。自查抓出两个真 bug 并已修：① None 被 str() 成 \"None\" 混进台账；② 空 expected 会永远判 pending（现判 closed）。"
+      "note": "2026-10-05 落地并自查：D:/video-skill/backend/delivery_ledger.py（decide 纯函数 + 读写器 + TTL + sweep），21 条真值表全绿（临时目录跑，绝不动生产台账 <工作区>/.dsh/delivery.json）。自查抓出两个真 bug 并已修：① None 被 str() 成 \"None\" 混进台账；② 空 expected 会永远判 pending（现判 closed）。"
     },
     {
       "id": "T4",
@@ -93,7 +93,7 @@
       "est": "2h",
       "risk": "登记炸了不许让提交本身失败（照 check-intent-anchor.py 的「登记失败也得出片」先例）",
       "unverified": "三处都只在临时环境验过（零网络零扣费）；真链路生效要 8765/8100 重启后跑一条才算数。",
-      "note": "2026-10-05 三个锚点全落，40 条自查绿。坐实结果：omni 的真锚点是 store.create_run（在 video-ui 树里，不在 D:\u000bideo-skill）；hypit 的腿在提交时【没有文件名】⇒ 台账加了 job_id 型期望 + append 语义；去水印是同步落盘 ⇒ 用 output_path，且登记放在 _dewatermark_run 之前。"
+      "note": "2026-10-05 三个锚点全落，40 条自查绿。坐实结果：omni 的真锚点是 store.create_run（在 video-ui 树里，不在 D:/video-skill）；hypit 的腿在提交时【没有文件名】⇒ 台账加了 job_id 型期望 + append 语义；去水印是同步落盘 ⇒ 用 output_path，且登记放在 _dewatermark_run 之前。"
     },
     {
       "id": "T5",

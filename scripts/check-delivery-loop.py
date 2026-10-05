@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""交付闭环闸（PRD-delivery-loop §6 的 V1/V2/V4 部分 + 台账语义真值表）。
+r"""交付闭环闸（PRD-delivery-loop §6 的 V1/V2/V4 部分 + 台账语义真值表）。
 
 跑法：python scripts/check-delivery-loop.py —— 全程临时目录，绝不动生产台账 <工作区>\.dsh\delivery.json。
 V7（不双花）要等 T4 的提交锚点落地后补进来；纯函数 decide() 整块抠出来跑真值表，不依赖任何进程活着。
