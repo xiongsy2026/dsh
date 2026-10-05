@@ -282,6 +282,31 @@ def _register_intent(session, run_name):
         pass
 
 
+def _register_delivery(session, run):
+    """建 run = 这条会话当场欠下【N 段 + 1 成片】⇒ 登记交付义务（docs/PRD-delivery-loop.md §5）。
+
+    为什么必须绑在这儿：内核判"完成"只看本轮有没有 tool-call（agent-loop/src/agent.ts:486-487），
+    没人记账就没人拦得住"说视频会出来"然后收工。段数在建 run 时就已知（state["segments"]），
+    期望路径也能枚举 ⇒ 不需要拿 mtime 猜目录（那是 no-project 那个老坑）。
+    🔴 和 _register_intent 同一条纪律：台账炸了绝不能让建 run 失败（先出片，再谈记账）。
+    """
+    if not session:
+        return
+    try:
+        import sys
+        home = os.environ.get("VIDEO_SKILL_HOME", r"D:\video-skill")
+        backend = os.path.join(home, "backend")
+        if backend not in sys.path:
+            sys.path.insert(0, backend)
+        import delivery_ledger
+        n = int(run.state.get("segments") or 0)
+        expected = [str(run.root / "segments" / ("segment_%d.mp4" % k)) for k in range(1, n + 1)]
+        expected.append(str(run.root / "video" / "final.mp4"))
+        delivery_ledger.open_obligation(str(session), run.state.get("name") or run.name, "omni", expected)
+    except Exception:
+        pass
+
+
 def create_run(title, duration, mode="product", session=None):
     slug = re.sub(r"[^\w\-.\u4e00-\u9fff]+", "-", title.strip())[:40] or "run"
     name = "%s-%s-%s" % (datetime.now().strftime("%Y%m%d-%H%M%S"), slug, ("%04d" % (int(time.time()) % 10000)))
@@ -312,6 +337,7 @@ def create_run(title, duration, mode="product", session=None):
     }
     run.save()
     _register_intent(run.state["session"], run.name)
+    _register_delivery(run.state["session"], run)
     return run
 
 

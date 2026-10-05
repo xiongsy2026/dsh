@@ -98,7 +98,8 @@ check("21 台账文件是合法 JSON 且没留 .tmp",
 # 三个提交锚点各自成篇（要各自隔离 env：临时 DB / 临时台账 / 把 _run 换成空操作），这里做统一入口
 import subprocess
 SIBS = ["check-delivery-anchor-omni.py", "check-delivery-anchor-hypit.py",
-        "check-delivery-anchor-dewatermark.py", "check-delivery-read-api.py"]
+        "check-delivery-anchor-dewatermark.py", "check-delivery-read-api.py",
+        "check-deliver-pack.py"]
 anchor_total = 0
 for s in SIBS:
     r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), s)],

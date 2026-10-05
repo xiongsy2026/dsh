@@ -99,7 +99,7 @@
       "id": "T5",
       "layer": "R2",
       "title": "8100 读口 GET /api/delivery/pending?session=（右栏/拦截/闸共用一个口）",
-      "status": "pending",
+      "status": "done",
       "depends_on": [
         "T3"
       ],
@@ -108,16 +108,19 @@
         "docs/ADR-model-gateway.md"
       ],
       "verify": [
-        "presence 一样返回三态：known/没回话/有清单；没回话≠没欠账"
+        "三态：文件不存在=没欠 / 有欠账=count>0 / 台账损坏=known:false",
+        "job_id 型期望显示成 job:<id>（不假装有路径）；腿 succeeded 才清零",
+        "按会话过滤、不带 session 看全部、汇总欠多少分"
       ],
       "est": "1h",
-      "risk": "不再开第二个判定口（presence 五修教训）"
+      "risk": "不再开第二个判定口（presence 五修教训）",
+      "note": "2026-10-05 落地：GET /api/delivery/pending?session=（只读 + CORS），12 条自查绿。顺带修掉两处语义漏洞：① 台账坏了必须报 known:false（不许报「不欠」）；② 路径每次调用现读 env（常驻进程只 import 一次）。"
     },
     {
       "id": "T6",
       "layer": "R4",
       "title": "交付三件套自动化 deliver_pack.py（路径+8100直链+抽帧贴图）",
-      "status": "pending",
+      "status": "done",
       "depends_on": [
         "T3"
       ],
@@ -125,9 +128,12 @@
         "C:/dsh/scripts/deliver_pack.py"
       ],
       "verify": [
-        "V6 对既有成片跑一遍⇒三样都在（视频不能内联是既成事实，贴图是唯一可视证据）"
+        "正例三件套齐（13 条闸 V6）",
+        "反面：不存在 / 500 字节 / 中文名 / 不在 outputs 下 ⇒ 全部非 0 退出",
+        "只收 >2KB 的帧；不碰账本、不写假数据"
       ],
-      "est": "1.5h"
+      "est": "1.5h",
+      "note": "2026-10-05 落地 scripts/deliver_pack.py：路径 + 8100 直链 + ffmpeg 抽帧，任一校验不过就非 0 退出。真片实测：final-20s.mp4 → 6 项全 OK、直链回 206、抽帧人眼看过（红色小熊软糖，不是黑帧）。"
     },
     {
       "id": "T7",
