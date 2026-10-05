@@ -40,3 +40,11 @@ def blur_band(src, dst, band=0.20):
 
 crop_169_high(os.path.join(OUT, "omni.png"), os.path.join(OUT, "omni.fixed.png"), keep_top=0.80)
 blur_band(os.path.join(OUT, "short-drama.png"), os.path.join(OUT, "short-drama.fixed.png"), band=0.22)
+
+# 2026-10-04「视频去水印」候选：两版底部都被画上了乱码拉丁字（v3 甚至把我提示词里的 "16:9" 照抄进去了
+# ⇒ 教训①又验一遍：任何字面量都可能被画出来）。原图留着，产出 .clean 供人眼复检。
+COVERS2 = r"C:\dsh\productions\_skill-covers"
+crop_169_high(os.path.join(COVERS2, "cover-video-dewatermark-v3-sweep.png"),
+              os.path.join(COVERS2, "cover-video-dewatermark-v3-clean.png"), keep_top=0.78)
+crop_169_high(os.path.join(COVERS2, "cover-video-dewatermark-v2-before-after.png"),
+              os.path.join(COVERS2, "cover-video-dewatermark-v2-clean.png"), keep_top=0.84)
