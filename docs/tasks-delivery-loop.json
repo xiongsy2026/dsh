@@ -57,7 +57,7 @@
       "id": "T3",
       "layer": "R2",
       "title": "义务台账 delivery.json：schema + 读写器（工作区内，DSH 沙箱可写）",
-      "status": "pending",
+      "status": "done",
       "depends_on": [],
       "files": [
         "D:/video-skill/backend/delivery_ledger.py",
@@ -65,12 +65,12 @@
       ],
       "spec": "记录 {session,task,skill,expected[{seq,path,kind}],budget_credits,created_at,ttl_sec,closed_at}；产物文件真出现（size>0）才销账；全销⇒closed；TTL 到期⇒作废",
       "verify": [
-        "V1 提交后清单立刻出现且条数=段数（假传输层，0 分）",
-        "V2 落盘自动销账",
-        "V4 ttl=1s 重跑⇒不再拦"
+        "decide 真值表 8 条（未落盘/部分/全落盘/closed 幂等/超 TTL/closed 优先于 expired/0 字节不算交付/空期望）",
+        "读写器 13 条（登记·路径归一相对正斜杠·同 (session,task) 覆盖·不同 task 并存·全空路径报错·按会话过滤·真落盘自动销账·sweep 清 closed·TTL 到期不再算欠账且标 expired·不留 .tmp）"
       ],
       "est": "3h",
-      "risk": "不许拿 mtime 猜目录（no-project 的老坑）：期望路径必须由提交方给出"
+      "risk": "不许拿 mtime 猜目录（no-project 的老坑）：期望路径必须由提交方给出",
+      "note": "2026-10-05 落地并自查：`D:\u000bideo-skill\backend\\delivery_ledger.py`（decide 纯函数 + 读写器 + TTL + sweep），21 条真值表全绿（临时目录跑，绝不动生产台账）。自查抓出两个真 bug 并已修：① None 被 str() 成 \"None\" 混进台账；② 空 expected 会永远判 pending（现判 closed）。"
     },
     {
       "id": "T4",
@@ -143,7 +143,8 @@
         "V1/V2/V4/V7 各条；纯函数整块抠出来跑真值表，不依赖外部进程活着（假保险禁令）",
         "遵守 mock_rule：只换传输层，不许整块替换被测函数"
       ],
-      "est": "2h"
+      "est": "2h",
+      "note": "V1/V2/V4 已随 T3 进闸（scripts/check-delivery-loop.py，21 条）；本任务只剩 V7（不双花）—— 要等 T4 的提交锚点。"
     },
     {
       "id": "T8",
