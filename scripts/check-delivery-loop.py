@@ -97,7 +97,8 @@ check("21 台账文件是合法 JSON 且没留 .tmp",
 
 # 三个提交锚点各自成篇（要各自隔离 env：临时 DB / 临时台账 / 把 _run 换成空操作），这里做统一入口
 import subprocess
-SIBS = ["check-delivery-anchor-omni.py", "check-delivery-anchor-hypit.py", "check-delivery-anchor-dewatermark.py"]
+SIBS = ["check-delivery-anchor-omni.py", "check-delivery-anchor-hypit.py",
+        "check-delivery-anchor-dewatermark.py", "check-delivery-read-api.py"]
 anchor_total = 0
 for s in SIBS:
     r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), s)],
@@ -121,5 +122,5 @@ gw = open(os.path.join("D:", "video-skill", "backend", "gateway.py"), encoding="
 check("V7 去水印：失败路径都回 job_id 且明写不重提交",
       [gw.count(chr(34) + "job_id" + chr(34) + ": tid") >= 3, ("别重提交" in gw or "不重提交" in gw)], [True, True])
 
-print(chr(10) + "=== 交付闭环闸：台账 21 + 锚点 " + str(anchor_total) + " + V7 1 = " + str(22 + anchor_total) + " 条，失败 " + str(len(fails)) + " ===")
+print(chr(10) + "=== 交付闭环闸：台账 21 + 锚点与读口 " + str(anchor_total) + " + V7 1 = " + str(21 + anchor_total + 1) + " 条，失败 " + str(len(fails)) + " ===")
 sys.exit(1 if fails else 0)
