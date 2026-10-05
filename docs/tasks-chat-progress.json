@@ -146,7 +146,7 @@
       ],
       "est": "0.5h",
       "risk": "🔴 并发写入：本工作区同时有 DSH 会话 / Trae / 另一个 Qoder 在改同一个盘，动手前必须先看盘",
-      "decision": "接受移除（2026-10-05 拍板：账号绑定占位方案推翻，UI 还原标准模式选择）"
+      "decision": "接受移除（2026-10-05 拍板：账号绑定占位方案推翻，UI 还原标准模式选择）；已同步 PRD-weeksir-platform.md §4.1.1（划掉「账号切换按钮」那条，session-bind skill 保留、不再占 UI 位）"
     }
   ],
   "milestones": {

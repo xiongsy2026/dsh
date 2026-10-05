@@ -231,8 +231,8 @@
     {
       "id": "T12",
       "layer": "清理",
-      "title": "摘掉 persona 与全局层 §5 的重复入口；补装机脚本写全局层",
-      "status": "done-partial",
+      "title": "退役 persona 交付补丁 + 装机脚本写全局层（T12 三件全清）",
+      "status": "done",
       "depends_on": [
         "T2"
       ],
@@ -241,13 +241,14 @@
         "_setup/rebuild_weeksir_desktop.py"
       ],
       "verify": [
-        "同一件事只剩一处正文（preset 里 Delivery rule 命中数 = 0）",
-        "重打包后 preset 仍不含 Delivery rule（= 复发被堵住）",
-        "check-global-agents.py D 段仍绿（骨架与本机逐字一致）"
+        "preset 里 Delivery rule 命中数 = 0",
+        "PATCHES 里 patch_persona_delivery 命中数 = 0",
+        "install_global_agents.py 在 PATCHES 里（命中数 ≥1）且重跑报 no-op",
+        "check-global-agents.py 14 条 0 失败"
       ],
       "est": "1h",
-      "note": "2026-10-05 上午：preset 里的 Delivery rule 已摘（agent.cordis.yml:28-29 现只剩标准一句），铁律没丢（全局层 §5 + 工作区 agents.md 交付节都在）⇒ 同一件事回到一处正文。",
-      "risk": "🔴 会复发：_setup/rebuild_weeksir_desktop.py 的 PATCHES 里仍注册着 patch_persona_delivery.py（2026-10-05 实测 grep=1）⇒ 下次重打包/重装修会把 Delivery rule 贴回 persona，设置页又变不标准。",
+      "note": "2026-10-05 三件全部做完：① `rebuild_weeksir_desktop.py` 的 PATCHES 已摘掉 patch_persona_delivery.py（grep=0），脚本本体改成默认拒绝、`--force` 才生效（副本实测：能贴、且幂等）；② 新增 `_setup/install_global_agents.py` 并注册进 PATCHES，把 weeksir-skills/AGENTS.global.md 写进 $DSH_HOME/AGENTS.md（首装/幂等 no-op/内容不同先备份/源缺失与 >8192 字节拒绝，六条实测全过）；③ check-global-agents.py 14 条仍绿。",
+      "risk": "🔴 只剩一条要长期守：别再有人把 patch_persona_delivery.py 加回 PATCHES（复发一次，设置页的标准提示词就脏一次）",
       "remaining": [
         "摘除或反转 patch_persona_delivery.py 的注册（防重打包回贴）",
         "装机脚本把 weeksir-skills/AGENTS.global.md 写进客户机 $DSH_HOME/AGENTS.md",

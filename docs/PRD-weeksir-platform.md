@@ -148,7 +148,8 @@ IP 隔离（已拍板）：
 
 - 拉取动作落在 `session-bind` skill 合同里（切号 = 重走 session-bind），不单独立 skill。
 - 真正的隔离浏览器切换由 `account-matrix` skill 负责（P2 上线）；P1 阶段切号只切记忆和档案，浏览器环境用系统默认。
-- DSH 客户端 UI 上的账号切换按钮只负责调 `session-bind`，不自己读文件（与 [plugins/super-clone-ui/lib/client.js](plugins/super-clone-ui/lib/client.js) 纯 DOM 注入原则一致，不绕过 skill 边界）。
+- ~~DSH 客户端 UI 上的账号切换按钮只负责调 `session-bind`~~ 🔴 **UI 载体已移除（2026-10-05 拍板）**：账号绑定占位方案推翻，`plugins/super-clone-ui` 里的原生账号切换器（`injectNativeAccountSwitcher`）整块撤掉，输入区还原成官方标准模式选择。
+  **`session-bind` skill 本身保留**（切号 = 重走 session-bind 这条合同不变，见上两条），只是**不再在 UI 上占一个位**；本条其余纪律（不绕过 skill 边界、不自己读文件）继续生效。
 
 ### 4.2 路由 Agent（`weeksir`）
 
