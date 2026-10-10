@@ -772,6 +772,27 @@ try:
     chk("G20", "提交过的会话以【载荷】为准：submitted=true、defaults 不再回、params 用提交值",
         (gv2.get("submitted"), "defaults" in gv2, gv2.get("params", {}).get("duration")),
         (True, False, 40))
+    # ---- G29 条件必填的【媒体槽】不许卡隐藏格（2026-10-10 现网：super-clone 在"原声保留"下
+    #      参考音频是隐藏格，客户连点 8 次提交全被「必填没交：参考音频」拒 ⇒ agent 误判成"没配档"）----
+    os.makedirs(os.path.join(GSB, "cond-skill"), exist_ok=True)
+    open(os.path.join(GSB, "cond-skill", "SKILL.md"), "w", encoding="utf-8").write(
+        "---\nname: cond-video\nintent: cond-video\nform: |\n"
+        "  mode|select|模式|yes|keep 保留原声;swap 换音色|mode\n"
+        "  voice|audio|参考音频|yes|1|voice_paths|show=mode=swap\n"
+        "  vid|video|源|yes|1|video_path\n---\n正文\n")
+    _G["g-cond"] = {"skill": "cond-video", "task": "", "ts": _t.time()}
+    ok_hide = MA.form_submit({"session": "g-cond", "skill": "cond-skill",
+                              "values": {"mode": "keep 保留原声"},
+                              "files": [dict(MP4, field="vid")]})
+    chk("G29", "🔴 隐藏的必填音频槽【不卡提交】：mode=保留原声 + 不交音频 ⇒ 应 ok",
+        [bool(ok_hide.get("ok")), "参考音频" in str(ok_hide.get("error") or "")], [True, False])
+    need = MA.form_submit({"session": "g-cond", "skill": "cond-skill",
+                           "values": {"mode": "swap 换音色"},
+                           "files": [dict(MP4, field="vid")]})
+    chk("G29b", "反向对照：同一格在 mode=换音色（显示中）时缺文件 ⇒ 必须照样拒（证明 G29 不是放水）",
+        [bool(need.get("ok")), "参考音频" in str(need.get("error") or "")], [False, True])
+    chk("G29c", "拒因要点名是谁：错误串里带那一格的标签",
+        "参考音频" in str(need.get("error") or ""), True)
 finally:
     (MA.SKILLS_DIR, MA.FORM_PAYLOAD_PATH, MA.FORM_UPLOAD_DIR, MA.FORM_PREFILL_PATH,
      MA.hypit_bridge.intent_map) = _real_g
@@ -779,6 +800,40 @@ finally:
 chk("G21", "🔴 自测只打在临时目录：真载荷与【真回填文件】的存在与 mtime 一字未动",
     (_probe(_real_g[1]), _probe(MA.FORM_PREFILL_PATH)),
     (PROD_BEFORE, PROD_PREFILL_BEFORE))
+
+# ---- G29d/G29e 拿【真表】再跑一遍（2026-10-10 现网事故的正主）----
+# G29 那组是临时造的 cond-skill ⇒ 它只证明"机制对"，证明不了"这条线的字段表配了、服务端也认了"。
+# 现网坏法正是这个缺口：服务端只在【文本段】用了隐藏判据，【媒体段】漏了 ⇒ super-clone 在
+# "原声保留"下参考音频是隐藏格，前端把格藏好、按钮点亮，提交却被「必填没交：参考音频」拒。
+# 所以这两条钉的是真 SKILL.md：删掉那一行的 show= 尾巴，G29d 立刻红。
+RT = os.path.join(SCRATCH, "real-table")
+shutil.rmtree(RT, ignore_errors=True)
+os.makedirs(RT)
+_real_rt = (MA.FORM_PAYLOAD_PATH, MA.FORM_UPLOAD_DIR, MA.hypit_bridge.intent_map)
+try:
+    MA.FORM_PAYLOAD_PATH = os.path.join(RT, "form_payload.json")
+    MA.FORM_UPLOAD_DIR = os.path.join(RT, "uploads")
+    MA.hypit_bridge.intent_map = lambda: {
+        "g-real": {"skill": "super-clone", "task": "", "ts": _t.time()}}
+    _vals = {"product_name": "黄色开衫", "customer_request": "换成我的产品，锁死运镜",
+             "aspect_ratio": "adaptive 自适应（跟原片）"}
+    r_keep = MA.form_submit({"session": "g-real", "skill": "super-clone",
+                             "values": dict(_vals, voice_mode="preserve_original 原声保留"),
+                             "files": [dict(MP4, field="video")]})
+    _pk = r_keep.get("params") or {}
+    chk("G29d", "🔴 真表 super-clone：原声保留 + 不交参考音频 ⇒ 提交必须过，且两张隐藏格不进载荷",
+        [bool(r_keep.get("ok")), "voice_audio" in _pk, "voice_script" in _pk,
+         _pk.get("video") is not None], [True, False, False, True])
+    r_swap = MA.form_submit({"session": "g-real", "skill": "super-clone",
+                             "values": dict(_vals, voice_mode="timbre_swap 只换音色"),
+                             "files": [dict(MP4, field="video")]})
+    chk("G29e", "反向对照：同一张真表换成「只换音色」⇒ 参考音频回到可见必填，不交必须照样拒",
+        [bool(r_swap.get("ok")), "参考音频" in str(r_swap.get("error") or "")], [False, True])
+finally:
+    (MA.FORM_PAYLOAD_PATH, MA.FORM_UPLOAD_DIR, MA.hypit_bridge.intent_map) = _real_rt
+    shutil.rmtree(RT, ignore_errors=True)
+chk("G29f", "🔴 真表自测同样只打在临时目录：客户那份真载荷一字未动",
+    _probe(_real_rt[0]), PROD_BEFORE)
 
 # ---------- F 品牌与体验（2026-10-09 产品要求："要有品牌感、不能是简陋表格、要有体验感"） ----------
 APPROVAL_SRC = open(os.path.join(GW, "backend", "model_admin.py"), encoding="utf-8",
@@ -938,14 +993,161 @@ chk("I9f", "🔴 reportAttempt 三个现场都要调得到：前端拦 / 服务�
     [PAGE_CODE.count("reportAttempt("), PAGE_CODE.count("reportAttempt(miss.map"),
      PAGE_CODE.count('reportAttempt([], (j && j.error)'), PAGE_CODE.count('reportAttempt([], "fetch')],
     [4, 1, 1, 1])
-chk("I9g", "反向对照：台账真函数确实会写文件（I9c 的 False 不是因为整个口坏了）",
-    [bool(MA.form_attempt({"session": "session-probe2", "reason": "x"}).get("ok")),
-     os.path.getsize(MA.FORM_ATTEMPT_PATH) > 0], [True, True])
+# 🔴 反向对照要【自带沙盒】：这条曾经放在 finally 之后跑，把 session-probe2 写进了线上
+#    .dsh/form_attempts.json —— 自测后门只对临时账本有效这条规矩，我自己违反过一次（2026-10-10）。
+_ATP2 = os.path.join(SCRATCH, "attempts-sb2")
+shutil.rmtree(_ATP2, ignore_errors=True)
+os.makedirs(_ATP2, exist_ok=True)
+_AT_SAVE = MA.FORM_ATTEMPT_PATH
+MA.FORM_ATTEMPT_PATH = os.path.join(_ATP2, "attempts.json")
+try:
+    chk("I9g", "反向对照：台账真函数确实会写文件（I9c 的 False 不是因为整个口坏了）",
+        [bool(MA.form_attempt({"session": "session-probe2", "reason": "x"}).get("ok")),
+         os.path.isfile(MA.FORM_ATTEMPT_PATH)], [True, True])
+finally:
+    MA.FORM_ATTEMPT_PATH = _AT_SAVE
+    shutil.rmtree(_ATP2, ignore_errors=True)
+def _probe_has(needle, path):
+    """线上文件里有没有这条自测会话（读不到文件 = 没有，合法）。"""
+    try:
+        return needle in open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return False
+
+
+chk("I9i", "🔴 自测只碰沙盒：线上台账/载荷/回填三份文件里都不许出现 probe 会话",
+    [_probe_has("session-probe", MA.FORM_ATTEMPT_PATH), _probe_has("session-probe", MA.FORM_PAYLOAD_PATH),
+     _probe_has("session-probe", MA.FORM_PREFILL_PATH)], [False, False, False])
 
 # 🔴 覆盖对照：这条台账【真的接在提交口上】——路由里确实调了 form_route_dispatch，
 #    少这一句的话，上面所有值表都是在测一个没人调用的函数（"闸全绿、线上没接线"就是这么来的）。
 chk("I9h", "🔴 提交真口确实走 form_route_dispatch（attempt 档不是住在没人调的地方）",
     [MA_SRC.count("= form_route_dispatch("), MA_SRC.count("def form_route_dispatch(")], [1, 1])
+
+# ---- D10~D15 回填覆盖率：料在手却没挂进格子 ⇒ 入口拒（2026-10-10 ef1ba285 现网形状）----
+# 事故形状：agent 把原片下载进 <task>/src，<task>/inputs 空着，只回填了 voice_mode 一格
+# ⇒ 右栏那张表上"原片"永远空 = 把归类活推回客户。这条判据绑在必然发生的动作（走入口出片）上。
+_COV = os.path.join(SCRATCH, "cov-task")
+shutil.rmtree(_COV, ignore_errors=True)
+for _d in ("inputs", os.path.join("inputs", "video"), "src", "frames", "outputs"):
+    os.makedirs(os.path.join(_COV, _d), exist_ok=True)
+_COV_VID = os.path.join(_COV, "src", "original.mp4")
+open(_COV_VID, "wb").write(b"fake-video-bytes-for-slot-typing")
+open(os.path.join(_COV, "frames", "f_01.jpg"), "wb").write(b"fake-frame")   # 派生物：绝不能被当素材
+_COV_ROOTS = [os.path.join(_COV, "inputs"), os.path.join(_COV, "src")]
+_CF = MA.skill_form_index()["super-clone"]["fields"]
+
+chk("D10", "🔴 必填格没值的判定：隐藏格（show= 不命中）不卡必填、locked 不参与，素材格看 media "
+    "（voice_audio 只在换声那两档才算缺 —— 拿它卡死会把人永久锁在入口外）",
+    [sorted(MA.form_unfilled_required(_CF, {}, {})),
+     sorted(MA.form_unfilled_required(_CF, {"voice_mode": "preserve_original"}, {})),
+     sorted(MA.form_unfilled_required(_CF, {"voice_mode": "timbre_swap"}, {})),
+     "engine_lock" in str(MA.form_unfilled_required(_CF, {}, {}))],
+    [["aspect_ratio", "customer_request", "product_name", "video", "voice_mode"],
+     ["aspect_ratio", "customer_request", "product_name", "video"],
+     ["aspect_ratio", "customer_request", "product_name", "video", "voice_audio"],
+     False])
+
+chk("D11", "🔴 素材格有没有值看的是【引擎参数名 param】那份 media：回填按 param 落盘，"
+    "按 key 查就永远算没填（假拦 = 入口把已经填好的表拒之门外）",
+    [sorted(MA.form_unfilled_required(_CF, {"voice_mode": "preserve_original"}, {"video": [_COV_VID]})),
+     sorted(MA.form_unfilled_required(_CF, {"voice_mode": "preserve_original"},
+                                      {"video": []}))],
+    [["aspect_ratio", "customer_request", "product_name"],
+     ["aspect_ratio", "customer_request", "product_name", "video"]])
+
+chk("D12", "🔴 覆盖率判据值表：原片躺在 src/ 却没引用 ⇒ gap=['video']；挂上去 ⇒ 清零。"
+    " src/ 必须一起扫（只扫 inputs/ 抓不到这次事故）；frames/ 与 outputs/ 不许扫（派生物会天天误拦）",
+    [MA.form_prefill_gap(_CF, {}, {}, _COV_ROOTS),
+     MA.form_prefill_gap(_CF, {}, {"video": [_COV_VID]}, _COV_ROOTS),
+     [os.path.basename(p) for p in MA.form_loose_materials(_COV_ROOTS, {})],
+     MA.form_prefill_gap(_CF, {}, {}, [os.path.join(_COV, "frames"), os.path.join(_COV, "outputs")]),
+     MA.form_prefill_gap(_CF, {"voice_mode": "preserve_original"}, {}, _COV_ROOTS)],
+    [["video"], [], ["original.mp4"], [], ["video"]])
+
+chk("D12b", "反向对照·按类型配槽：根里只有视频时，缺【图片】槽不判缺（否则图片槽一空就永远出不去）",
+    [sorted(MA.form_slot_material_candidates(_CF, {"voice_mode": "preserve_original"},
+                                             {}, _COV_ROOTS)),
+     "product_images" in MA.form_slot_material_candidates(
+         _CF, {"voice_mode": "preserve_original"}, {}, _COV_ROOTS),
+     MA.form_prefill_gap(_CF, {"voice_mode": "preserve_original"}, {},
+                         [os.path.join(_COV, "inputs"), os.path.join(_COV, "src")])],
+    [["video"], False, ["video"]])
+
+# 真跑 form_gate_view（自造一条会话：意图/回填/载荷三份都指到沙盒，绝不碰线上文件）
+_COV_SID = "session-cov"
+_OLD_INTENT_MAP = MA.hypit_bridge.intent_map
+_COV_PREFILL = os.path.join(SCRATCH, "cov_prefill.json")
+_COV_PAYLOAD = os.path.join(SCRATCH, "cov_payload.json")
+try:
+    _PV_SAVE, _PL_SAVE = MA.FORM_PREFILL_PATH, MA.FORM_PAYLOAD_PATH
+    MA.hypit_bridge.intent_map = lambda: {
+        _COV_SID: {"skill": "super-clone", "task": "cov", "ts": _t.time(), "task_dir": _COV}}
+    MA.FORM_PREFILL_PATH, MA.FORM_PAYLOAD_PATH = _COV_PREFILL, _COV_PAYLOAD
+    open(_COV_PAYLOAD, "w", encoding="utf-8").write("{}")
+
+    def _cov_view(defaults, media):
+        json.dump({_COV_SID: {"skill": "super-clone", "intent": "super-clone",
+                              "defaults": defaults, "media": media, "ts": _t.time(),
+                              "notes": {}, "dropped": []}},
+                  open(_COV_PREFILL, "w", encoding="utf-8"))
+        return MA.form_gate_view(_COV_SID)
+
+    _v1 = _cov_view({"voice_mode": "preserve_original"}, {})          # 事故形状
+    _v2 = _cov_view({"voice_mode": "preserve_original"},
+                    {"video": [_COV_VID]})                            # 已归位并回填
+    chk("D12c", "🔴 门控一次回齐三份原料（unfilled_required / loose_materials / prefill_gap）"
+        "——runner 与 intent.py 都只读结论，判据只在这一份",
+        [all(k in _v1 for k in ("unfilled_required", "loose_materials", "prefill_gap")),
+         _v1.get("upload_root") == os.path.join(_COV, "inputs"), _v1.get("prefill_gap"),
+         _v2.get("prefill_gap"), _v2.get("loose_materials")],
+        [True, True, ["video"], [], []])
+
+    chk("D13", "🔴 入口真的据这条拒：已回填但覆盖率不合格 ⇒ 拒；填齐 ⇒ 放行；已提交 ⇒ 不再拦"
+        "（客户交完表 agent 必须能接着跑，拦在这儿就是把活卡死）",
+    [bool(_fg(dict(_v1, show=True))), bool(_fg(dict(_v2, show=True))),
+     bool(_fg(dict(_v1, show=True, submitted=True)))], [True, False, False])
+
+    chk("D13b", "拒绝文案带得出下一步（点名缺哪格、躺着哪个文件、命令长什么样）",
+        ["video" in _fg(dict(_v1, show=True)), "original.mp4" in _fg(dict(_v1, show=True)),
+         "intent.py prefill" in _fg(dict(_v1, show=True)),
+         "inputs" in _fg(dict(_v1, show=True))], [True, True, True, True])
+
+    # 变异对照：把判据整块摘掉 ⇒ 同一条门控答复必须从"拒"翻成"放行"，否则 D13 是空跑
+    _gap_save, _cg_save = MA.form_prefill_gap, _sc_ns["form_coverage_gap"]
+    try:
+        MA.form_prefill_gap = lambda *a, **k: []
+        _vm = _cov_view({"voice_mode": "preserve_original"}, {})
+        chk("D13m", "变异对照·服务端：form_prefill_gap 恒回空 ⇒ 门控的 prefill_gap 也空（证明这条真被调用）",
+            [_vm.get("prefill_gap"), _v1.get("prefill_gap")], [[], ["video"]])
+        _sc_ns["form_coverage_gap"] = lambda g: ""
+        chk("D13n", "🔴 变异对照·入口：把 form_coverage_gap 摘成恒放行 ⇒ 同一份答复不再拒"
+            "（这条不翻红就说明入口根本没在用那个结论）",
+            bool(_fg(dict(_v1, show=True))), False)
+    finally:
+        MA.form_prefill_gap, _sc_ns["form_coverage_gap"] = _gap_save, _cg_save
+finally:
+    MA.hypit_bridge.intent_map = _OLD_INTENT_MAP
+    MA.FORM_PREFILL_PATH, MA.FORM_PAYLOAD_PATH = _PV_SAVE, _PL_SAVE
+
+# 判据不许有第二份：入口只读 prefill_gap，自己再解析一遍字段表就是漂的开始
+_cg_src = SC_RUN[SC_RUN.index("def form_coverage_gap"):SC_RUN.index("def form_gate_verdict")]
+chk("D14", "🔴 覆盖率结论只有一份：入口函数体里读 prefill_gap，且【不出现】fields/accept/type 的自解析",
+    ["prefill_gap" in _cg_src, any(t in _cg_src for t in ('get("fields")', "accept", '"type"'))],
+    [True, False])
+chk("D14b", "反向对照：D14 那颗「自解析」探针本身有效 —— 喂一段真含字段表解析的源码，它必须判【含有】"
+    "（探针恒 False 的话 D14 就是空跑全绿）",
+    [any(t in '_f.get("fields") + f["type"] + f["accept"]' for t in ('get("fields")', "accept", '"type"'))],
+    [True])
+_Isrc = open(os.path.join(HERE, "intent.py"), encoding="utf-8").read()
+chk("D15", "intent.py 回填完会把服务端那份覆盖率结论【原样打出来】，缺口非空时 next 换成「补齐再来」"
+    "（不靠 agent 自己想到「我是不是漏了一格」）",
+    [n in _Isrc for n in ('"prefill_gap"', '"loose_materials"', '"unfilled_required"', "if _gap:")],
+    [True, True, True, True])
+_m15 = _Isrc.replace("if _gap:", "if False:")
+chk("D15b", "反向对照：把「缺口非空」那条分支改成永不触发 ⇒ D15 的四条立刻不齐（证明它钉的是真分支，不是恒真）",
+    [[n in _m15 for n in ('"prefill_gap"', '"loose_materials"', '"unfilled_required"', "if _gap:")]
+     == [True, True, True, True]], [False])
 
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))

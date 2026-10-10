@@ -153,14 +153,18 @@ def cmd_prefill(args, sid):
     if not updir or not os.path.realpath(updir).startswith(os.path.realpath(WORKSPACE) + os.sep):
         die("门控没回一个【工作区内】的 upload_root ⇒ 不敢自己拼路径（自己拼就是第二份规则）。"
             "先确认 8100 已重启到新版。", 3)
-    files_out, copied = [], []
+    files_out, copied, skipped = [], [], []
     for n, item in enumerate(body.get("files") or []):
         fk = str(item.get("field") or "").strip()
         src = str(item.get("src") or item.get("path") or "").strip()
         if fk not in media:
-            continue                       # 字段表没这一格 ⇒ 丢，不猜（服务端也会丢）
+            # 字段表没这一格 ⇒ 丢，不猜（服务端也会丢）
+            skipped.append("%s=字段表里没这一格" % (fk or "(空 field)"))
+            continue
         if not src or not os.path.isfile(src):
-            continue                       # 文件不在 ⇒ 丢并计数，不把假路径塞进 defaults
+            # 文件不在 ⇒ 丢并【大声计数】：以前静默 continue，于是"只回填了一格文字"看不出来
+            skipped.append("%s=文件不在盘上(%s)" % (fk or "(空 field)", "没给路径" if not src else src))
+            continue
         # 扩展名/MIME 白名单【只在服务端判一份】（_form_prefill_paths 按槽查 FORM_*_EXT）。
         # 这里原来又抄了一份 png/jpg/mp4 名单 —— 抄第二份的必然结局是：服务端收了、这里先丢了。
         # 槽目录名用【字段 key】，与服务端回显口的主路径同一套布局（客户端自己上传也落这里）。
@@ -172,8 +176,23 @@ def cmd_prefill(args, sid):
             sha8 = hashlib.sha256(fh.read()).hexdigest()[:8]
         dst = os.path.join(slot, "%02d-%s-%s.%s" % (n + 1, sha8, stem, ext))
         if os.path.realpath(os.path.dirname(dst)) != os.path.realpath(slot):
+            skipped.append("%s=落盘路径会写出槽目录，已丢弃" % fk)
             continue                       # 双保险：绝不允许写出这个目录
-        shutil.copyfile(src, dst)
+        # 🔴 内容已经在那儿就别再写一次（2026-10-10 实测：重跑同一条回填撞 PermissionError[13] ——
+        #    8100 的静态口/预览正握着那个文件）。同名同 sha8 = 同一份字节，直接复用；
+        #    真要覆盖时写不进去就【明说】是哪一格、哪个文件、为什么，别抛 traceback 让整条命令消失。
+        if os.path.isfile(dst):
+            with open(dst, "rb") as fh:
+                if hashlib.sha256(fh.read()).hexdigest()[:8] == sha8:
+                    copied.append(dst)
+                    files_out.append({"field": fk, "path": dst})
+                    continue
+        try:
+            shutil.copyfile(src, dst)
+        except OSError as e:
+            die("复制失败：%s（%s: %s）⇒ 这条素材没回填进去。多半是那个文件正被 8100 预览/静态口占用；"
+                "先换个新文件名（或关掉右栏那张预览卡）再重跑同一条 --set。"
+                % (dst, type(e).__name__, str(e)[:100]), 5)
         copied.append(dst)
         files_out.append({"field": fk, "path": dst})
 
@@ -189,12 +208,38 @@ def cmd_prefill(args, sid):
             out = json.loads(r.read().decode("utf-8"))
     except Exception as e:
         die("回填失败（8100 没接受？）：%s: %s" % (type(e).__name__, str(e)[:160]), 3)
-    print(json.dumps({"ok": bool(out.get("ok")), "session": sid, "skill": skill,
-                      "filled": sorted(payload["values"]), "files_copied": len(copied),
-                      "dropped_keys": sorted(dropped),
-                      "next": ("表已在右栏预填好；🔴 客户还没提交 —— 不要当成参数已确认，"
-                               "等他在右栏点【提交这张表】再往下跑。") if out.get("ok")
-                      else str(out.get("error"))[:160]}, ensure_ascii=False, indent=2))
+    print_obj = {"ok": bool(out.get("ok")), "session": sid, "skill": skill,
+                 "filled": sorted(payload["values"]), "files_copied": len(copied),
+                 "files_skipped": skipped,
+                 "dropped_keys": sorted(dropped)}
+    if out.get("ok"):
+        # 🔴 回填覆盖率【由服务端算】（哪些必填格到现在还没值、素材根里哪些文件没被引用），
+        #    这里只回显 —— 判据写第二份必然漂，漂了就变成"脚本说填好了、入口却拦着"。
+        try:
+            with urllib.request.urlopen(FORM_API + urllib.parse.quote(sid), timeout=8) as r:
+                _g2 = json.loads(r.read().decode("utf-8"))
+            _unf = [str(k) for k in (_g2.get("unfilled_required") or [])]
+            _loose = [os.path.basename(str(p)) for p in (_g2.get("loose_materials") or [])]
+            _gap = [str(k) for k in (_g2.get("prefill_gap") or [])]
+            print_obj["unfilled_required"] = _unf
+            print_obj["loose_materials"] = _loose
+            print_obj["prefill_gap"] = _gap
+            if _gap:
+                print_obj["next"] = (
+                    "🔴 这次回填不完整：必填素材格 %s 还没值，而素材根里躺着 %s 没被引用 —— "
+                    "把它们用 --set 的 files 回填进对应格子（原片进 inputs\\，不是 src\\），"
+                    "否则走 runner 入口会被【表单前置】拒。"
+                    "只有客户手上确实没有的素材才留空让他自己传。"
+                    % ("/".join(_gap), "、".join(_loose)))
+            else:
+                print_obj["next"] = ("表已在右栏预填好；🔴 客户还没提交 —— 不要当成参数已确认，"
+                                     "等他在右栏点【提交这张表】再往下跑。")
+        except Exception as e:
+            print_obj["coverage_check"] = "读不到（%s: %s）—— 不代表已填齐，重试这条命令再看" % (
+                type(e).__name__, str(e)[:120])
+    else:
+        print_obj["next"] = str(out.get("error"))[:160]
+    print(json.dumps(print_obj, ensure_ascii=False, indent=2))
     return 0 if out.get("ok") else 5
 
 

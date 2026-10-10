@@ -174,6 +174,67 @@ check("K5c 变异：回写复制两份 ⇒ 报『两处各派生』",
                       'kv["count"], kv["credits"] = _n, _c' + NL + "            "
                       + 'kv["count"], kv["credits"] = _n, _c', 1))), True)
 
+# ── K7~K11 报价必须自带计划表（2026-10-10：靠 agent 记得跑 contract_tables.py 已被现网证伪）──
+from backend import skill_contract as sc      # noqa: E402
+
+_c = sc.contract_for("super-clone")
+check("K7 spend→合同 反查：wan3-prime 指回 super-clone；查不到 ⇒ 空串（绝不编一张别人的表）",
+      [sc.skill_for_spend("video.generate", "wan3-prime"),
+       sc.skill_for_spend("video.generate", "no-such-purpose"),
+       sc.skill_for_spend("text.complete", "agnes")],
+      ["super-clone", "", ""])
+_tab = sc.plan_table("super-clone")
+check("K7b 表逐行带出合同的每一步 + 花钱口（只有一句标题 = 等于没表）",
+      [all(("`%s`" % s["id"]) in _tab for s in _c.get("steps") or []),
+       _tab.count("| `") == len(_c.get("steps") or []),
+       str(_c.get("spend")) in _tab, len(_c.get("steps") or []) >= 5],
+      [True, True, True, True])
+
+_ap_tmp = os.path.join(tmp, "probe_approvals.json")
+io.open(_ap_tmp, "w", encoding="utf-8").write("{}")
+
+
+def _run_approve(purpose):
+    """真跑一次 approve：账本/待批都指到临时文件，并把批准窗【显式抑制】。
+    🔴 自测不点批准 ⇒ 这条 pending 到不过期都无所谓，它落在临时账本上，线上那份一个字都不动。"""
+    _env = dict(os.environ)
+    for _k in ("PYTHONUTF8", "PYTHONLEGACYWINDOWSSTDIO"):
+        _env.pop(_k, None)
+    _env["PYTHONIOENCODING"] = "utf-8:replace"
+    _env["GATEWAY_SPEND_APPROVALS"] = _ap_tmp
+    _env["GATEWAY_LEDGER"] = os.path.join(tmp, "probe_ledger.sqlite")
+    _env["GATEWAY_APPROVAL_POPUP"] = "0"
+    r = subprocess.run([sys.executable, GW_PY, "approve", "video.generate", purpose,
+                        "--count", "1", "--credits", "60", "--account", "probe-none",
+                        "--session", "probe-none", "--scope", "闸自测（不点批准，过期即失效）"],
+                       capture_output=True, stdin=subprocess.DEVNULL, timeout=180,
+                       cwd=r"D:\video-skill", env=_env)
+    _raw = (r.stdout or b"") + (r.stderr or b"")
+    try:
+        return r.returncode, _raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return r.returncode, _raw.decode("gbk", "replace")
+
+
+_rc1, _tx1 = _run_approve("wan3-prime")
+_rc2, _tx2 = _run_approve("no-such-purpose")
+check("K8 真跑 approve：报价那条输出里【就有】流程计划表（不是让人再去跑一条命令要表）",
+      [_rc1, "流程计划" in _tx1, "material-analysis" in _tx1, "wan3-prime" in _tx1],
+      [0, True, True, True])
+check("K9 反向对照：spend 没有对应合同时 ⇒ 明说「没有合同」并且【不印表】（不许装作给过表）",
+      ["流程计划" in _tx2, "没有一条 skill 合同" in _tx2], [False, True])
+check("K9b 抑制开关确实生效（输出里是「弹窗没起来」的兜底话 ⇒ 人桌面上没多出批准窗）",
+      "弹窗没起来" in _tx1, True)
+_pd = json.loads(io.open(_ap_tmp, encoding="utf-8", errors="replace").read()).get("pending") or []
+check("K9c 自测只落临时账本：两份 pending 都在沙盒文件里，且核销码没进 stdout（G4 同一条纪律）",
+      [len(_pd), all(p.get("status") == "pending" for p in _pd),
+       all(str(p.get("code")) not in _tx1 + _tx2 for p in _pd)], [2, True, True])
+check("K10 接线覆盖对照：表是在【建完待批、给出报价】之后打的（打在前面 ⇒ 报价被拒时人看不到表）",
+      [src.find("p = create_spend_pending(") < src.find("skill_for_spend(cap, kv"),
+       src.count("skill_for_spend(cap, kv")], [True, 1])
+check("K10b 变异：把打印计划表那两句删掉 ⇒ K10 的定位就失配（证明 K10 钉的是真接线，不是注释）",
+      [src.replace("skill_for_spend(cap, kv", "_removed(cap, kv").find("skill_for_spend(cap, kv")], [-1])
+
 shutil_ok = True
 try:
     import shutil

@@ -73,6 +73,33 @@ def voice_mode_problems(mode, has_audio) -> str:
 FORM_GATE_URL = "http://127.0.0.1:8100/api/skills/form?session="
 
 
+def form_coverage_gap(gate) -> str:
+    """表已经出现了、但【素材根里躺着文件、必填素材格却没值】⇒ 说明料在手却把归类推回客户。
+    返回错误串；空串 = 放行。
+
+    🔴 缺哪几格、根里有哪些闲料，是 8100 一份算好的（`prefill_gap` / `loose_materials`），
+       这里只把结论翻成人话 —— 脚本/入口各自再解析一遍字段表就是第二份判据，
+       漂了的形状是"脚本说填好了、入口却拦着"（或反过来）。
+
+    现网形状（2026-10-10 ef1ba285）：agent 只回填了 `voice_mode` 一格，原片就在任务目录里，
+    于是右栏那张表上"原片"永远空着 —— 客户看到的是一张要他自己补素材的表，正是这条铁律要消灭的。
+    """
+    if not isinstance(gate, dict):
+        return ""
+    hit = [str(k) for k in (gate.get("prefill_gap") or [])]
+    loose = [str(p) for p in (gate.get("loose_materials") or [])]
+    if not hit:
+        return ""
+    return (
+        "右栏那张表还缺必填素材格 %s，而这条任务的目录里已经躺着类型对得上的文件却没被引用：\n  %s\n"
+        "⇒ 不许进引擎。把这些料挂进对应格子（回填口只认 <task_dir>\\inputs，在 src\\ 里的先复制过去）：\n"
+        "  python scripts/intent.py prefill --set '{\"files\":[{\"field\":\"<格名>\","
+        "\"src\":\"<inputs 里的路径>\"}]}'\n"
+        "只有客户【手上确实没有】的素材才该留空让他在页面上自己传。"
+        % ("/".join(hit), "\n  ".join(loose[:6]) or "（见上：格子是空的）")
+    )
+
+
 def form_gate_verdict(gate) -> str:
     """入口的表单前置：这条会话登记了本线 ⇒ 右栏那张表必须【已经出现过】（回填过或已提交）。
     返回错误串；空串 = 放行。判据抽成纯函数 ⇒ 闸直接跑值表，不靠人在场。
@@ -87,7 +114,8 @@ def form_gate_verdict(gate) -> str:
     if gate.get("submitted"):
         return ""            # 客户点过【提交这张表】= 已授权开工
     if gate.get("defaults") or gate.get("default_files"):
-        return ""            # agent 已回填 ⇒ 表已经在客户眼前了（他随时可改）
+        # 表已经出现过，但"出现过"不等于"填好了" —— 覆盖率不合格照样拦在这。
+        return form_coverage_gap(gate)
     return (
         "这条会话的右栏表单还没出现过，不许进引擎。先做两件事：\n"
         "  1) 分析客户给的原片与素材（看片/看图，零成本那条腿）；\n"
@@ -132,7 +160,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trim-end", type=float, default=None)
     p.add_argument("--resolution", default=None)
     p.add_argument("--aspect-ratio", default=None)
-    p.add_argument("--engine", default="wan3")
+    p.add_argument("--engine", default="wan3", choices=["wan3"],
+                   help="只有一个合法值 wan3。引擎锁的唯一源在服务层 engine_lock_error()，这里只是让人敲命令时就撞墙，而不是跑到一半才拒")
     p.add_argument("--extra-note", default=None, help="extra_compile_note")
     p.add_argument("--split-by-shots", action="store_true")
     p.add_argument("--as-duration-chunk", action="store_true", help="按段调用时置 True（难单每段 True）")

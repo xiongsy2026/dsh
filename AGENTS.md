@@ -117,6 +117,14 @@ python scripts/intent.py <skill> [任务名]
 - agent 读参数只有两条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）与
   `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、
   不算已提交、不许替客户交表；回填值必须在页面上标「AI 已填 · 可改」并给依据）。
+- 🔴 **回填覆盖率 = 入口硬判据，不是散文**（2026-10-10 现网 ef1ba285：只回填了声音档一格，原片躺在
+  `src/` 却让客户自己在页面上选原片）：门控一次回齐 `unfilled_required` / `loose_materials` /
+  `prefill_gap` 三份，**判据只在 `model_admin.form_prefill_gap()` 一份**（必填素材格没值 + 任务目录里
+  躺着【类型对得上】的闲料 ⇒ 命中）。runner 只读 `prefill_gap` 这个结论就拒（0 分，在导入引擎之前）；
+  `intent.py prefill` 把三份原样打出来，缺口非空时 `next` 换成"补齐再来"。
+  隐藏格（`show=` 不命中）永远不算缺；`outputs/`、`frames/` 不参与扫描（派生物当客户素材会天天误拦）；
+  客户手上确实没有的素材留空是对的 ⇒ 这条闸只拦"料在手却没挂上"。
+  回归 `scripts/check-skill-form.py` 的 D10–D15b（含服务端/入口两处变异对照）。
 - 字段表唯一源 = 该 skill `SKILL.md` 的 `form:` 段（行格式 `key|type|label|必填|选项/区间|引擎参数[+可选尾巴]`，
   尾巴从第 7 列起、**顺序无关、不写就没有**：`15MB`=该槽体积上限（钉引擎自己硬拦的那个数）、
   `group=素材`=分组标题（一条都不写=退回按类型自动分，老线一个字不改）、
@@ -154,6 +162,11 @@ python scripts/intent.py <skill> [任务名]
 
 **什么才叫"达成"**：产物真的落在盘上并且能出示 —— 视频 = `productions/<task>/outputs/<ascii名>.mp4` + 8100 直链 + 抽帧贴图；图片 = `productions/<task>/…` 落盘 + **画面内联在这条消息里**（`![说明](http://…)`，点一下就地放大审核）。
 🔴 **图片走同一条命令**：`python scripts/deliver_pack.py <图片路径> --json` —— 它不抽帧、不要求 present（帧图在 `frames/`、生图在 `outputs/` 都合法），但硬钉直链那一格回 `image/*`：**只看 200 不算数**，`MarkdownImage` 的 `onError` 会把加载失败的图回落成 alt 文字，客户看到的就还是一行链接。回归 `check-deliver-pack.py`（23-30 组）+ `check-markdown-image-zoom.py`（"点一下能放大"那块补丁的形状）。
+
+⚠️ **回显只给"要交付的那一张"**（2026-10-10 用户定）：过程图 / 质量自检图 / 试跑图 **不要内联、不要 present**。
+"看一眼质量如何"配一张大图，会把对话刷成相册，客户反而找不到哪张是成品。
+过程图照样落盘（`productions/<task>/…`，正文里给路径就够，人要看自己点开），
+最终交付那条消息里才用 `![说明](http://…)` 内联。上面"图片必须内联"指的是**交付件**，不是每一步。
 "已提交 / 运行中 / 上游回了成功状态" 都只是中间态，**不算交付**，不得当结论收工。
 
 🔴 **三件套不许手写，跑脚本**（2026-10-09 定，因为反复有会话"给了本地路径就当贴了图"）：
@@ -301,12 +314,17 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    或问人，**不许填空隙**。⚠️ 强度边界：这一层管得住"走管线/入口"，agent 在对话里直接手敲一条命令不经过任何
    被管函数 ⇒ 合同物理上看不见（要拦得动工具层，见 ADR 同名节），那种越界目前只能靠交付时可见（回执缺步/deviations）。
    🔴 **花钱那一刀前后必须给两张表**（2026-10-09 用户："提交视频生成前，要总结一下每一次是谁完成的"）：
-   一条命令出表（只读、0 分）：`python scripts/contract_tables.py <档> [段目录]`
    ① **报价那条消息**带 `plan_table(<档>)` —— 人在同意之前就看见"这条流程要走哪几步、每步授权什么手段"，
-   而不是事后追认；② **提交之前**把 `verify_or_raise()` 返回的 `table`（= `who_table(回执)`）**原样贴进回复**，
+   而不是事后追认。🔴 **这张表现在由 `gateway.py approve` 自己打出来**（2026-10-10：原来靠 agent 记得跑
+   `python scripts/contract_tables.py <档>`，可跳过的步骤等于不存在的步骤，现网三条报价都没带表）：
+   approve 用 `skill_contract.skill_for_spend(capability, purpose)` 从合同的 `spend:` 反查档位再打印；
+   **反查不到就明说"这一档没有合同、出不了表"并且不印表** —— 不许拿一句"参见流程"装作给过。
+   （`python scripts/contract_tables.py <档> [段目录]` 仍在：只读、0 分，供人随时手查同一张表。）
+   ② **提交之前**把 `verify_or_raise()` 返回的 `table`（= `who_table(回执)`）**原样贴进回复**，
    管线已自动把它打进日志/进度（`合同核验 | …`）；交付时 `deliver_pack.py` 也会带同一张表。
    表里"谁做的（会话）"是**逐行署名**：同一行没变就沿用上一次的会话，
    所以"甲做分镜、乙只重跑编译"会分开显示，不会整表刷成最后那个人。
+   回归 `scripts/check-approval-count-from.py` 的 K7–K10b（真跑 approve、临时账本 + 批准窗抑制）。
    ⚠️ 表的强度到哪：它保证【事后查得着、当着人亮得着】，不保证 agent 不走合同外那一步（见上条强度边界）。
    常驻服务（8090）里没有 `DSH_SESSION_ID` ⇒ 那一列会明写"未知"，**不许猜一个会话 id 填进去**。
 - **唯一例外形态 = hypit**：它的 Provider 协议只认 HTTP，所以生成腿经自写 provider `@weeksir/provider-gateway` POST `http://localhost:8100/api/hypit`（`/uploads`、`/videos`、`/videos/{id}`、`/rates`），服务端 `hypit_bridge.py` 仍转 `gateway.invoke` ⇒ **同一套预扣/结算/审计**。不算第二条轨，只是同一轨换了入口；鉴权用 `.env` 的 `MODEL_GATEWAY_TOKEN`（Bearer）。详见 `.dsh/skills/hypit-pipeline/references/monitor-contract.md` §1.5。
