@@ -1,0 +1,246 @@
+{
+ "note": "技能目录指纹基线。只有人/Qoder 侧改完才重新 --bless。",
+ "lanes": {
+  "ai-film-router": {
+   "sha8": "cf37b4ea",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 24592
+  },
+  "cs-inbox": {
+   "sha8": "52a3cf4d",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1209
+  },
+  "cs-reply": {
+   "sha8": "596e01fe",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1609
+  },
+  "film-acting": {
+   "sha8": "14ddf76f",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1367
+  },
+  "film-characters": {
+   "sha8": "3502e75a",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1509
+  },
+  "film-cinedance": {
+   "sha8": "66d48320",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 17662
+  },
+  "film-expert-bridge": {
+   "sha8": "7e6b4bc5",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 10348
+  },
+  "film-knowledge-bridge": {
+   "sha8": "1aa5d469",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 15836
+  },
+  "film-lira-assets": {
+   "sha8": "8d922c2e",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 2855
+  },
+  "film-screenplay": {
+   "sha8": "7d38ee6a",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 5096
+  },
+  "film-synopsis": {
+   "sha8": "ced19da1",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1658
+  },
+  "film-treatment": {
+   "sha8": "8224a0bb",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1395
+  },
+  "film-worldbuilding": {
+   "sha8": "59f24fae",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1567
+  },
+  "hypit-pipeline": {
+   "sha8": "fb3ece0b",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 12793
+  },
+  "motion-transfer": {
+   "sha8": "778530a0",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 13053
+  },
+  "omni": {
+   "sha8": "00a2c8f1",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 12760
+  },
+  "one-shot-video": {
+   "sha8": "2f57c1ba",
+   "form8": "2a050f9e",
+   "contract8": "44136fa3",
+   "bytes": 15264
+  },
+  "ponytail": {
+   "sha8": "9f9c715b",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 4276
+  },
+  "product-video-pipeline": {
+   "sha8": "c921c146",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 44735
+  },
+  "prompt-reverse": {
+   "sha8": "eabdbf4e",
+   "form8": "3019147f",
+   "contract8": "44136fa3",
+   "bytes": 12806
+  },
+  "seedance-3d-cartoon": {
+   "sha8": "a1a839fc",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 9257
+  },
+  "seedance-car-vehicle": {
+   "sha8": "d5fbc5ac",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8464
+  },
+  "seedance-epic-fantasy-scifi": {
+   "sha8": "56207b9b",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8647
+  },
+  "seedance-fashion-lookbook": {
+   "sha8": "2ecefbe2",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8970
+  },
+  "seedance-horror-suspense": {
+   "sha8": "9710b197",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8725
+  },
+  "seedance-meme-comedy": {
+   "sha8": "71debba9",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8294
+  },
+  "seedance-pet-animal": {
+   "sha8": "8e27d702",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 9191
+  },
+  "seedance-prompt-library": {
+   "sha8": "8e20f201",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 4221
+  },
+  "seedance-retro-dv-home-video": {
+   "sha8": "429bd143",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8881
+  },
+  "seedance-sports-extreme": {
+   "sha8": "1080693f",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8906
+  },
+  "seedance-storyboard-grid-to-video": {
+   "sha8": "2bb35b31",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 9297
+  },
+  "seedance-travel-city-walk": {
+   "sha8": "16c63bab",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8621
+  },
+  "session-bind": {
+   "sha8": "143b4e94",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 1963
+  },
+  "short-drama": {
+   "sha8": "ea88f62d",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 10888
+  },
+  "super-clone": {
+   "sha8": "a9d0e5d3",
+   "form8": "4d460de4",
+   "contract8": "ece8689c",
+   "bytes": 27569
+  },
+  "video-dewatermark": {
+   "sha8": "67146804",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8787
+  },
+  "video-enhance": {
+   "sha8": "4451c226",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 7095
+  },
+  "video-subtitle-reader": {
+   "sha8": "c8696f84",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 6325
+  },
+  "voice-clone": {
+   "sha8": "b997d5d9",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 8362
+  },
+  "weeksir": {
+   "sha8": "d09a1a0b",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 2209
+  }
+ },
+ "blessed_by": "check-skill-write-lock --bless"
+}

@@ -17,6 +17,9 @@
      `要出片的话点一下：/omni（电商产品视频）· /hypit-pipeline（video-as-code 工程化）· /short-drama（剧情带货短剧，含 RAG 剧本知识库）· /ai-film-router（影视短片单阶段）`
 - **禁止**因为"这句话像某条流水线"就擅自进入某个 skill、擅自建 run、擅自起引擎。
 - 目录里没有的 skill 不要假装会做。未上架的（`/super-clone`、`/cs-*`）不接管。
+- 基础工具 skill（`/video-dewatermark`、`/video-enhance`、`/voice-clone` 等）：一次性工具腿，不猜意图、不进生成流水线，客户显式点了才登记/挂台。
+  - `voice-clone`（声音克隆）是**例外腿**：直连 RunningHub OpenAPI（AI App `1965614643077070850`），**不经 gateway.py、不在网关账本上**；
+    报价按 RunningHub 账户余额 + instanceType 口径说并等同意，跑完把 `usage`（consumeMoney/consumeCoins/taskCostTime）报回。
 
 > 为什么这么定：`omni` / `hypit-pipeline` / `product-video-pipeline` 三个 skill 的描述都含"剧本→关键帧→出片"，
 > 电商带货与影视创作又天然重叠（2026-10-02 实测：一句"短剧带货钩子"被漂到 omni）。
@@ -30,9 +33,15 @@
 
 ```
 python scripts/intent.py <skill> [任务名]
-#   <skill> = 用户刚点的那个：omni | hypit | super-clone | product-video | film
+#   <skill> = 用户刚点的那个：omni | hypit | super-clone | product-video | film | prompt-reverse | motion-transfer
 #   short-drama 与 ai-film-router 都归 "film" 档（登记 film）；它俩是"点了就走"的总控工作流，
 #   显式调用后先登记、再干活（排他挡掉 omni/hypit 台）
+#   prompt-reverse 是第 6 档：台 = 8100 的表单台（/ui/prompt-reverse）。2026-10-09 起 8090 那张引擎工作台页
+#   【不再进右栏】（输入口只留表单一个；判定口照旧真探 8090，并把页面地址当信息回给 agent），任务名传这条视频的别名
+#   motion-transfer 是第 7 档（动作迁移）：台 = 8091 工作室，两格——左是 8091 自己截的 RunningHub 实时画面
+#   （runninghub.cn 回 X-Frame-Options: SAMEORIGIN，原页嵌不出东西；做转发登录态的代理=把账号凭据递出去，不做），
+#   右是工作室页 ?session=<会话id> ⇒ 历史按会话分。任务名传这条片的别名
+#   one-shot-video（一句话生视频）登记 product-video 档（KNOWN_SKILLS 里的产品视频档、无看板台，只起排他作用）
 #   只有【带引擎】的流水线才登记；纯提示词/知识库类单 skill（seedance-*、film-* 单阶段写作类）不登记、不挂台
 #   换产品线 = 再登记一次覆盖；做完可 intent-clear <会话id>
 ```
@@ -60,9 +69,62 @@ python scripts/intent.py <skill> [任务名]
 - 🔴 **选了就要看到界面**：`intent <会话> hypit` 这一步会**顺手把 studio 查看器起起来**并 claim 给这条会话（`studio_up`：解析该会话的工程→已有查看器就复用→否则从 5179 往上找空闲口，无 shell、路径限工作区 `productions/` 内、15 秒内没应答就报出来）。触发者是 agent 跑 intent 这条命令，所以**不加 HTTP 执行端点**（那才是要鉴权的面）。
 - 引擎动作会自己钉意图（**这条现在才是真保险**）：omni = `store.create_run()` 带 session 时自动登记 `omni`；hypit = `studio-claim` 自动登记 `hypit`。显式 `intent` 命令照旧要跑，但**忘了跑不会再导致"该弹的不弹"**——2026-10-02 实测线上登记簿 0 条是 agent 自己登记的，所以把登记绑到了必然发生的动作上。
 - 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。判定口（8100）自己没回话时显示"判定口没回话"，**不许谎报成"这条会话没意图"**。
-- 回归（改这条逻辑必须先过）：`check-intent-rule.py` 15 条 · `check-workbench-presence.py` 40 条 · `check-workbench-client.mjs` 28 条 · `check-intent-anchor.py` 9 条（建 run⇒钉意图的锚点，含"登记炸了也不能让建片失败"）· `check-export-gates.py` 29 条。
+- 回归（改这条逻辑必须先过）：`check-intent-rule.py` · `check-workbench-presence.py` · `check-workbench-client.mjs` · `check-intent-anchor.py`（建 run⇒钉意图的锚点，含"登记炸了也不能让建片失败"）· `check-export-gates.py`。**条数不写在这里**（写了就会烂：这一行曾经停在 15/40/28，现在实际是 55/58/59），以各闸自己打印的汇总为准；右栏加一档工作台 ⇒ 前三套必须同步（`check-workbench-client.mjs` 的 0 号断言就是钉这条的）。
 - ⚠️ 未接入网关的 skill **不得调用**：`product-video-pipeline` 目前直连 `https://zexapi.com`（`SKILL.md:81`、`scripts/poll_task.ps1:3`），绕开统一网关的预扣/结算/审计，且那条 key 实测欠费。改造到 `gateway.py call` 之前，即使被显式调用也要先告知用户这一条、不要直接花钱。
+- ⚠️ **`prompt-reverse` 已上架但范围被砍过**（2026-10-05 用户拍板"只到提示词，不出片"）：它的模型腿在 **8090 引擎进程里直连厂商**（`prompt_reverser.py:570` 的 MiMo、`:694` 的 Grok，通用化/融合走 `gpt_client`）⇒ **不在网关账本上、没有预扣/结算/审计**。所以：**只允许跑视频理解 + 文本改写**；`/api/h3-studio/generate`（出片）、`fuse-product` 之后的生成腿、`publish-rpa` **一律禁调**，用户要出片就报一句"这条不在本 skill"并引导 `/omni`、`/super-clone`、`/hypit-pipeline`（那几条已接网关、会报价会扣分）。把它接进网关是**待办**，不是可以自己扩范围的理由。
+- ⚠️ **`one-shot-video`（一句话生视频）两条腿都是例外 route**（2026-10-06 拍板装上）：编译腿在 8090 引擎进程里直连 `OPENAI_*`（gpt-5.6-sol）/ `SR_GROK_*`（grok-4.6）；生成腿是 Playwright RPA 提交 weeksir.com/video 选 seedance-2.0-renlian（复用 `pipeline/step5_video_generate.py` 的 `run()`）⇒ **不经 `gateway.py`、不在网关账本上**。所以：**禁止编造积分价**，报价按 weeksir 平台实扣（按条）说并等同意；`pipeline/step5_video_generate.py` 是 `D:\video-skill\BOUNDARY.md` 整文件保护的爆款复刻线路，**只调不改**。
+- ⚠️ **`motion-transfer`（动作迁移·8091）是第 7 档，也是唯一"引擎在别的进程里花真钱"的腿**（2026-10-06 装上）：
+   Step5 = Playwright 登录 RunningHub 账号池、操作公共工作流 `2106377827540103169`、等节点 285 出片。
+   单价 **60 分/段 = 占位·未实测**（上游按 GPU 秒扣，"1 元=几分"未定）⇒ 报价时必须带上"占位"两个字。
+   两个已知缺口要如实说：① 8091 的 Step2/Step3 生图与看图腿**仍在 8091 内部直连厂商**（`image2_client`/Agnes），
+   不进网关账本；② 8091 **手起、无看门狗、不是 git 仓库**（改前备份在 `D:\nzdh\_bak-20261006\`），
+   且 `D:\nzdh\config.py` 默认值里带明文 key（同一把在 `.env` 与 `dist/exe-build/payload.zip` 里都出现过）⇒ **建议轮换**。
+   另：RunningHub 节点 600 `FailedTrigger` 会**故意**把上游任务标 FAILED 再抓视频，"上游 FAILED"≠失败。
 - 因为"以调用为准"，**不再需要写电商/影视的划界规则**——判定权在用户点的 `/skill`，agent 不猜。
+
+### 🔴 技能表单（输入侧 UI）同一条铁律：先明确意图，才有表单（2026-10-08 定，2026-10-09 改挂点）
+
+- 挂点 = **右栏一档"填参数"页签**，页面由 **8100 自己托管**（`/ui/<skill>`，一个模板服务全部 skill）。
+  🔴 **不变量：绝不占输入区** —— `conversation.input.overlay` 永久禁止；2026-10-08 那版挂在对话流回合尾
+  （`conversation.chat.turnTail`）**已于 2026-10-09 整块下线**：那是 chain 槽、首个 select 非 null 独占，
+  一挂就把官方交付卡整张顶掉。改右栏的根据另见 `docs/PRD-input-form-single-port.md` §4.3。
+- 出现条件（2026-10-10 改）= 三个都成立：**已登记意图** + 那条线配了字段表 + **agent 已经回填过这张表**
+  （判定口回 `intent:false, reason:"await-prefill"` 时不弹）。
+  🔴 为什么加第三个条件：弹一张空表 = 把"哪个是原片、哪个是产品图"的归类工作推回给客户，那是 agent 的活。
+  所以流程是固定的：登记 → 分析素材并归类 → `intent.py prefill --set …` → 表才出现（已填好）。
+  **没有东西可填也要跑一次 `--set '{}'`**，那是在声明"我看过了"，否则表永远不弹。
+  ⚠️ 排他规则读的是 `has_input`（这条线的输入口是不是表单），不是 `intent` —— 否则没回填那几十秒
+  引擎页会趁虚弹回来，变成两个输入口并存。
+- 🔴 **配了表的那条线，引擎页不再弹**（判定口回 `reason=form-is-input`，插件侧 `retired` 是双保险）：
+  同一条线的输入口从"引擎页面"换成了"表单页"，不是多摆一个台。没配表的线（omni/hypit 已冻结）不受影响，
+  这条由 `check-workbench-presence.py` 的 A16-T 双向钉（漏配/多伤都会红），线上生效与否由 B8 打真判定口验。
+- 提交**只落 8100 的会话级载荷**（`POST /api/skills/form` → `<工作区>\.dsh\form_payload.json`），
+  🔴 **不 setDraft、不挂附件、不 submit、不代发**——往共享输入框里脚本输入是明令禁止的。
+- 🔴 **点【提交这张表】就等于授权开工**，不要再要客户回一句"开始"（那是同一件事的第二个动作）。
+  花钱那一下仍只有 `http://127.0.0.1:8100/approval` 那一次点击，表单与批准各管一头。
+- 🔴 **提交后是"事件叫醒你"，不是"你去问"**（2026-10-09 T13）：8100 在提交成功后给那条会话挂 `wake.pending`，
+  宿主插件每 5 秒领队列并 `Agent.followup()` 开新一轮（消息 `source.kind=plugin`，不是客户手打的）。
+  所以：**客户交完表后 agent 必须自己接着做**，别再等一句"开始"；反过来，被叫醒也**只是开始干活**，
+  🔴 **唤醒 ≠ 批准** —— 要花钱那一下仍然报价 + 等人点批准窗。判据（谁该被叫/叫过没有）只在
+  `model_admin.form_wake_queue` 一份，插件不自己判；销账必须回带 `at`（防旧 ack 抹掉客户重交的新一次）。
+  回归 `scripts/check-form-wake.py`。
+- agent 读参数只有两条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）与
+  `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、
+  不算已提交、不许替客户交表；回填值必须在页面上标「AI 已填 · 可改」并给依据）。
+- 字段表唯一源 = 该 skill `SKILL.md` 的 `form:` 段（行格式 `key|type|label|必填|选项/区间|引擎参数[+可选尾巴]`，
+  尾巴从第 7 列起、**顺序无关、不写就没有**：`15MB`=该槽体积上限（钉引擎自己硬拦的那个数）、
+  `group=素材`=分组标题（一条都不写=退回按类型自动分，老线一个字不改）、
+  `hint=…`=格下说明（媒体槽则当槽内占位文案）、`show=键=值1,值2`=条件显隐（隐藏的字段【不卡必填、也不进载荷】，
+  前后端按同一条 spec 判）、`mark=选填 · 换人时必给`=角标文案、`note=…`=🔒 行那半句灰字。
+  🔴 加尾巴而不是再加固定列：位置列到十几列后没人记得住第几列是什么，老线一改就全漂），
+  类型 `text|textarea|select|number|images|video|audio|locked`（`locked`=🔒 只读展示行，天生无引擎入参，
+  第 5 列当显示值用；A1/A4/D3 都按"可填字段"豁免它）；
+  🔴 名单唯一源 = `model_admin._FORM_TYPES`，媒体子集 = `_FORM_MEDIA`；闸 C14 钉前端 `isMedia` 与它同名单，
+  加一种类型必须同时改渲染器分支、上传白名单与 `intent.py` 的媒体判据（后两处已改成读下发的 `accept`），
+  漏一处的形状是"页面让你选、提交被静默丢掉"）；挂哪一档 = frontmatter 的 `intent:` 键。
+  渲染器/插件里不许出现第二份字段表，也不许出现价格数字。
+- 回归：`python scripts/check-skill-form.py`（A 枚举全技能字段表 / B 页面铁律 + 插件侧不许有表单 /
+  C `formIsComplete` 值表 / E·G 真跑服务端 `form_submit` 与回填 / F 品牌 token 唯一 / H 分发不许双写）。
 
 ## 批准粒度
 
@@ -87,7 +149,24 @@ python scripts/intent.py <skill> [任务名]
 **什么才叫"达成"**：产物真的落在盘上并且能出示 —— 视频 = `productions/<task>/outputs/<ascii名>.mp4` + 8100 直链 + 抽帧贴图；图片 = 目标文件落盘且**人眼看过画面内容**。
 "已提交 / 运行中 / 上游回了成功状态" 都只是中间态，**不算交付**，不得当结论收工。
 
+🔴 **三件套不许手写，跑脚本**（2026-10-09 定，因为反复有会话"给了本地路径就当贴了图"）：
+
+```
+python scripts/deliver_pack.py <成片绝对路径> --task <任务名> --json
+```
+
+把它输出的 `markdown` 字段**原样贴进回复**，并把它打印的校验结果当交付判据：**退出码非 0 = 没交付，不许收工**。
+原因有两条，都不是审美问题：① DSH 对话渲染器**不内联视频**（整包搜 `<video` 零命中），所以视频只能"路径 + 可点直链 + 抽帧贴图"；② 正文里的 `C:\...` 本地路径、裸 URL、反引号里的链接**都不是图** —— 图必须写成 `![说明](http://…)` 这种 markdown 图片语法，且 URL 要是 http/https 绝对地址（判据读装的这版：`dsh-client-ui-primitives/lib/index.js:7359 renderImage` → `:7104 imageSource` → `:7078 remoteImageUrl` 只放 http/https）。
+⚠️ 排查形状（2026-10-10 我自己踩过一次，别重犯）：客户说"只给了个链接"时，**先分清是 agent 没写成 `![..](..)`，还是写了但图片加载失败**（`MarkdownImage` 的 `onError` 会回落成 alt 文字，看起来就像一行链接）。前者是行为问题，后者要查直链（`/api/film/file` 那格 Content-Type 与字节，不只是 200）。
+🔴 别据此加"每张抽帧图都必须 present"这类闸门：present 出的是右栏预览卡、不是内联图，markdown 内联本来就可用，多一道闸只是凭空提高收工门槛。
+
 **以下都算违规中止**：
+- 没 `present` 就把成片交回给人（2026-10-09 用户指令"必须强制预览，客户体验感好"）：
+   那张【打开 / 下载视频 / 默认播放器】的卡**只在 agent 调过 present 之后才出现**，`deliver_pack.py` 只出 markdown，不会替你 present。
+   所以交付顺序是死的：**出片 → present → 跑 deliver_pack → 原样贴 markdown**。
+   `deliver_pack` 会去内核附件存储（`%APPDATA%\dsh-desktop\harness\attachments\v1\files\<原名>`）**比内容哈希**确认 present 过
+   —— 🔴 只看文件名不算（聊天附件也叫 `video(16).mp4`），没 present 或同名不同内容 ⇒ 该条校验 False、退出码非 0。
+   非 DSH 环境自测才用 `DELIVER_PACK_NO_PRESENT=1` 跳过。回归 `check-deliver-pack.py` 的 14a–14e。
 - 没轮询到终态就把"我发起任务了"交回给人
 - 上游 5xx、超时、SSL 掐线、排队久 ⇒ 直接汇报失败停下
 - 一批里失败几段就整批放弃，而不是只补跑那几段
@@ -95,8 +174,11 @@ python scripts/intent.py <skill> [任务名]
 
 **必须做到**：自己盯到终态；失败**按死因分类**处理 —— 抖动类退避重试**同一个** job_id（连续 6 次查询异常才判死）、参数/合规被拒改参数或换合法路由；一批里失败 N 段就补跑那 N 段；判死时也要把 taskId 与上游原因如实交回，并继续做不受影响的部分。
 
+🔴 **判"失败"之前先看盘**（2026-10-06 实测）：8090 的结构性复刻有 Phase1 已跑完（分镜 JSON + 故事板海报都在 `outputs/sr_<ts>/`、`phase_state.json=after_step3`）却被标成 `failed` 的情况——父进程回显子进程日志时 GBK 崩了。
+⇒ 遇到"任务失败但 error 是一句编码/重启扫尾"，先按盘上产物判（8090 已内置这条规则，`GET /api/structural-replica/status/<id>` 会把它纠回 `awaiting_review`）；**别照着 failed 重跑整条**，那是双花。回归：`scripts/check-8090-log-encoding.py`。
+
 **边界（这条不推翻既有闸；冲突时以闸为准）**：
-1. 🔴 **花钱仍要先报价并等明确同意** —— "不停"指的是**批准之后盯到底**，不是擅自加段数、换更贵的路由、扩到别的片型；范围一变就重新报价。
+1. 🔴 **生视频仍要先报价并等明确同意**（2026-10-09 口径：只有 `video.generate` 要批）—— "不停"指的是**批准之后盯到底**，不是擅自加段数、换更贵的路由、扩到别的片型；范围一变就重新报价。其余计费能力免批但**不免账**，也不许借"免批"扩片型/扩段数。
 2. 不重新提交"已判死但上游可能仍在跑"的任务（= 双花）；孤儿任务用 `job_id` 捞回结果。
 3. 三个批准关口（方案 / 审帧 / 成片）与客服升级照旧停，重启常驻服务照旧先 `preflight`。
 4. **同一个失败原因连续 3 次仍不通 ⇒ 停下报证据**（PID / 账本 error / 上游原文），不许无限循环烧钱 —— 防止"不停"退化成"死磕"。
@@ -109,6 +191,21 @@ python scripts/intent.py <skill> [任务名]
 2. **账号浏览器**：一个自研指纹环境；该浏览器可登录同一店铺的多个平台（抖店 / 千川 / 飞鸽），不混店
 
 用户说账号矩阵、有哪些号、切换浏览器 → `/account-matrix`（上架后）。
+
+## 🔴 技能目录写权限：只允许 Qoder 侧改 skill（2026-10-10 用户定）
+
+`.dsh/skills/**` 是判据唯一源：`form:` 段 = 线上表单的字段表，`contract:` 段 = 花钱前核验的合同。
+
+- **DSH 里的 agent 一律不许改 skill 目录**：不新建、不改、不删任何 `SKILL.md` / `runner/**` / `references/**`，
+  也不许"顺手优化"提示词或字段表。要改就在对话里说清【哪一行、为什么】，由人转给 Qoder 侧落。
+- **只有 Qoder 侧（本工作区的开发会话）可以改**，改完两件事缺一算没改完：
+  `python scripts/check-skill-contract.py`（判据没坏）+ `python scripts/check-skill-write-lock.py --bless`（重新认基线）。
+- 🔴 **为什么散文之外还要闸**：这台机器上 Qoder 与 DSH agent 是同一个 Administrator，ACL 拒它就是拒我自己 ⇒ 分不开两个写者。
+  唯一分得开的是内核 `dsh-fs-sandbox:153 checkedTarget`：它**当场 realpath**、要求落在可写根内，且校验的就是它要写的那个身份。
+  所以真拦 = 把 skills 真身移到工作区外（如 `D:weeksi…ills`）、原地留 junction；没装成之前
+  `check-skill-write-lock.py` 的 L5 **故意恒红**——那是待办清单，不是故障（红=没锁，全绿才该怀疑）。
+- 闸盯的漂移：每档 SKILL.md 与它的 `form:` / `contract:` 三处 sha8 进基线 `.dsh/skill_lock.json`；
+  漂了必须【带着提交号】才算授权过，没提交过 = 红；**整档被删**也只有这条看得见（本次实测已发生：`.dsh/skills/hypit/` 被删且从未入库）。
 
 ## 账号记忆（隔离）
 
@@ -125,6 +222,17 @@ python scripts/intent.py <skill> [任务名]
 
 - `LOOP.md` 当前环（框架中枢）
 - `BRIEF.md` `ANALYSIS.md` `SCHEME.md` `TIMELINE.md` `ASSETS.md` `ADS.md` `CS.md` `PROGRESS.md`
+- 🔴 **素材按任务分家（2026-10-10 定，先只推 super-clone）**：
+  - `intent.py <档> <任务名|已建目录>` 登记时就把 `productions/<slug>/{inputs,src,outputs,frames}` 建好，
+    绝对路径写进意图记录的 `task_dir` —— **"任务名→目录"从此有主人**，不再靠 agent 自觉。
+  - `inputs/` = 客户给的与表单回填的原始素材（**唯一可被表单读的根**）；`src/` = agent 自己下载/派生物。
+    两者分开是审计要求：三个月后还要分得清哪张是客户给的。**回填 `src/` 里的文件会被拒**（闸 G20c 钉这条）。
+  - 落盘名 = `序号-sha8-ascii名.扩展名`（`01-0d4e2ca9-cardigan.png`）。sha8 进名字不是为了好看，
+    是这台机器多会话并发、"同名不同内容"咬过两次 ⇒ 撞名要当场看得见（`deliver_pack` 早就是比哈希不认文件名）。
+  - 🔴 路径规则**只在服务端一份**：素材根由门控 `upload_root` 下发，脚本里不许再拼一遍
+    （旧写法 `.dsh/form-uploads/agent/<param>/` 是跨会话共享的 ⇒ 两条会话回填同名图互相覆盖，已废）。
+  - 守卫是**收紧不是放宽**：realpath 界从"全局一根"改成"每会话/每任务一根"，`task_dir` 指向工作区外一律不认。
+  - 目录名必须 ASCII（8100 静态口与交付直链的要求），中文任务名退到 `<skill>-<yyyymmdd-HHMM>`。
 
 ## 生成器
 
@@ -141,6 +249,43 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
 ```
 
 - `capability`：`text.complete` / `image.generate` / `video.generate` / `video.analyze`；`purpose` 看 `gateway.py caps`。
+- 🔴 **要"公网直链"（把本机素材传给别的引擎当外链）就跑 `upload`，别手搓 HTTP**（2026-10-09）：
+   `python D:\video-skill\backend\gateway.py upload <文件> [--key-hint wan3|h3|motion|lipsync] [--account <成员>]`
+   ⇒ 0 分、不计费、不建预扣、不要批准条子，但**记台账**（`gateway.py uploads [N]` 查，里面只有 key 的 sha8）。
+   host / 端点 / key 优先级**只在这一处**解析。实测三种死法都跟 key 好坏无关，别再归因成"token 失效"：
+   `/openapi/v1/upload_file` **不存在**（却回 HTTP 200，body 里才是 `code:404`，只看状态码会当成功）；
+   host 写成 `runninghub.cn` ⇒ `code=1 "API Key不存在"`（**RH 的 key 按站点分**，`.ai` 那把在 `.cn` 无效）；拿错家的 key ⇒ 直接 error。
+   媒体节点要填的是返回里的 `file_name`（`openapi/<hash>.png`），`download_url` 只是给人看的直链 —— 两个都给，别猜。
+   另有 HTTP 口 `POST 127.0.0.1:8100/api/media/upload`（只听环回、只放 `productions/` 根内的媒体文件、json 一律拒）。回归 `scripts/check-media-upload.py`。
+- 🔴 **skill 的流程是合同，不是建议**（2026-10-09 根治"agent 驱动 skill 时按自己理解跑"）：带引擎的档
+   （唯一源 = `scripts/intent.py` 的 `LANES`，与 `hypit_bridge.KNOWN_SKILLS` 由闸钉相等）必须在 `SKILL.md` 写
+   `contract:` 段；入口跑完写回执（`productions/<task>/**/.skill_receipt.json`），**花钱那一刀之前核验它**——
+   无回执 / 合同版本不符 / 输入指纹变了 ⇒ 抛错、不提交、0 分。绕开入口自己拼 prompt = **提交不出去**，不是"提醒你别这样"。
+   已接：super-clone（`super_clone_wan3.py` 提交前调 `skill_contract.verify_or_raise`）。跳过某步要写进 `deviations`
+   并带原因，交付时由 `deliver_pack.py` 原样印出来（🔴 只断提交，不断查询/捞回 —— 已提交的任务重投=双花）。
+   设计见 `docs/ADR-skill-contract.md`，回归 `scripts/check-skill-contract.py`（新加引擎档 = 同时必须交合同，T2b 会红）。
+   🔴 **引擎单一源（2026-10-10 事故：客户表里锁的是 yz-prime，agent 却念出"RunningHub wan3.0"）**：
+   表单锁定位 ↔ 合同 `spend` ↔ 网关 `ROUTES`/价目 ↔ 代码里 `invoke()` 的那一对，四方必须指同一条 lane，
+   由 `scripts/check-engine-single-source.py` 钉（含"把 spend 换成网关里没有的路由""摘掉单价登记""换个 provider"三种变异对照）。
+   配套两条硬规矩：① **报价里的上游与单价只许现读** `python D:\video-skill\backend\gateway.py prices`
+   （这一行现在自带 provider，如 `video.generate/wan3-prime 60 分 [yz-prime]`），不许凭记忆写厂商标；
+   ② 合同值里**不许写行尾注释**（`spend:` 后面的 `#` 说明会被吃进值里 ⇒ 三方比对对不上；`parse_contract` 现在会剥，但别依赖它）。
+   🔴🔴 **最高等级：合同没写手段的地方，也不许你自己发明手段**（2026-10-09 用户定性；事故形状=合同只写"删掉字幕/水印"
+   这种**结果**，agent 就去手搓 ffmpeg 去字幕、还差点编出"内置去字幕模型"）。判据已落码，不靠自觉：
+   ① 每条 step 必须至少有 `证明=`（物证）或 `手段=`（白名单）之一 —— **两者都没有的合同条款本身就是洞**，
+   `verify_or_raise()` 会在花钱之前直接拒（`contract_shape_problems`）；② 声明了 `手段=` 的步，实际手段不在名单内
+   **或根本没申报** ⇒ 拒（`impl_problems`）。所以动手前先答一句"这一步是合同哪一行授权的"；答不出就停、去查唯一源、
+   或问人，**不许填空隙**。⚠️ 强度边界：这一层管得住"走管线/入口"，agent 在对话里直接手敲一条命令不经过任何
+   被管函数 ⇒ 合同物理上看不见（要拦得动工具层，见 ADR 同名节），那种越界目前只能靠交付时可见（回执缺步/deviations）。
+   🔴 **花钱那一刀前后必须给两张表**（2026-10-09 用户："提交视频生成前，要总结一下每一次是谁完成的"）：
+   一条命令出表（只读、0 分）：`python scripts/contract_tables.py <档> [段目录]`
+   ① **报价那条消息**带 `plan_table(<档>)` —— 人在同意之前就看见"这条流程要走哪几步、每步授权什么手段"，
+   而不是事后追认；② **提交之前**把 `verify_or_raise()` 返回的 `table`（= `who_table(回执)`）**原样贴进回复**，
+   管线已自动把它打进日志/进度（`合同核验 | …`）；交付时 `deliver_pack.py` 也会带同一张表。
+   表里"谁做的（会话）"是**逐行署名**：同一行没变就沿用上一次的会话，
+   所以"甲做分镜、乙只重跑编译"会分开显示，不会整表刷成最后那个人。
+   ⚠️ 表的强度到哪：它保证【事后查得着、当着人亮得着】，不保证 agent 不走合同外那一步（见上条强度边界）。
+   常驻服务（8090）里没有 `DSH_SESSION_ID` ⇒ 那一列会明写"未知"，**不许猜一个会话 id 填进去**。
 - **唯一例外形态 = hypit**：它的 Provider 协议只认 HTTP，所以生成腿经自写 provider `@weeksir/provider-gateway` POST `http://localhost:8100/api/hypit`（`/uploads`、`/videos`、`/videos/{id}`、`/rates`），服务端 `hypit_bridge.py` 仍转 `gateway.invoke` ⇒ **同一套预扣/结算/审计**。不算第二条轨，只是同一轨换了入口；鉴权用 `.env` 的 `MODEL_GATEWAY_TOKEN`（Bearer）。详见 `.dsh/skills/hypit-pipeline/references/monitor-contract.md` §1.5。
 - 返回归一 JSON：`{ok, result, credits:{estimated,charged,tokens,basis,balance_after}, error}`。
 - 🔴 **hypit 只有三条"已绑 capability"能花钱**（2026-10-03 定）：`@hypit/seedance@1#seedance-2-mini`（`model="mini"`，50 分/5 秒）、`#seedance-2.5`（`model="2.5"`，60 分）、`@hypit/minimax-h3@1#minimax-h3`（`<h3:…>` 元素，无 `model` 属性，60 分）。官方 `hypihub.default` 端点已从 `hypit_runs/hypit.runtime.json` **摘掉**（备份 `hypit.runtime.json.bak-hypihub`）⇒ 未绑定的写法在 `hypit plan` 就报错、0 分，不再静默 POST `https://hypit.ai`（2026-10-03 实测漏绑一条就是这个走法，靠对方欠费才没花出去）。四张表（profile bindings / `provider.js` LANES / 桥 `HYPIT_MODELS`·`LANE_SPECS` / 网关 `ROUTES`）改任何一张都跑：`python scripts/check-runtime-bindings.py`。
@@ -148,12 +293,78 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
   - `basis`：`usage`=按真实 token 结算（文本/看图，费率 `model_prices.json.token_rate`，1 分≈100 token）、`flat`=按条计费(生图/生视频)、`usage-capped`=超单条封顶被截。
   - `estimated` 只是**粗略预估**：思考型模型同题消耗实测波动 28→4396 token，报价/护栏看 `estimated`，**对账看 `charged`+`tokens`**。
 - **估价**（批准前给人看成本）：`gateway.py resolve <cap> [purpose]`，或读信封 `credits.estimated`。折进"方案批准"，不新增批准类。
-- 🔴 **花钱前必须在对话里报价并等到明确同意（铁律，对所有 skill 生效）**：调任何**按条计费**的能力（`video.generate` / `image.generate` / `image.edit`）之前，最后一条消息里必须列清：`路由(供应商+模型)`、`单价 分/段`、`段数或次数`、`预计总扣分`、`当前余额`，并明确问"跑不跑"。
+- 🔴 **【默认全部要批】2026-10-09 用户最终口径："除了生图片和推理，其他都要审批"**（前两次口径都太窄：`video.edit` 曾因不在"要批清单"里被免批跑掉真分 —— 去水印 20 分/次、超分 60 分/次，比生视频还贵，用户原话"去水印不属于生视频吗，为什么不通过我审核"）。⇒ 判据**反过来写**：默认要批，只有 `SPEND_APPROVAL_EXEMPT` 三条免批。调任何其它能力之前，最后一条消息里必须列清：`路由(供应商+模型)`、`单价 分/段`、`段数或次数`、`预计总扣分`、`当前余额`，并明确问"跑不跑"。
+  - **免批只有三条**：`image.generate`（生图片）、`text.complete`（推理）、`video.analyze`（看图看片 = 推理，产出是文字）。这三条直接干、不等点头，跑完带一句实扣分。
+  - 🔴 **要批的（默认）**：`video.generate` / `video.edit`（超分·去水印）/ `image.edit`（换脸）/ `lipsync`（译制·配音替换）/ `audio.generate`（配音·音乐）/ `transcribe`（ASR）—— **以后新增任何能力自动落到"要批"**，想免批必须在 `SPEND_APPROVAL_EXEMPT` 显式登记一行（闸 G1c 钉这个默认值）。
+  - **闸在哪**：`gateway.py` 的 `invoke()` 在 **precheck/preauth 之前**调 `check_spend_approval(...)`；**判据 = `SPEND_APPROVAL_EXEMPT`（免批白名单，默认要批）**；`SPEND_APPROVAL_REQUIRED` 只是它派生出来的视图。闸与文档都从这一份读，别在别处再抄一份能力名。没有批准条子 ⇒ 回 `ok:false, error:"approval_required…"`，**不建 hold、不扣分、不发 HTTP**。
+    ⚠️ 免批 ≠ 免账：这些腿仍走同一条 `precheck→preauth→settle→失败回滚`，扣分与留痕照旧；代价要认——**它们现在可以被任何一条会话直接花掉，出事只能事后从账本查，不是事前拦**。
+  - **条子怎么来**：拿到用户明确同意后，agent 跑 `python D:\video-skill\backend\gateway.py approve <cap> [purpose] --count <段> --credits <分上限> --account <成员> --session <这条方案的会话id> --scope "<用户批准的那条方案一句话>"` 建**待批**，然后**批准窗自己弹到桌面上**（人点【批准，开始跑】；页面 `http://127.0.0.1:8100/approval` 是同一条动作口的备选，见下一条"人证"）；查/撤：`gateway.py approvals` / `revoke <id>`。条子写死 能力+purpose+账户+段数+分数上限+24h 过期+**所属会话**，**换路由、加段数、超额度、过期、换了会话一律再拒**。
+    🔴 `--session` 必须带（2026-10-06 事故补的）：不带 = 通用条子，任何会话都能消费别人的批准额度——我当时拿一次不相干的端点探测，就把另一会话签给 video-enhance 封面的 1 段/4 分吃掉了（闸判得"对"，但额度是共享的 ⇒ 谁都能花别人的同意）。已退回额度，规矩写进 `approval_allows` 与回归 G11b-G11e。
+    🔴 **人证 = 一次点击，不要口令、不要【系统】弹窗**（2026-10-08 两易其稿；2026-10-09 弹窗改回来自研窗，回归 `scripts/check-approval-attest.py` P 组）：
+       `approve` 现在**只建一张【待批 pending】并给出报价，此时 0 额度**；额度只能由"人看到报价之后"的一次核销拿到。
+       - 主路（**唯一许给客户/用户看的路**）：`gateway.py approve` 建完待批会**自己弹置顶批准窗**
+         （`backend/approval_popup.py`，2026-10-09 用户指令"我要出现弹窗进行审批"）；窗里就是那张品牌批准卡
+         （logo + 要跑几段 / 最多扣多少分 + 这次要做的 + 还剩几分钟作废），点【批准，开始跑】即生效。
+         弹不出来会在 approve 的输出里明说原因 ⇒ 退回备选页 **`http://127.0.0.1:8100/approval`**（同一个动作口，同一份判定）。
+         🔴 窗**不是第二种人证**：额度仍只有服务端 `consume_by_click` 签得出，窗只是它的另一个壳；
+         Enter/空格被显式吃掉（键盘路过不等于点头）、没有任何定时器调签发；**没人点 ⇒ 过期即拒**。
+         回归 `check-approval-attest.py` 的 P 组（含"扫违规先剥注释"这条自己的踩坑）。
+         🔴 **禁止把任何 `python …gateway.py code/consumed …` 命令交给用户去敲**（2026-10-08 他第四次否："我不是说了不要powershell"、"还要输入powershell口令吗"）。
+         `code`/`consumed` 只是运维自测兜底，**不许出现在给客户的消息里**。要签的东西一律：agent 建 pending ⇒ 指他去页面 ⇒ 自己轮询到生效。
+         这条卡可以信是因为 `approval/decided` 只有内核 `ApprovalService` 会写、UI promise 只有 onClick 能 resolve
+         （`dsh-user-approval/lib/index.js:142`、`dsh-client-ui-approval/lib/client.js:92`），且**没有应答者时 fail-closed**。
+       - ⚠️ pending **15 分钟过期**（`GATEWAY_SPEND_PENDING_TTL`）。所以 agent 建完要【自己轮询】到生效，并在过期前提醒人去页面点，而不是让人去查命令。
+       - 🔴 **核销码绝不进 stdout**：跑 `approve` 的就是 agent，码进管道它就能自己 `consumed` 伪造 ⇒ 闸 G4 钉死这条。
+       - 🔴 **系统 MessageBox 已整个删掉，不许加回来**：实测无人参与时 `MessageBoxW` 会**自己返回 IDYES 并真签出条子**
+         （闸 G 组抓到两次）；同类毛病还有 `MB_TIMEOUT` 不生效。系统弹窗**不能**当人证。
+       - 同理别用 `isatty`/`GetFileType` 判"人在不在"——它分不清"人自己开的终端"和"agent 替人开的 PowerShell"，
+         实测把用户本人的签名拒过一次。
+       - 被拒的核销落 `denials`，生效的条子带 `attest={method:"dsh-card-click", pending:<id>}` ⇒ `approvals` 能查出谁试着自己批。
+  - ⚠️ **别拿真花钱的端点做"闸活没活"的探测**：要探就挑**没有匹配条子**的路由（回 423、不发起、0 消耗）；挑到有条子的路由 = 直接花掉别人的批准。
+  - ⚠️ **它的强度到哪为止（别 over-claim）**：闸保证【默认拒 + 范围写死 + 留痕可查】；人证保证【agent 单方面签不出】，
+    但**不是密码学级** —— 装了 computer-use 那类 UI 自动化的 agent 理论上能截屏读那张审批卡再点鼠标，
+    代价是"控制这台机器的鼠标键盘"，且 `denials` / `grants.attest` 会留痕。所以**报价那条消息照旧要发、照旧要等他回话**，
+    不许用"我自己签一张 / 我替他点了"代替他的同意。
+  - 🔴 **已知缺口（2026-10-06 清点，别当成已完工）**：8090 共 111 个 POST 口，**接上闸的只有 5 个**（`_spend_or_423` 调同一个 `gateway.spend_guard`）：`/api/h3-studio/generate`(h3 60分) · `/api/one-shot-replica/generate`(Seedance) · `/api/replica-wan3/submit`(RunningHub wan3) · `/api/hook-extend/submit`(omni_flash-10s，追到 `hook_extend.run_pipeline` 里 Step3 的 `submit_omni_task`) · `/api/agnes-image/submit`(生图)——前四个实测无条子回 **423、任务不提交**。
+    ⚠️ **2026-10-09 更正：`agnes-image` 这道现在是【空转守卫】**（口径改成"只有 `video.generate` 要批"之后，
+    `spend_guard` 开头 `if not needs_spend_approval(capability): return` ⇒ `image.generate` 直接放行，永不 423）。
+    它留着是为了"哪天把 `image.generate` 加进清单就自动生效"，🔴 **别拿它当"生图也要批准"的证据**。
+    配对关系由 `check-spend-approval.py` 的 G26 组钉（读 app.py 的实参算出该标哪几个，不抄这份文档）。
+    排除掉的（别再加闸）：`one-shot-replica/submit` 只做 MiMo+LLM 反推、`replica-motion/resume` 是恢复逻辑（命中字样在字段注释里）。
+    **还剩 30+ 条转调 `pipeline/*` 出片的口没拦**（`super-clone-wan3/submit`、`hot-explosion-wan3/submit`、`step5/run`、`tvc/run`、`detail-image/run`、`face-swap/submit`、`smart-fission/*`、`womenswear*`、`toutiao/run`…）：这些要**沿调用链追到真客户端**才能定性，没追就没拦，**按名字猜着拦一律不做**（会误伤纯本地操作，还给人"已经全拦了"的假安全感）。清点台账见 `docs/ADR-model-gateway.md`「花钱批准闸」节。
+  - 🔴 **铁律的落码位置：闸必须钉在【花钱那一刀】，不是网关前门**（2026-10-09 事故）：一条会话在用户没点过批准的情况下出了 wan3.0 成片 ——
+    证据链：`wan3_task.json` 提交 11:01:13 → `seg1_wan3.mp4` 落盘 11:17:39（16.65MB），而**网关账本 10:32 之后一行都没有**。
+    原因不是"闸判错"，是**那条腿从不经 `gateway.invoke()`**：`super_clone_wan3.py:3020 → wan3_client.run_one_segment → submit_reference_to_video` 直连 RunningHub。
+    ⇒ 已把闸搬进 `wan3_client._wan3_submit_guard()`（所有 wan3 腿的唯一咽喉，含 8090 各口、`smart_fission/step6_wan3_direct`、临时脚本），
+    两道：**默认断开**（`config.WAN3_RH_ENABLED=False`，恢复要显式打开）+ **打开后仍必须有批准条子**；
+    🔴 **只断提交**，`query_task/poll/download` 照常 ⇒ 断之前已提交的任务能用 taskId 捞回（重投=双花）。回归 `scripts/check-wan3-rh-cut.py`。
+  - 🔴 **RunningHub 视频禁令：判据只有一份，跟着【腿】走，不跟着目录走**（2026-10-09 用户指令"视频严格杜绝走这条线路"）：
+    咽喉 = `runninghub_client.rh_video_guard(spend_kind)`（`submit_task()` 调它；豁免清单 `RH_VIDEO_EXEMPT=("edit","image")` 是唯一源）。
+    **默认拒**：`spend_kind` 默认 `"video"`，没显式声明就当生成视频 —— 而且是**白名单**（早先 `== "video"` 的写法传 `"banana"` 就绕过，已改）。
+    被它拦住的真实腿：`h3_director_client:512`、`replica_wan3:165`、`product_motion/pipeline:131`、本模块三个 motion 包装器 ⇒ **H3/动作迁移走 RH OpenAPI 的都不许提交**（本地 RPA 腿 `h3-rpa`/`motion-rpa` 不碰这个客户端，不受影响）。
+    🔴 **还有两条腿自己拼 HTTP、不经 `submit_task`**：`super_clone_wan3.py` 的 `step2_h3_execute`、`structural_replica_workflow.py` 的 `_h3_submit_task`（打 `/openapi/v2/minimax/hailuo-h3/multimodal-to-video`，且被 `app.py` **动态 import** ⇒ 按目录扫服务代码会把它漏成"一次性脚本"）。两条都已在提交前调同一个 `rh_video_guard()`。
+    ⚠️ **强度到哪为止**：加工腿（译制/配音替换 = `lipsync`）与咽喉打的是**同一个** `/openapi/v2/run/ai-app` 端点，禁令按【挂载能力】放行而不是按 URL 形状 ⇒ 谁把 lipsync 换成生成类工作流就是绕过，闸拦不住，只能靠 `check-rh-video-ban.py` R10 那张登记表被人看见。
+    ⚠️ 另：仓库根/`skills/` 下还有 13 个脚本自带 RH 提交端点（闸只报不判红）—— 它们是禁令管不到的腿，别当成"已经全拦了"。
+    回归：`scripts/check-rh-video-ban.py`（含"守卫改空转 ⇒ 真发一次 POST"的变异对照）+ `scripts/check-wan3-rh-cut.py`；条数以各闸打印的汇总为准。
+  - 🔴 **例外形状：花钱在别的进程里的腿，条子在【那一端】消费一次**（2026-10-06，动作迁移 = 8091 浏览器 RPA）：
+    `gateway.py` 的 `SPEND_APPROVAL_AT_SOURCE` 列出的 purpose，`invoke()` **不再重复扣段**（两处各扣＝逼用户批两遍，是自造的假账）。
+    🔴 **当前 = 空元组**：8091 那条已剥离进网关轨（`SPEND_APPROVAL_AT_SOURCE = ()`）⇒ 下面这段描述的是【机制还在、暂时没有住户】，
+    别读成"8091 那条还在免重复扣段"。要加豁免就往表里添，同时必须在那一端加调用。
+    🔴 **配对现在由 `check-spend-approval.py` G26 组钉**（读 `app.py` 的 `_spend_or_423` 实参 + `SPEND_APPROVAL_*` 两张表算出文档该长什么样）。
+    原先说的 `check-motion-rpa-lane.py` 已【过期变红】：2026-10-09 实测 54 条里 **14 红**（D/E 组还在打已删的 8091 HTTP 路、F1 还认已撤销的 AT_SOURCE 豁免、F7 的 8100 端点集合停在 10-08 批准页之前）⇒ 订正归 T9b，别拿它的绿当保护。
+    ⚠️ F7 那条红【不是安全洞】：`/api/spend/approve|deny` 是批准页的"决定"口（只听环回、消费已有 `pending_id`），
+    `model_admin.py` 里明写"没有创建 pending 的口" ⇒ 是断言的期望值旧了，不是闸少了。
+    那一端经 8100 的新端点 `POST /api/spend/guard`（**只听环回**、**只消耗批准、没有任何"创建批准"的 HTTP 口**、
+    预计扣分由网关按价目自己算——调用方自带 credits 等于放行，所以不许自带）问一次；8091 的
+    `/run`、`/step5-rpa`、`/retry` 三个花钱口都在**建任务/改状态之前**问，判定口没回话同样 423（闸门坏了不许当成"闸没拦"）。
+    ⚠️ **这张豁免表是后门风险**：往表里加一条 purpose，就必须在对应那一端加调用 —— 配对关系由
+    `scripts/check-spend-approval.py` 的 G26 组钉（🔴 不是 `check-motion-rpa-lane.py`，它已过期 14 红，见上）。
   - **一次报价覆盖整条方案，不是每次生成都问**（见上面「批准粒度」）：omni 把报价并进【方案批准】那条消息、hypit 并进 `pricing` 关口；批准一次即自动跑到下一个关口。
   - 用户的同意**只覆盖那次列明的范围**：换路由、加段数、改片型 ⇒ 重新报价再确认。**超时/上游抖导致的自动重试不算扩范围**（失败本就不扣费），但要说明"这是重跑第几段"。
   - 文本/看图按 token 结算（1 分≈100 token），不必逐次确认；但**单条预估 >50 分** 或 **整批预估 >500 分** 要先报价。
   - 报价数字一律从 `gateway.py resolve` / `hypit pricing` 读，**禁止凭记忆写价**；没跑过的路由要标"无数据"。
   - 报价后**不要**在同一轮里顺手调用生成——等用户回话。
-- 为什么走 tool-jobs 而非 MCP/插件：DSH 不加载 MCP、插件不能给 Agent 注入工具（见 `docs/AGENT-FRAMEWORK.md:6`）。命令契约写在这里 + 各 skill 的 SKILL.md，**跨会话读文件即恢复、不靠 agent 记忆**。
-- 🔴 **重启常驻服务（8100/8765）前先 `python D:\video-skill\backend\hypit_bridge.py preflight`，必须看到 `safe_to_restart:true`**。它报的是：在途生成腿、在途导出、未结算预扣。2026-10-02 我就是把"查在途"和"杀进程"写进同一条命令，等于没查——带着 3 条在途腿重启，那 3 段被判死（预扣已回滚，0 分损失，但白等了）。遗留预扣用 `holds-pending` / `holds-rollback <id>` **指名**回收，不自动退（会退掉别的进程正在花的分）。
+  - 回归：`python scripts/check-spend-approval.py`（真值表 + "闸在预扣之前" + 拒绝时账本零变化 + 双向对照）。
+- 为什么走 tool-jobs 而非 MCP/插件：命令契约写在这里 + 各 skill 的 SKILL.md，**跨会话读文件即恢复、不靠 agent 记忆**；而**积分预扣/结算/审计只在网关里**，所以花钱的路径必须收在一处。⚠️ 旧说法"DSH 不加载 MCP"**已作废**（2026-10-05 实测：内核自带 `@deepseek-ai/dsh-mcp-client`，stdio + streamable-http，只是没装配进 cordis yml）——不用 MCP 是**选择**（审计与扣费），不是"不支持"，别再拿它当理由写进新文档。
+- 🔴 **重启常驻服务（8100/8765）前先 `python D:\video-skill\backend\hypit_bridge.py preflight`，必须看到 `safe_to_restart:true`**。它报的是：在途生成腿、在途导出、未结算预扣。2026-10-02 我就是把"查在途"和"杀进程"写进同一条命令，等于没查——带着 3 条在途腿重启，那 3 段被判死（预扣已回滚，0 分损失，但白等了）。遗留预扣用 `gateway.py holds [N]`（只读，带 `age_hours`）/ `holds-rollback <精确id>` **指名**回收，不自动退（会退掉别的进程正在花的分 ⇒ 双花）；🔴 没有批量开关（`all` / `*` / `--all` 一律拒），旧行没有 ts 就显示"不知道年龄"，不猜。
 - 完整设计：`docs/ADR-model-gateway.md`。
