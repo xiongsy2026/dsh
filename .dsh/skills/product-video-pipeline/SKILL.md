@@ -412,8 +412,8 @@ omni_flash-hd-10s 生成的视频右下角带银色四角星水印（约 50px，
 - **omni 口播不支持指定音色 ID**（2026-09-16 实测）：无法像剪映 TTS 那样传 `en_us_001` 等 speaker ID，只能用文字描述语音特征（性别/语言/年龄/语调）。多段视频的声音可能不完全一致。需要精确音色时用剪映 TTS 后期配音。
 - **omni 不支持参考音频**（2026-09-16 实测）：API 无 `audio_reference` 参数，传 `audio` / `audio_reference` 字段虽不报错但提交超时，无法用外部音频锁定音色。
 - **omni 口播台词长度限制**（2026-09-16 实测）：10 秒段约可容纳中文 15-20 字 / 英文 20-30 词，超出会被截断或语速过快。多段时每段台词需独立适配时长。
-- **omni 人脸审核误判（2026-09-21 跳舞视频实测）**：同一组关键帧提交 omni_flash-hd-10s（含改尺寸 omni_flash-10s、改脸重画关键帧）反复返回 `PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED`，被误判为公众人物，重试/降级/改脸均无效。**对策**：视频改用 eo_3_1-lite（zexapi.ps1 video -Model veo_3_1-lite）即过。注意 veo-lite 单段上限约 8s、参考图上限 3 张（取首/中/尾帧），要 10s 需另想办法（omni 解限或拼接）。
+- **omni 人脸审核误判（2026-09-21 跳舞视频实测）**：同一组关键帧提交 omni_flash-hd-10s（含改尺寸 omni_flash-10s、改脸重画关键帧）反复返回 `PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED`，被误判为公众人物，重试/降级/改脸均无效。**对策**：视频改用 veo_3_1-lite（zexapi.ps1 video -Model veo_3_1-lite）即过。注意 veo-lite 单段上限约 8s、参考图上限 3 张（取首/中/尾帧），要 10s 需另想办法（omni 解限或拼接）。
 - **【更新 2026-09-21】omni 人脸审核首选对策——戴口罩**：PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED 用戴白色医用口罩遮住口鼻（只露眼睛）后重画 6 帧再提 omni，已验证直接过审，能拿到 1080x1920/10s。比 veo-lite（仅 8s/720p）优先。
-- **【更新 2026-09-21】omni 出片右下角模型水印必除**：omni 视频右下角有白色四角星小水印。交付前用 ffmpeg delogo 抹掉：先抽帧 fmpeg -ss 3 -i in.mp4 -frames:v 1 frame.png + crop=W:H:x:y 定位，再 fmpeg -i in.mp4 -vf "delogo=x=X:y=Y:w=W:h=H" -c:a copy -crf 18 out.mp4，框略大于水印。
+- **【更新 2026-09-21】omni 出片右下角模型水印必除**：omni 视频右下角有白色四角星小水印。交付前用 ffmpeg delogo 抹掉：先抽帧 ffmpeg -ss 3 -i in.mp4 -frames:v 1 frame.png + crop=W:H:x:y 定位，再 ffmpeg -i in.mp4 -vf "delogo=x=X:y=Y:w=W:h=H" -c:a copy -crf 18 out.mp4，框略大于水印。
 - **【更新 2026-09-21】gflow i2i 已在 flow.google.com 跑通**：本地文件 --ref 单个即可锁脸锁穿搭，必带 --project <id>；传第二个 --ref 或媒体 UUID 会报错。详见 Stage 2。
 - **【更新 2026-09-30】富铁软糖 30s 关键帧产品漂移事故**：产品基准卡把产品写成 `clear plastic bottle`，剧本 keyframe_prompt 又写成 `amber glass bottle`，两者与 product.jpg（红色瓶）打架，且每帧自由改写产品描述，第 4 帧入场帧没拦住错误就继续生成，导致 4-18 帧产品形态全漂。**根治**：产品外观只允许 Stage 0 一次性生成的 `product_lock_block` + `product_negative_block`（占位描述），剧本 `keyframe_prompt` 里产品一律写 `the {product_ref}`，禁止逐帧改写产品外观；入场帧（not_present→natural 第一帧）必须人工验收通过后才能继续后续帧。详见 Stage 0/1/2 新规则。

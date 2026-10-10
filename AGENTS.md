@@ -76,8 +76,11 @@ python scripts/intent.py <skill> [任务名]
 - ⚠️ **`motion-transfer`（动作迁移·8091）是第 7 档，也是唯一"引擎在别的进程里花真钱"的腿**（2026-10-06 装上）：
    Step5 = Playwright 登录 RunningHub 账号池、操作公共工作流 `2106377827540103169`、等节点 285 出片。
    单价 **60 分/段 = 占位·未实测**（上游按 GPU 秒扣，"1 元=几分"未定）⇒ 报价时必须带上"占位"两个字。
+   🔴 **agent 要跑这条只许 `gateway call video.generate/motion-rpa`**（直调本地 `backend/services/motion_rpa`，条子在 `invoke()` 里消费一次）；
+   **不许转调 8091 的 HTTP 口** —— 工作台那三个花钱口 2026-10-10 起不再问批准（那一下是人自己点的），
+   豁免范围**仅此一端**，判据与代价见『批准粒度』节"例外形状"那条。
    两个已知缺口要如实说：① 8091 的 Step2/Step3 生图与看图腿**仍在 8091 内部直连厂商**（`image2_client`/Agnes），
-   不进网关账本；② 8091 **手起、无看门狗、不是 git 仓库**（改前备份在 `D:\nzdh\_bak-20261006\`），
+   不进网关账本；② 8091 **手起、无看门狗、不是 git 仓库**（改前备份：`D:\nzdh\_bak-20261006\`、`_bak-20261008\`、`_bak-20261010\`），
    且 `D:\nzdh\config.py` 默认值里带明文 key（同一把在 `.env` 与 `dist/exe-build/payload.zip` 里都出现过）⇒ **建议轮换**。
    另：RunningHub 节点 600 `FailedTrigger` 会**故意**把上游任务标 FAILED 再抓视频，"上游 FAILED"≠失败。
 - 因为"以调用为准"，**不再需要写电商/影视的划界规则**——判定权在用户点的 `/skill`，agent 不猜。
@@ -102,12 +105,15 @@ python scripts/intent.py <skill> [任务名]
   🔴 **不 setDraft、不挂附件、不 submit、不代发**——往共享输入框里脚本输入是明令禁止的。
 - 🔴 **点【提交这张表】就等于授权开工**，不要再要客户回一句"开始"（那是同一件事的第二个动作）。
   花钱那一下仍只有 `http://127.0.0.1:8100/approval` 那一次点击，表单与批准各管一头。
-- 🔴 **提交后是"事件叫醒你"，不是"你去问"**（2026-10-09 T13）：8100 在提交成功后给那条会话挂 `wake.pending`，
+- 🔴 **提交后是"事件叫醒你"，不是"你去问"**（2026-10-09 T13；2026-10-10 把同一条规矩接到【批准核销】上）：8100 在提交成功后给那条会话挂 `wake.pending`，
   宿主插件每 5 秒领队列并 `Agent.followup()` 开新一轮（消息 `source.kind=plugin`，不是客户手打的）。
-  所以：**客户交完表后 agent 必须自己接着做**，别再等一句"开始"；反过来，被叫醒也**只是开始干活**，
-  🔴 **唤醒 ≠ 批准** —— 要花钱那一下仍然报价 + 等人点批准窗。判据（谁该被叫/叫过没有）只在
-  `model_admin.form_wake_queue` 一份，插件不自己判；销账必须回带 `at`（防旧 ack 抹掉客户重交的新一次）。
-  回归 `scripts/check-form-wake.py`。
+  🔴 **两个事件源、一条队列**：`表单提交` 与 `人在批准窗/批准页点上【批准，开始跑】`（`/api/spend/approve` 核销成功那一下）都挂号 ——
+  后者补的是"我点了审批不执行，还得回一句点了条子"这个洞（用户 2026-10-10 点名）。判据只在 `model_admin` 一份
+  （`form_wake_queue` + `approval_wake_queue` 合并成 `wake_view`），插件不自己判、不猜 kind（ack 必须带 `kind` 分流销账）。
+  点【这次不跑】(deny) 故意**不**挂号：那一下的语义是"停"，叫醒 agent 没有活可派，只会多烧一轮。
+  所以：**客户交完表 / 点完批准之后 agent 必须自己接着做**，别再等一句"开始"；反过来，被叫醒也**只是开始干活**，
+  🔴 **唤醒 ≠ 批准** —— 要花钱那一下仍然报价 + 等人点批准窗（表单叫醒时条子还没有；批准叫醒时条子已生效、只覆盖那一条写明的范围）。
+  回归 `scripts/check-form-wake.py`（B 组=表单、E 组=批准，两组的队列规则逐条同构）。
 - agent 读参数只有两条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）与
   `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、
   不算已提交、不许替客户交表；回填值必须在页面上标「AI 已填 · 可改」并给依据）。
@@ -146,7 +152,8 @@ python scripts/intent.py <skill> [任务名]
 
 2026-10-04 用户原话：**"整个软件写一个铁律：目标未达成（视频和图片没有出来）不能中止运行。"**
 
-**什么才叫"达成"**：产物真的落在盘上并且能出示 —— 视频 = `productions/<task>/outputs/<ascii名>.mp4` + 8100 直链 + 抽帧贴图；图片 = 目标文件落盘且**人眼看过画面内容**。
+**什么才叫"达成"**：产物真的落在盘上并且能出示 —— 视频 = `productions/<task>/outputs/<ascii名>.mp4` + 8100 直链 + 抽帧贴图；图片 = `productions/<task>/…` 落盘 + **画面内联在这条消息里**（`![说明](http://…)`，点一下就地放大审核）。
+🔴 **图片走同一条命令**：`python scripts/deliver_pack.py <图片路径> --json` —— 它不抽帧、不要求 present（帧图在 `frames/`、生图在 `outputs/` 都合法），但硬钉直链那一格回 `image/*`：**只看 200 不算数**，`MarkdownImage` 的 `onError` 会把加载失败的图回落成 alt 文字，客户看到的就还是一行链接。回归 `check-deliver-pack.py`（23-30 组）+ `check-markdown-image-zoom.py`（"点一下能放大"那块补丁的形状）。
 "已提交 / 运行中 / 上游回了成功状态" 都只是中间态，**不算交付**，不得当结论收工。
 
 🔴 **三件套不许手写，跑脚本**（2026-10-09 定，因为反复有会话"给了本地路径就当贴了图"）：
@@ -162,7 +169,7 @@ python scripts/deliver_pack.py <成片绝对路径> --task <任务名> --json
 
 **以下都算违规中止**：
 - 没 `present` 就把成片交回给人（2026-10-09 用户指令"必须强制预览，客户体验感好"）：
-   那张【打开 / 下载视频 / 默认播放器】的卡**只在 agent 调过 present 之后才出现**，`deliver_pack.py` 只出 markdown，不会替你 present。
+   那张【打开】+ 菜单【用默认应用打开 / 在文件资源管理器中显示 / 下载图片·下载视频】的卡**只在 agent 调过 present 之后才出现**（菜单最后一项的文案跟着文件类型走，图片不会写"下载视频"），`deliver_pack.py` 只出 markdown，不会替你 present。
    所以交付顺序是死的：**出片 → present → 跑 deliver_pack → 原样贴 markdown**。
    `deliver_pack` 会去内核附件存储（`%APPDATA%\dsh-desktop\harness\attachments\v1\files\<原名>`）**比内容哈希**确认 present 过
    —— 🔴 只看文件名不算（聊天附件也叫 `video(16).mp4`），没 present 或同名不同内容 ⇒ 该条校验 False、退出码非 0。
@@ -346,19 +353,23 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
     ⚠️ **强度到哪为止**：加工腿（译制/配音替换 = `lipsync`）与咽喉打的是**同一个** `/openapi/v2/run/ai-app` 端点，禁令按【挂载能力】放行而不是按 URL 形状 ⇒ 谁把 lipsync 换成生成类工作流就是绕过，闸拦不住，只能靠 `check-rh-video-ban.py` R10 那张登记表被人看见。
     ⚠️ 另：仓库根/`skills/` 下还有 13 个脚本自带 RH 提交端点（闸只报不判红）—— 它们是禁令管不到的腿，别当成"已经全拦了"。
     回归：`scripts/check-rh-video-ban.py`（含"守卫改空转 ⇒ 真发一次 POST"的变异对照）+ `scripts/check-wan3-rh-cut.py`；条数以各闸打印的汇总为准。
-  - 🔴 **例外形状：花钱在别的进程里的腿，条子在【那一端】消费一次**（2026-10-06，动作迁移 = 8091 浏览器 RPA）：
+  - 🔴 **例外形状：花钱在别的进程里的腿，条子在【那一端】消费一次**（2026-10-06 立，2026-10-10 改范围）：
     `gateway.py` 的 `SPEND_APPROVAL_AT_SOURCE` 列出的 purpose，`invoke()` **不再重复扣段**（两处各扣＝逼用户批两遍，是自造的假账）。
-    🔴 **当前 = 空元组**：8091 那条已剥离进网关轨（`SPEND_APPROVAL_AT_SOURCE = ()`）⇒ 下面这段描述的是【机制还在、暂时没有住户】，
-    别读成"8091 那条还在免重复扣段"。要加豁免就往表里添，同时必须在那一端加调用。
-    🔴 **配对现在由 `check-spend-approval.py` G26 组钉**（读 `app.py` 的 `_spend_or_423` 实参 + `SPEND_APPROVAL_*` 两张表算出文档该长什么样）。
-    原先说的 `check-motion-rpa-lane.py` 已【过期变红】：2026-10-09 实测 54 条里 **14 红**（D/E 组还在打已删的 8091 HTTP 路、F1 还认已撤销的 AT_SOURCE 豁免、F7 的 8100 端点集合停在 10-08 批准页之前）⇒ 订正归 T9b，别拿它的绿当保护。
-    ⚠️ F7 那条红【不是安全洞】：`/api/spend/approve|deny` 是批准页的"决定"口（只听环回、消费已有 `pending_id`），
-    `model_admin.py` 里明写"没有创建 pending 的口" ⇒ 是断言的期望值旧了，不是闸少了。
-    那一端经 8100 的新端点 `POST /api/spend/guard`（**只听环回**、**只消耗批准、没有任何"创建批准"的 HTTP 口**、
-    预计扣分由网关按价目自己算——调用方自带 credits 等于放行，所以不许自带）问一次；8091 的
-    `/run`、`/step5-rpa`、`/retry` 三个花钱口都在**建任务/改状态之前**问，判定口没回话同样 423（闸门坏了不许当成"闸没拦"）。
-    ⚠️ **这张豁免表是后门风险**：往表里加一条 purpose，就必须在对应那一端加调用 —— 配对关系由
-    `scripts/check-spend-approval.py` 的 G26 组钉（🔴 不是 `check-motion-rpa-lane.py`，它已过期 14 红，见上）。
+    🔴 **当前 = 空元组**，而且**没有任何一端在问它**：8091 的动作迁移腿 2026-10-08 已剥离进网关轨（`SPEND_APPROVAL_AT_SOURCE = ()`），
+    2026-10-10 用户又裁定**工作台那一端整个不要条子** —— "8091 还会问批准"这句老话作废（`D:\nzdh\womenswear\router.py` 的
+    `/run`、`/step5-rpa`、`/retry` 三口不再调判定口，helper 与 `config.py` 里那三行 `SPEND_*` 都删了，备份在 `D:\nzdh\_bak-20261010\`）。
+    🔴 **取消的只有独立工作台那一下**：判据 = 人是坐在那个 8091 页面前自己点的；**agent 那条轨照旧要批**
+    （`gateway call video.generate/motion-rpa` → 直调本地 `backend/services/motion_rpa`，条子在 `invoke()` 里消费一次）。
+    ⚠️ **代价要认**：现在任何能 POST `127.0.0.1:8091` 的本地进程/脚本都能不经批准起浏览器 RPA 烧 RunningHub 的真钱
+    （60 分/段仍是**占位**，上游按 GPU 秒扣）。8091 只绑环回（闸 G1/G2 钉着），但"只有本机点得动"≠"只有人在点"——
+    这条豁免不给 agent 用：**agent 要跑动作迁移只许走 `gateway call`，不许转调 8091 的 HTTP 口。**
+    那一端的判定口 `POST /api/spend/guard` 机制**留着、暂时没住户**（只听环回、只消耗批准、8100 全文不调 `create_spend_pending`
+    ⇒ 没有任何"创建批准"的 HTTP 口；预计扣分由网关按价目自己算，调用方自带 credits 等于放行，所以不许自带）。
+    🔴 **配对判据**：`scripts/check-spend-approval.py` 的 G26 组钉 8090 那几个 `_spend_or_423`；
+    `scripts/check-motion-rpa-lane.py` 的 **F 组**钉这一条的两半（F4 8091 源码里判定 helper 零出现 + F4c 反向对照"三口都还在、不是没读到文件"
+    + F4b 网关那侧 `video.generate` 仍要批且 `invoke()` 真调判定口 + F4d 配置无残留 + F9 创建口不存在）。
+    ⚠️ 该闸现在 **12 红**（D/E 组还在打已删的 8091 HTTP 转调形状，订正归 T9b）⇒ 别拿它的绿当保护，但 F 组这半是活的。
+    要加新的跨进程豁免就往 `SPEND_APPROVAL_AT_SOURCE` 添，同时**必须在那一端加调用**——这张表是后门风险，配对关系由上面两组钉。
   - **一次报价覆盖整条方案，不是每次生成都问**（见上面「批准粒度」）：omni 把报价并进【方案批准】那条消息、hypit 并进 `pricing` 关口；批准一次即自动跑到下一个关口。
   - 用户的同意**只覆盖那次列明的范围**：换路由、加段数、改片型 ⇒ 重新报价再确认。**超时/上游抖导致的自动重试不算扩范围**（失败本就不扣费），但要说明"这是重跑第几段"。
   - 文本/看图按 token 结算（1 分≈100 token），不必逐次确认；但**单条预估 >50 分** 或 **整批预估 >500 分** 要先报价。
