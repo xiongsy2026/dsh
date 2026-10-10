@@ -112,11 +112,24 @@ def write_prompt(text="①商品迁移 ②口播 ③模特 ④场景 ⑤图N绑�
 
 sb = os.path.join(task, "storyboard.json")          # Step1 真产物（喂给编译器的那一份）
 meta = os.path.join(task, "prompt_meta.json")       # 编译器自己写的来源指纹
+mat = os.path.join(task, "material_analysis.json")  # 素材台账对账物证（合同 @5 起的必需步）
+
+
+# 🔴 盘上真产物那个形状（2026-10-10 从 productions/…/step1_mimo/storyboard.json 抄，键名逐字）：
+#    时间住在 时间区间 里，shot 顶层【没有】start/end —— 全仓唯一读法是 super_clone_wan3._shot_time_range。
+#    闸以前的 fixture 是 {"shot":1,"start":0.0,"end":5.0}，那是闸自己凭想象造的产物形状：
+#    判据要求 start/end、fixture 就给 start/end ⇒ 闸全绿，真跑必拒（今天线上就是这一刀）。
+REAL_SHOTS = [
+    {"shot": 1, "时间区间": {"开始时间": "00:00.00", "结束时间": "00:03.85", "镜头时长": "3.85s"},
+     "场景环境": {"环境": "客厅", "主色调": "暖木色"}, "口播": "这双鞋我穿了三个月"},
+    {"shot": 2, "时间区间": {"开始时间": "00:03.85", "结束时间": "00:10.15", "镜头时长": "6.30s"},
+     "场景环境": {"环境": "玄关", "主色调": "白墙"}, "口播": "鞋底软硬适中"},
+]
 
 
 def write_storyboard(shots=None):
     if shots is None:
-        shots = [{"shot": 1, "start": 0.0, "end": 5.0}, {"shot": 2, "start": 5.0, "end": 10.0}]
+        shots = REAL_SHOTS
     io.open(sb, "w", encoding="utf-8").write(json.dumps(shots, ensure_ascii=False))
 
 
@@ -126,7 +139,18 @@ def write_meta(bind_to=None, source="step1_5_gpt_compiler"):
         ensure_ascii=False))
 
 
-IMPL_OK = {"negative-lock": "compiler-negative-lock"}
+IMPL_OK = {"negative-lock": "compiler-negative-lock",
+           "material-analysis": "gateway:video.analyze"}
+
+
+def write_material():
+    """material_analysis.json 的合格形状（合同新加的 required 步：每个素材都要有看图记录）。
+    真判据在网关台账那边（check-material-analysis.py 跑的是真对账）；这里只造【物证文件】。"""
+    io.open(mat, "w", encoding="utf-8").write(json.dumps({
+        "session": "gate-fixture", "missing": [], "ledger_rows": 2,
+        "materials": [{"ok": True, "sha8": "aaaa1111", "bytes": 123, "name": os.path.basename(prod)}]},
+        ensure_ascii=False))
+    return mat
 
 
 def make_receipt(deviations=(), with_sb=True, impl=None):
@@ -138,7 +162,8 @@ def make_receipt(deviations=(), with_sb=True, impl=None):
             if os.path.exists(f):
                 os.remove(f)
     return sc.write_receipt("super-clone", task,
-                            steps={"compile-prompt": prompt, "storyboard": sb,
+                            steps={"material-analysis": (write_material() if with_sb else None),
+                                   "compile-prompt": prompt, "storyboard": sb,
                                    "compile-bound": meta, "negative-lock": prompt,
                                    "source-fit": vid,
                                    "reference-clean": None},
@@ -270,7 +295,7 @@ check("T15 只手写 prompt.txt、Step1 分镜没跑 ⇒ 拒（今天真实发�
 
 make_receipt()                                            # 补齐真物证，确认基线是放行
 sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
-write_storyboard([{"shot": 1, "start": 0.0, "end": 5.0}])  # 换了一份分镜，meta 还绑着旧的
+write_storyboard([REAL_SHOTS[1]])                         # 换了一份分镜（真形状，只是内容不同），meta 还绑着旧的
 try:
     sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
     t16 = "没抛"
@@ -278,14 +303,24 @@ except sc.SkillContractError as e:
     t16 = "指纹不符" if "不符" in str(e) else str(e)[:70]
 check("T16 prompt 绑的 storyboard 与实际文件不符（事后换料/跳步重跑）⇒ 拒", t16, "指纹不符")
 
+# T17 订正（2026-10-10）：原来这条测的是"shot 缺顶层 start/end ⇒ 拒"，而那个字段是闸凭空造的 ⇒
+# 它测的是一件真产物永远不会发生的事，真产物反倒过不了核验。现在钉回两件事：
 make_receipt()
-write_storyboard([{"shot": 1, "end": 5.0}])               # 有 shot 但缺 start ⇒ 不是规范化过的那份
+write_storyboard(REAL_SHOTS)                              # 盘上真产物那个形状，一个字都没改
 try:
     sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
-    t17 = "没抛"
+    t17 = "放行"
 except sc.SkillContractError as e:
-    t17 = "shot 不完整" if "start/end" in str(e) else str(e)[:70]
-check("T17 storyboard.json 里 shot 缺 start/end（不是 Checkpoint A 产物）⇒ 拒", t17, "shot 不完整")
+    t17 = str(e)[:70]
+check("T17 🔴 真产物形状（时间住在 时间区间、无顶层 start/end）必须过全链核验", t17, "放行")
+make_receipt()
+write_storyboard([])                                      # 空数组 = 分镜是空的，这条判据还得咬得住
+try:
+    sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
+    t17e = "没抛"
+except sc.SkillContractError as e:
+    t17e = "空分镜被拒" if "不成立" in str(e) else str(e)[:70]
+check("T17e 数组判据仍然咬得住：storyboard 是空数组 ⇒ 拒", t17e, "空分镜被拒")
 
 make_receipt()
 write_meta(source="hand_written")                         # 编译器没跑，来源对不上
@@ -559,10 +594,15 @@ _pro = os.path.join(_t34_dir, "p.png")
 open(_ref, "wb").write(b"fake-video")
 open(_pro, "wb").write(b"fake-product")
 _SEG = os.path.join(_t34_dir, "step2_wan3")
+# 合同 @5 起，_contract_evidence 会先对【素材看图台账】⇒ 夹具必须有对应记录，
+# 否则这里拿到的永远是"素材没看过"而不是它真正要验的那三件事（真判据见 check-material-analysis.py）。
+from backend import gateway as _g34                              # noqa: E402
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(_t34_dir, "ledger.json")
+_g34.record_media_analysis(_pro, "video.analyze", "default", session="")
 _stamp = {"prompt": "…不得出现字幕、花字、水印…", "source": "step1_5_gpt_compiler",
           "model": "gpt-5.6-sol", "provider": "hub.nocannobb.com", "ledger": "off"}
 try:
-    _v34 = _svc._contract_evidence(_SEG, seg_board=[{"shot": 1, "start": 0.0, "end": 10.0}],
+    _v34 = _svc._contract_evidence(_SEG, seg_board=REAL_SHOTS,
                                    seg_prompt="…不得出现字幕、花字、水印…", compiled_seg=_stamp,
                                    seg_duration=10.0, ref_video=_ref, seg_product_paths=[_pro],
                                    source_fit=_ref, log=None) if _svc else {}
@@ -603,7 +643,7 @@ if _check_receipt34:
     _noStamp = dict(_stamp)
     _noStamp.pop("model")
     _SEG2 = os.path.join(_t34_dir, "step2_nomodel")
-    _svc._contract_evidence(_SEG2, seg_board=[{"shot": 1, "start": 0.0, "end": 10.0}],
+    _svc._contract_evidence(_SEG2, seg_board=REAL_SHOTS,
                             seg_prompt="…不得出现字幕、花字、水印…", compiled_seg=_noStamp,
                             seg_duration=10.0, ref_video=_ref, seg_product_paths=[_pro],
                             source_fit=_ref, log=None)
@@ -644,6 +684,122 @@ check("T34g2 反向对照：同一条断言打在【修好前的备份】上必�
           io.open(os.path.join(WS, "scratch", "_bak-20261010-contract", "super_clone_wan3.py"),
                   encoding="utf-8", errors="replace").read(), "verify_or_raise")],
       ["impl"])
+
+# ---- T35 提交链的"用了却没 import"（2026-10-10 现网：wan3_client 模块层没有 os，
+#      run_one_segment_prime 走到 :500 就 NameError ⇒ 三次提交全崩在进网关之前，0 出片、闸全绿）----
+_STD = {"os", "sys", "re", "json", "time", "io", "subprocess", "shutil", "hashlib", "base64",
+        "urllib", "math", "uuid", "tempfile", "sqlite3", "threading", "asyncio", "glob", "copy",
+        "stat", "platform", "traceback", "struct", "binascii", "contextlib", "secrets", "zlib",
+        "string", "textwrap", "random", "datetime", "socket", "mimetypes", "importlib"}
+
+
+def _unbound_std_src(src):
+    """作用域感知的"用了却没绑定"。两件事必须避开：
+       ① 模块级扫描不算函数内的 import（那是局部绑定，出不了函数）；
+       ② 函数内的 import 对它自己是合法的（现网就误报过 167 那一处）。"""
+    import ast
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return ["SyntaxError"]
+
+    def bound(stmts, deep=False):
+        """deep=False：模块作用域用，【不下钻进 def/class】—— 函数里的 import 是局部绑定，
+           漏进模块集合就是这次自查出的失效形状（T35c 因此对真 bug 恒绿）。
+           deep=True：函数作用域用，把函数体里所有层级的 import/赋值都算上。"""
+        names = set()
+
+        def push(node):
+            stack.extend(getattr(node, "body", []) or [])
+
+        stack = list(stmts)
+        while stack:
+            st = stack.pop()
+            if isinstance(st, (ast.Import, ast.ImportFrom)):
+                for al in st.names:
+                    names.add((al.asname or al.name).split(".")[0])
+                continue
+            if isinstance(st, ast.ClassDef):
+                names.add(st.name)
+                if deep:
+                    stack.extend(st.body)
+                continue
+            if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(st.name)
+                a = st.args
+                names.update(a.arg for a in list(a.posonlyargs) + list(a.args) + list(a.kwonlyargs))
+                if a.vararg:
+                    names.add(a.vararg.arg)
+                if a.kwarg:
+                    names.add(a.kwarg.arg)
+                if deep:
+                    stack.extend(st.body)
+                continue
+            if isinstance(st, ast.Name) and isinstance(st.ctx, ast.Store):
+                names.add(st.id)
+            if isinstance(st, ast.Global):
+                names.update(st.names)
+            if isinstance(st, ast.Try):
+                stack.extend(st.body + st.finalbody + st.handlers)
+                continue
+            if isinstance(st, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.With, ast.AsyncWith)):
+                stack.extend(getattr(st, "body", []) or [])
+                stack.extend(getattr(st, "orelse", []) or [])
+                continue
+        return names
+
+    mod = bound(tree.body)                       # 浅层：函数里的 import 不算模块绑定
+    funcs = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    fbound = {id(f): bound(f.body, deep=True) for f in funcs}
+    out = []
+    for nd in ast.walk(tree):
+        if not (isinstance(nd, ast.Attribute) and isinstance(nd.value, ast.Name)):
+            continue
+        nm = nd.value.id
+        if nm not in _STD or nm in mod:
+            continue
+        inside = [f for f in funcs if f.lineno <= nd.lineno <= getattr(f, "end_lineno", f.lineno)]
+        if any(nm in fbound[id(f)] for f in inside):
+            continue
+        out.append("%s@L%d" % (nm, nd.lineno))
+    return sorted(set(out))
+
+
+def _unbound_std_file(path):
+    try:
+        return _unbound_std_src(io.open(path, encoding="utf-8", errors="replace").read())
+    except Exception as e:                                    # noqa: BLE001
+        # 🔴 闸不许需要人守着才能跑：扫描器自己出问题必须吃成【一条红】，不是抛出去把整条闸弄崩
+        #    （闸崩 = 等于没跑，比红更坏）。
+        return ["SCAN-BROKE %s: %s" % (type(e).__name__, str(e)[:70])]
+
+
+check("T35a 对照：合成一段「函数外用了 os 却没 import」的源码 ⇒ 必须报出来（这条得有牙）",
+      _unbound_std_src("import time\ndef f(p, o):\n    return os.path.join(p, o), time.time()\n"),
+      ["os@L3"])
+check("T35b 对照：函数内自己 import 的【不许误报】（现网就误判过 167 那一处）",
+      _unbound_std_src("def g():\n    import os\n    return os.sep\n"), [])
+# 🔴 T35d = 证明 T35c 有牙的唯一办法：拿【真提交链源码】剥掉那行 import os 再跑同一条判据。
+#    第一版扫描器把函数内的 import 漏算成模块绑定 ⇒ 这条当场没通过（T35c 对真 bug 恒绿），
+#    就是它逼着把 bound() 改成浅层/深层两种走法。
+_wc_src = io.open(os.path.join(r"D:\video-skill", "backend", "services", "wan3_client.py"),
+                  encoding="utf-8", errors="replace").read()
+_wx_src = _wc_src.replace(chr(10) + "import os" + chr(10), chr(10), 1)
+_d_with, _d_wo = _unbound_std_src(_wc_src), _unbound_std_src(_wx_src)
+# ⚠️ 断言里【不写行号】：那是要人守着的现场（我第一版写死 L500/L517，加了三行注释就自己假红了）。
+#    钉的是规则：带 import ⇒ 干净；剥掉 ⇒ 只多出一批 os@ 项，别的都不许多。
+check("T35d 真产物对照：同一份源码【带 import os】= 空；剥掉那行 ⇒ 只多报 os 的用处"
+      "（行号不参与断言）",
+      [len(_d_with), bool(_d_wo), all(x.startswith("os@") for x in _d_wo),
+       set(_d_with) <= set(_d_wo)],
+      [0, True, True, True])
+for _f in ("backend/services/wan3_client.py", "backend/services/super_clone_wan3.py",
+           "backend/gateway.py", "backend/skill_contract.py", "backend/services/runninghub_client.py"):
+    _p = os.path.join(r"D:\video-skill", *_f.split("/"))
+    if not os.path.isfile(_p):
+        check("T35c 提交链文件在盘上：" + _f, "missing", "present")
+        continue
+    check("T35c 提交链没有「用了却没绑定」：%s" % _f.split("/")[-1], _unbound_std_file(_p), [])
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(_safe("\n=== skill 执行合同闸：%d/%d 通过 ===" % (len(PASS), len(PASS) + len(FAIL))))

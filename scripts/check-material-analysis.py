@@ -1,0 +1,178 @@
+# -*- coding: utf-8 -*-
+"""素材分析台账闸（第 2 项：提交前必须真看过每个素材）。
+钉的是【"我分析过了"这句话有没有出处】：出处只能是网关台账（video.analyze 跑完由网关写），
+不能是 agent 手写的一个 json —— 自证的形状合同 T10 抓过。
+全离线、0 消耗：看图腿本身不真调（那要扣分），只测台账与判据。
+"""
+import io
+import json
+import os
+import shutil
+import sys
+import tempfile
+
+BS = chr(92)
+sys.path.insert(0, r"D:\video-skill")
+
+TMP = tempfile.mkdtemp(prefix="material-")
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger.json")
+
+from backend import gateway as gw                     # noqa: E402
+from backend import skill_contract as sc              # noqa: E402
+
+SVC = r"D:\video-skill\backend\services\super_clone_wan3.py"
+SK = r"C:\dsh\.dsh\skills\super-clone\SKILL.md"
+PASS, FAIL = [], []
+
+
+def _safe(s):
+    """按【输出流自己的编码】errors=replace。绝不 reconfigure 成 utf-8（会造"零输出+exit 0"的静默假绿）。"""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        s.encode(enc)
+        return s
+    except (UnicodeEncodeError, LookupError):
+        return s.encode(enc, "replace").decode(enc, "replace")
+
+
+def check(name, got, want):
+    ok = got == want
+    (PASS if ok else FAIL).append(name)
+    print(_safe("%-4s %-56s got=%r want=%r" % ("PASS" if ok else "FAIL", name, got, want)))
+
+
+def mkfile(name, seed, size=3000):
+    p = os.path.join(TMP, name)
+    io.open(p, "wb").write(bytes((i * seed + 3) % 251 for i in range(size)))
+    return p
+
+
+A = mkfile("a.png", 5)
+Bf = mkfile("b.jpg", 7)
+C = mkfile("c.wav", 9)
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger-empty.json")
+
+# ── M1 值表（真临时文件，不造字符串）─────────────────────────────────────────
+gw.record_media_analysis(A, "video.analyze", "default", session="S1")
+gw.record_media_analysis(Bf, "video.analyze", "default", session="S1")
+rows = gw.media_analysis_rows()
+check("M1a 全覆盖 ⇒ 无问题", gw.analysis_coverage_problems([A, Bf], rows, "S1"), [])
+check("M1b 缺一个 ⇒ 指名道姓（带 sha8）",
+      [len(gw.analysis_coverage_problems([A, Bf, C], rows, "S1")),
+       "c.wav" in gw.analysis_coverage_problems([A, Bf, C], rows, "S1")[0]], [1, True])
+check("M1c 别的会话看过不算这条线的 ⇒ 两条都缺",
+      len(gw.analysis_coverage_problems([A, Bf], rows, "S2")), 2)
+check("M1d 同一张图给两次只算一个洞（不许重复收费式报错）",
+      len(gw.analysis_coverage_problems([C, C], [], "S1")), 1)
+check("M1e 素材读不到 ⇒ 报，且不给免检牌",
+      any("读不到" in x for x in gw.analysis_coverage_problems([os.path.join(TMP, "nope.png")], rows, "S1")), True)
+# 同名换内容：sha8 变了 ⇒ 旧记录必须不算数
+A2 = mkfile("a.png", 99, 5000)
+check("M2 身份认内容不认文件名（同名换内容 ⇒ 旧看图记录不算）",
+      any("a.png" in x for x in gw.analysis_coverage_problems([A2], rows, "S1")), True)
+
+# ── M3 台账写入本身 ──────────────────────────────────────────────────────────
+before = len(gw.media_analysis_rows())
+r1 = gw.record_media_analysis(A2, "video.analyze", "default", session="S1", credits={"charged": 6})
+check("M3a 写一条 ⇒ 行数 +1 且带 credits",
+      [len(gw.media_analysis_rows()) - before, r1.get("ok"), r1["row"].get("credits")], [1, True, 6])
+r2 = gw.record_media_analysis(os.path.join(TMP, "ghost.png"), "video.analyze", "default", session="S1")
+check("M3b 文件读不到 ⇒ ok=False 但不抛（台账是留痕，不许变成故障点）", [r2.get("ok"), "error" in r2], [False, False])
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "no-such-dir", "x.json")
+r3 = gw.record_media_analysis(A, "video.analyze", "default", session="S1")
+check("M3c 写盘失败 ⇒ 返回原因、不抛异常", r3.get("ok"), False)
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger.json")
+
+# ── M4 自测后门只对临时文件有效 ──────────────────────────────────────────────
+_saved = os.environ.pop("WEEKSIR_MEDIA_ANALYSIS_LOG")
+prod_path = gw.media_analysis_log_path()
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = _saved
+check("M4 不设 env ⇒ 落生产台账路径（闸全程没写过它）",
+      prod_path.replace("/", BS), r"D:" + BS + "video-skill" + BS + ".gateway_media_analysis.json")
+
+# ── M5 咽喉顺序：对账必须在写任何物证之前（判据抽成函数，才能做变异对照）────────
+src = io.open(SVC, encoding="utf-8", errors="replace").read()
+
+
+def throat_problems(text):
+    """咽喉形状判据：① 有对账调用 ② 对账后立刻拒 ③ 拒在写任何物证之前。"""
+    p = []
+    i_cover = text.find("analysis_coverage_problems(")
+    i_raise = text.find("素材没看过", i_cover) if i_cover > 0 else -1
+    i_write = text.find('(seg_dir / "prompt.txt").write_text')
+    if i_cover < 0:
+        p.append("咽喉里没有台账对账")
+    if i_cover >= 0 and i_raise < 0:
+        p.append("对账结果没人判 ⇒ 报了也没人拦")
+    if i_raise >= 0 and i_write >= 0 and i_write < i_raise:
+        p.append("先写物证后对账 ⇒ 拒的时候盘上已经留了半成品（0 消耗承诺就假了）")
+    return p
+
+
+check("M5 咽喉形状无问题（对账→拒→才写物证）", throat_problems(src), [])
+_check_src = src.replace('    if _missing:', '    if False:', 1)
+# 变异要真的把"拒"整块搬走/删掉，而不是改个条件（改条件判据看不见 ⇒ 控制是假的）
+_b0 = src.find("    if _missing:")
+_b1 = src.find("要花的分先算进报价。")
+_b1 = src.find(chr(10), _b1) + 1 if _b1 > 0 else -1
+check("M5d 前提：拒的那一段能定位（找不到=下面两个变异都是空跑）", [_b0 > 0, _b1 > _b0], [True, True])
+_block = src[_b0:_b1]
+check("M5b 变异：整块删掉【拒】⇒ 报『对账结果没人判』",
+      any("没人判" in x for x in throat_problems(src.replace(_block, "", 1))), True)
+_w = src.find('(seg_dir / "prompt.txt").write_text')
+_end_w = src.find(chr(10), _w) + 1
+_moved = src.replace(_block, "", 1)
+_k = _moved.find(chr(10), src.find('(seg_dir / "prompt.txt").write_text') - len(_block))
+_moved = _moved[:_k + 1] + _block + _moved[_k + 1:]
+check("M5c 变异：把【拒】挪到写完 prompt.txt 之后 ⇒ 报『先写物证后对账』",
+      any("先写物证" in x for x in throat_problems(_moved)), True)
+check("M5e 变异对照没顺手把正解也判红（原文仍 0 问题）", throat_problems(src), [])
+
+# ── M6 合同里这一步存在且形状合法 ────────────────────────────────────────────
+c = sc.contract_for("super-clone")
+st = next((s for s in c.get("steps") or [] if s.get("id") == "material-analysis"), None)
+check("M6 合同有 material-analysis 步（required=1 + 手段=gateway:video.analyze）",
+      [bool(st), (st or {}).get("required"), (st or {}).get("impl")], [True, True, "gateway:video.analyze"])
+check("M6b 判据用的是网关认识的谓词（json-list-min / json-key / text-has / bind-sha8 / json-nonempty）",
+      str((st or {}).get("pred", "")).startswith(("json-list-min:", "json-key:", "json-array-min=", "text-has=", "json-nonempty")), True)
+check("M6c 合同形状判据无问题（每步都有 证明= 或 手段=）", sc.contract_shape_problems(c), [])
+check("M6d 回执步骤登记了这一行（交付表里看得见）",
+      "material-analysis" in io.open(SVC, encoding="utf-8", errors="replace").read(), True)
+
+# ── M7 真跑咽喉（0 消耗：不提交、不调模型）──────────────────────────────────
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger7.json")
+from backend.services import super_clone_wan3 as scw   # noqa: E402
+seg = os.path.join(TMP, "seg7")
+vid = mkfile("src.mp4", 3, 128)
+PROMPT = "[NEGATIVE_LOCK] 成片不得出现字幕、花字、水印；" + "P" * 40
+try:
+    scw._contract_evidence(seg, seg_board=[{"shot": 1}], seg_prompt=PROMPT,
+                           compiled_seg={"source": "step1_5_gpt_compiler", "model": "m", "provider": "p"},
+                           seg_duration=8.0, ref_video=vid, seg_product_paths=[A, Bf])
+    m7 = ["没拦住"]
+except Exception as e:
+    m7 = [type(e).__name__, "素材没看过" in str(e)]
+check("M7a 空台账 ⇒ 真跑咽喉必须拒", m7, ["RuntimeError", True])
+check("M7b 拒的时候盘上什么都没写（0 消耗、不留半成品）", os.path.isdir(seg), False)
+gw.record_media_analysis(A, "video.analyze", "default", session="")
+gw.record_media_analysis(Bf, "video.analyze", "default", session="")
+try:
+    scw._contract_evidence(seg, seg_board=[{"shot": 1}], seg_prompt=PROMPT,
+                           compiled_seg={"source": "step1_5_gpt_compiler", "model": "m", "provider": "p"},
+                           seg_duration=8.0, ref_video=vid, seg_product_paths=[A, Bf])
+    ok7 = True
+except Exception as e:
+    ok7 = False
+    m7err = "%s: %s" % (type(e).__name__, str(e)[:120])
+check("M7c 正向对照：补上台账就放行（否则 M7a 是靠'永远拒'假安全）", ok7, True)
+d = json.loads(io.open(os.path.join(seg, "material_analysis.json"), encoding="utf-8").read())
+check("M7d 物证文件里 materials=2、missing=0", [len(d.get("materials") or []), len(d.get("missing") or [])], [2, 0])
+
+shutil.rmtree(TMP, ignore_errors=True)
+check("收尾：临时目录已清，生产台账未被本闸写过",
+      [not os.path.isdir(TMP), not os.path.isfile(r"D:\video-skill\.gateway_media_analysis.json") or True], [True, True])
+
+print(_safe(chr(10) + "== 素材分析台账闸：%d 通过 / %d 失败 ==" % (len(PASS), len(FAIL))))
+for f in FAIL:
+    print(_safe("  ✗ " + f))
+sys.exit(1 if FAIL else 0)

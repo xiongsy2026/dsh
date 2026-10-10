@@ -44,6 +44,7 @@ def _safe(s):
 def check(name, got, want):
     ok = got == want
     (PASS if ok else FAIL).append(name)
+    
     print(_safe("%-4s %-58s got=%r want=%r" % ("PASS" if ok else "FAIL", name, got, want)))
 
 
@@ -251,6 +252,156 @@ for name, spend, fields, text in lanes:
     if provider:
         check("H6 %s：prices 输出里能看到 provider=%s" % (name, provider), provider.lower() in blob, True)
     check("H7 %s：prices 退出码 0（非 0 = 这条现读口本身是坏的，H5 全绿也没用）" % name, r.returncode, 0)
+
+# ══ I 组：引擎锁（2026-10-10 用户裁定"唯一的 wan3.0 只有一个"之后的第二层）════════
+# E/F 组钉的是【花钱那一刀走哪条 lane】；I 组钉的是【别人还能不能从入口换 lane】。
+# 起因：run_pipeline(engine=...) 没有白名单、runner 的 --engine 没有 choices ⇒ engine=h3
+# 一路能走到 RunningHub 导演台，而合同/表单/上面那些判据全都只看着 wan3-prime 那一条腿。
+SVC_ENG = r"D:\video-skill\backend\services\super_clone_wan3.py"
+RUN_ENG = r"C:\dsh\.dsh\skills\super-clone\runner\run.py"
+APP_ENG = r"D:\video-skill\app.py"
+src_svc = io.open(SVC_ENG, encoding="utf-8", errors="replace").read()
+src_run = io.open(RUN_ENG, encoding="utf-8", errors="replace").read()
+src_app = io.open(APP_ENG, encoding="utf-8", errors="replace").read()
+Q = chr(34)
+
+
+def parse_lane_engines(svc_text):
+    m = re.search(r"(?m)^LANE_ENGINES\s*=\s*\(([^)]*)\)", svc_text)
+    if not m:
+        return None
+    return tuple(x.strip().strip(Q).strip(chr(39)) for x in m.group(1).split(",") if x.strip())
+
+
+def lock_problems(svc_text, run_text, app_text):
+    """纯判据（喂假文本就能做变异对照）。返回问题列表，空 = 锁装好了。"""
+    p = []
+    engines = parse_lane_engines(svc_text)
+    if engines is None:
+        return ["服务层没有 LANE_ENGINES 名单（唯一源丢了）"]
+    if "def engine_lock_error(" not in svc_text:
+        p.append("没有 engine_lock_error() 这个纯判据 ⇒ 名单没人问，等于可以绕过")
+    # ① 入口第一道就是锁：AST 看 run_pipeline 体开头（注释不是节点，所以 body[0] 必须是那次调用）
+    try:
+        tree = ast.parse(svc_text)
+        fn = next((n for n in tree.body
+                   if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_pipeline"), None)
+        if fn is None:
+            p.append("找不到 run_pipeline（改名了？判据要跟着改）")
+        else:
+            head = fn.body[1:] if (fn.body and isinstance(fn.body[0], ast.Expr)
+                                   and isinstance(fn.body[0].value, ast.Constant)
+                                   and isinstance(fn.body[0].value.value, str)) else fn.body
+            # body[0] 是 docstring（我第一版没跳它，把正确的锁判成"没装"）
+            if not head or "engine_lock_error" not in ast.dump(head[0]):
+                p.append("run_pipeline 第一条真语句不是引擎锁 ⇒ 拒之前可能已经建目录/读盘/调模型")
+    except SyntaxError as e:
+        p.append("服务层解析不出来：%s" % e)
+    # ② runner 的 --engine 必须有 choices，且集合 == 服务层名单（两份各抄一份迟早漂）
+    rm = re.search(r"add_argument\(\s*" + Q + "--engine" + Q + r"[^)]*?choices=\[([^\]]*)\]",
+                   run_text, re.S)
+    if not rm:
+        p.append("runner 的 --engine 没有 choices ⇒ 敲命令的人可以随意切引擎")
+    else:
+        choices = tuple(x.strip().strip(Q).strip(chr(39)) for x in rm.group(1).split(",") if x.strip())
+        if choices != engines:
+            p.append("runner choices=%s 与服务层 LANE_ENGINES=%s 不一致" % (list(choices), list(engines)))
+    # ③ 服务层里除了锁，不许再有"按 engine 选到白名单之外执行器"的活路
+    # 白名单之外的分支不要求"立刻删干净"（那是别人写的 H3 导演台实现，删它得单独拍板），
+    # 但必须【走不到】：它的源码位置要在锁之后。锁在 run_pipeline 第一道 ⇒ 任何 engine 分派都在它下游。
+    lock_at = svc_text.find("_lock = engine_lock_error(engine)")
+    # 只看 run_pipeline 自己那段：文件里另有一个同名局部参数 engine（_compiler_llm 的 grok/gpt），
+    # 全文扫会把"选哪个推理脑"误判成"选哪个生成引擎"（我第一版就红了在 grok 上）。
+    seg_lo = svc_text.find("async def run_pipeline(")
+    seg_hi = svc_text.find(chr(10) + "def ", seg_lo)
+    seg = svc_text[seg_lo: seg_hi if seg_hi > 0 else len(svc_text)]
+    seg_off = seg_lo
+    bad = []
+    for m in re.finditer(r"if\s+engine\s*==\s*" + Q + r"([^" + Q + r"]+)" + Q, seg):
+        if m.group(1) not in engines and (lock_at < 0 or seg_off + m.start() < lock_at):
+            bad.append(m.group(1))
+    if bad:
+        p.append("白名单之外的 engine 分支排在锁【之前】或锁没了：%s ⇒ 从模块内部就能绕开" % bad)
+    # ④ 8090 提交口：建任务记录之前先问锁（否则人看到的是一串已排队的任务）
+    i_ep = app_text.find("@app.post(" + Q + "/api/super-clone-wan3/submit" + Q + ")")
+    if i_ep < 0:
+        p.append("找不到 super-clone-wan3 提交口（端点改名了？判据要跟着改）")
+    else:
+        seg = app_text[i_ep:i_ep + 3500]
+        a = seg.find("engine_lock_error(")
+        b = seg.find("super_clone_wan3_tasks[task_id] =")
+        if a < 0:
+            p.append("提交口没问引擎锁")
+        elif 0 <= b < a:
+            p.append("提交口先建任务记录才问锁 ⇒ 拒得晚，盘上已经多一条任务")
+    return p
+
+
+def extract_lock_fn(svc_text):
+    """把"常量 + engine_lock_error"整块抠出来 exec（不 import 整个重模块：它会拉起 playwright 等）。
+    边界取"函数之后的第一个顶层定义"，不取固定空行数（第一版按三个换行找，把 def _cfg 的
+    Dict 注解也卷进来 ⇒ NameError；第二版从函数起切，又漏掉常量 ⇒ KeyError）。"""
+    i = svc_text.index("LANE_ENGINES =")
+    j0 = svc_text.index("def engine_lock_error(")
+    assert i < j0, "常量在函数之后，切法要改"
+    rest = svc_text[i:]
+    off = j0 - i + 1
+    j = len(rest)
+    for marker in (chr(10) + "def ", chr(10) + "@", chr(10) + "class "):
+        k = rest.find(marker, off)
+        if 0 < k < j:
+            j = k
+    ns = {}
+    exec(compile(rest[:j], "<engine_lock_error>", "exec"), ns)
+    return ns["engine_lock_error"]
+
+
+_lock_fn = extract_lock_fn(src_svc)
+problems = lock_problems(src_svc, src_run, src_app)
+check("I1 引擎锁判据合计无问题", problems, [])
+check("I2 真跑判据：wan3 放行，h3/H3/seedance/空/None 全拒",
+      [_lock_fn(e) == "" for e in ("wan3", "h3", "H3", "seedance", "", None)],
+      [True, False, False, False, False, False])
+check("I2b 拒因里带得上『该去哪』：点名 lane 与『换 skill、重新报价』",
+      all(s in _lock_fn("h3") for s in ("video.generate/wan3-prime", "换 skill", "重新报价")), True)
+# ── 变异对照：三处锁分别拆掉，判据必须各报一条（否则 I1 是靠"没东西可查"假绿）──
+check("I3 变异：判据函数改名（等于没人问）⇒ 报",
+      any("engine_lock_error" in x for x in lock_problems(
+          src_svc.replace("def engine_lock_error(", "def _lock_disabled(", 1), src_run, src_app)), True)
+check("I4 变异：runner choices 多出 h3 ⇒ 报不一致",
+      any("choices" in x for x in lock_problems(
+          src_svc, src_run.replace("choices=[" + Q + "wan3" + Q + "]",
+                                   "choices=[" + Q + "wan3" + Q + "," + Q + "h3" + Q + "]", 1), src_app)), True)
+check("I5 前提：服务层确实还留着 engine==h3 分支（没有的话 I6 就是空跑）",
+      ("if engine == " + Q + "h3" + Q + ":") in src_svc, True)
+check("I6 变异：白名单被改大（加 h3）⇒ 分支不再算越界，但 runner choices 必须跟着报",
+      any("choices" in x for x in lock_problems(
+          src_svc.replace("LANE_ENGINES = (" + Q + "wan3" + Q + ",)",
+                          "LANE_ENGINES = (" + Q + "wan3" + Q + "," + Q + "h3" + Q + ",)", 1), src_run, src_app)), True)
+check("I7 变异：提交口把锁问成空串 ⇒ 报",
+      any(("锁" in x or "提交口" in x) for x in lock_problems(
+          src_svc, src_run, src_app.replace("_lock = engine_lock_error(req.engine)", "_lock = " + Q + Q, 1))), True)
+_lock_src = ("    _lock = engine_lock_error(req.engine)" + chr(10)
+             + "    if _lock:" + chr(10) + "        raise HTTPException(400, _lock)" + chr(10))
+_i = src_app.find(_lock_src)
+check("I8a 前提：提交口里那段锁源码按预期形状存在（找不到=变异是空跑，别给假绿）", _i > 0, True)
+# 变异要【在端点那一段里】挪顺序：全文 find 会先撞上别的端点（同名写法出现 2 次），
+# 于是锁被挪到这条线之外 ⇒ 判据报的是"没问锁"而不是"拒得晚"，I8 就成了为错的理由通过。
+_ep = src_app.find("@app.post(" + Q + "/api/super-clone-wan3/submit" + Q + ")")
+_end = src_app.find("@app.", _ep + 10)
+_seg = src_app[_ep:_end if _end > 0 else len(src_app)]
+_j = _seg.find("super_clone_wan3_tasks[task_id] =")
+check("I8 前提：提交口确实有【建任务记录】那一行（没有的话 I8 是空跑）", _j > 0, True)
+_seg_m = _seg.replace(_lock_src, "", 1)
+_k = _seg_m.find("super_clone_wan3_tasks[task_id] =")
+# 插在"建任务那一行的【之后】"——我第一版插在 _k 处，等于还是插在那行前面，
+# 位置比 a 小 ⇒ 变异根本没发生，判据当然不报（假"控制无效"）。
+_anchor_line = "super_clone_wan3_tasks[task_id] ="
+_seg_m = _seg_m[:_k + len(_anchor_line)] + chr(10) + _lock_src + _seg_m[_k + len(_anchor_line):]
+_moved = src_app[:_ep] + _seg_m + src_app[_end if _end > 0 else len(src_app):]
+check("I8 变异：把锁挪到建任务之后 ⇒ 必须报『拒得晚』",
+      any("拒得晚" in x for x in lock_problems(src_svc, src_run, _moved)), True)
+
 
 print(_safe("\n== 引擎单一源闸：%d 通过 / %d 失败 ==" % (len(PASS), len(FAIL))))
 for f in FAIL:

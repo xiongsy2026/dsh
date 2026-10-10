@@ -181,6 +181,14 @@ python scripts/deliver_pack.py <成片绝对路径> --task <任务名> --json
 
 **必须做到**：自己盯到终态；失败**按死因分类**处理 —— 抖动类退避重试**同一个** job_id（连续 6 次查询异常才判死）、参数/合规被拒改参数或换合法路由；一批里失败 N 段就补跑那 N 段；判死时也要把 taskId 与上游原因如实交回，并继续做不受影响的部分。
 
+🔴 **wan3-prime（满血 wan3.0）的重试环在网关适配器内部，不在上层**（2026-10-10 定，闸门 `scripts/check-prime-retry.py`）：这条 lane 平台实测成功率 ~23%（`/v1/balance` 读到 24 败 / 7 成），而**失败不计次**（`billing.charged_calls=0`）。
+⇒ `_yz_prime_run` 一次调用内部最多 4 次尝试、退避 45/120/240s，**每次决定前先读平台对账口**（`_yz_prime_reconcile`，0 分只读）：
+"报未知但平台已建任务" ⇒ 去捞那个号（今天 20:15/20:16 就是 502 带着任务号回来、旧代码没挖，号丢了只能重投）；
+"任务失败且计费 0" ⇒ 同参数重投（免费）；**对账口没回话 ⇒ 一律停**（"读不到"不等于"没建上"，这条是防自己造双花的唯一屏障）。
+⇒ **上层不许再 call 一次来"重试"**：每 call 吃一段批准额度，会把 23% 的成功率变成"用户点四次批准"。
+配额见底（`remainingCalls=0`）时适配器直接拒、0 消耗，并写明"先去 prime.youzan666.vip 续次数"——**不许拿"闸拦住了"当失败隐瞒**。
+落盘侧另有一条：同名成片不许静默覆盖，旧的会留成 `.prev-<sha8>`（v3 曾把已交付给人看过的那条原地盖掉）。
+
 🔴 **判"失败"之前先看盘**（2026-10-06 实测）：8090 的结构性复刻有 Phase1 已跑完（分镜 JSON + 故事板海报都在 `outputs/sr_<ts>/`、`phase_state.json=after_step3`）却被标成 `failed` 的情况——父进程回显子进程日志时 GBK 崩了。
 ⇒ 遇到"任务失败但 error 是一句编码/重启扫尾"，先按盘上产物判（8090 已内置这条规则，`GET /api/structural-replica/status/<id>` 会把它纠回 `awaiting_review`）；**别照着 failed 重跑整条**，那是双花。回归：`scripts/check-8090-log-encoding.py`。
 
@@ -277,6 +285,14 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    配套两条硬规矩：① **报价里的上游与单价只许现读** `python D:\video-skill\backend\gateway.py prices`
    （这一行现在自带 provider，如 `video.generate/wan3-prime 60 分 [yz-prime]`），不许凭记忆写厂商标；
    ② 合同值里**不许写行尾注释**（`spend:` 后面的 `#` 说明会被吃进值里 ⇒ 三方比对对不上；`parse_contract` 现在会剥，但别依赖它）。
+   ③ 🔴 **入口也不许留第二条引擎的路**（2026-10-10 深夜补）：`runner/run.py --engine` 只有 `choices=["wan3"]`，
+   `run_pipeline` 的**第一条真语句**就是 `engine_lock_error()`（唯一源 = `super_clone_wan3.LANE_ENGINES`），8090 的
+   `/api/super-clone-wan3/submit` 在**建任务记录之前**问一次 ⇒ `engine=h3` 从任何入口都进不来（此前它一路能走到 RunningHub 导演台，
+   只被 `rh_video_guard` 挡着，合同/表单/上面那四方全都看不见）。回归 `check-engine-single-source.py` 的 **I 组**。
+   ④ 🔴 **素材必须"真看过"才有资格提交**（合同 `super-clone-wan3@5` 新增必需步 `material-analysis`）：判据**不认 agent 自述**，
+   只认网关的**素材分析台账** —— 每条 `video.analyze` 跑完由网关记 sha8，`_contract_evidence` 在写任何物证之前按内容对账，
+   缺 ⇒ `RuntimeError`（0 消耗、盘上不落半成品）。代价要认：**看图免批但不免账**（`video.analyze` 单价现读 prices，6 分/次），
+   一张图、一段音频都算一次 ⇒ 报价时把这段分算进去。查"看过没"用只读口 `gateway.py analyses [N]`。回归 `check-material-analysis.py`。
    🔴🔴 **最高等级：合同没写手段的地方，也不许你自己发明手段**（2026-10-09 用户定性；事故形状=合同只写"删掉字幕/水印"
    这种**结果**，agent 就去手搓 ffmpeg 去字幕、还差点编出"内置去字幕模型"）。判据已落码，不靠自觉：
    ① 每条 step 必须至少有 `证明=`（物证）或 `手段=`（白名单）之一 —— **两者都没有的合同条款本身就是洞**，
@@ -305,7 +321,10 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
   - 🔴 **要批的（默认）**：`video.generate` / `video.edit`（超分·去水印）/ `image.edit`（换脸）/ `lipsync`（译制·配音替换）/ `audio.generate`（配音·音乐）/ `transcribe`（ASR）—— **以后新增任何能力自动落到"要批"**，想免批必须在 `SPEND_APPROVAL_EXEMPT` 显式登记一行（闸 G1c 钉这个默认值）。
   - **闸在哪**：`gateway.py` 的 `invoke()` 在 **precheck/preauth 之前**调 `check_spend_approval(...)`；**判据 = `SPEND_APPROVAL_EXEMPT`（免批白名单，默认要批）**；`SPEND_APPROVAL_REQUIRED` 只是它派生出来的视图。闸与文档都从这一份读，别在别处再抄一份能力名。没有批准条子 ⇒ 回 `ok:false, error:"approval_required…"`，**不建 hold、不扣分、不发 HTTP**。
     ⚠️ 免批 ≠ 免账：这些腿仍走同一条 `precheck→preauth→settle→失败回滚`，扣分与留痕照旧；代价要认——**它们现在可以被任何一条会话直接花掉，出事只能事后从账本查，不是事前拦**。
-  - **条子怎么来**：拿到用户明确同意后，agent 跑 `python D:\video-skill\backend\gateway.py approve <cap> [purpose] --count <段> --credits <分上限> --account <成员> --session <这条方案的会话id> --scope "<用户批准的那条方案一句话>"` 建**待批**，然后**批准窗自己弹到桌面上**（人点【批准，开始跑】；页面 `http://127.0.0.1:8100/approval` 是同一条动作口的备选，见下一条"人证"）；查/撤：`gateway.py approvals` / `revoke <id>`。条子写死 能力+purpose+账户+段数+分数上限+24h 过期+**所属会话**，**换路由、加段数、超额度、过期、换了会话一律再拒**。
+  - **条子怎么来**：拿到用户明确同意后，agent 跑 `python D:\video-skill\backend\gateway.py approve <cap> [purpose] --count-from <任务目录> --account <成员> --session <这条方案的会话id> --scope "<用户批准的那条方案一句话>"` 建**待批**，然后**批准窗自己弹到桌面上**（人点【批准，开始跑】；页面 `http://127.0.0.1:8100/approval`
+    🔴 **段数与分数只许从盘上算**（`--count-from`，2026-10-10 用户裁定"审批一次就行"）：唯一源 = `gateway.py plan_segment_count()`，优先级
+    `TIMELINE.md 的「段」表` > `outputs/seg* 段目录` > 单段（并如实说"按单段建的"）。手填 `--count/--credits` 与盘上不一致 ⇒ **拒建条子**，
+    因为填少了会在第 2 段被自己的闸拦停、填多了等于替客户多批。回归 `scripts/check-approval-count-from.py`。 是同一条动作口的备选，见下一条"人证"）；查/撤：`gateway.py approvals` / `revoke <id>`。条子写死 能力+purpose+账户+段数+分数上限+24h 过期+**所属会话**，**换路由、加段数、超额度、过期、换了会话一律再拒**。
     🔴 `--session` 必须带（2026-10-06 事故补的）：不带 = 通用条子，任何会话都能消费别人的批准额度——我当时拿一次不相干的端点探测，就把另一会话签给 video-enhance 封面的 1 段/4 分吃掉了（闸判得"对"，但额度是共享的 ⇒ 谁都能花别人的同意）。已退回额度，规矩写进 `approval_allows` 与回归 G11b-G11e。
     🔴 **人证 = 一次点击，不要口令、不要【系统】弹窗**（2026-10-08 两易其稿；2026-10-09 弹窗改回来自研窗，回归 `scripts/check-approval-attest.py` P 组）：
        `approve` 现在**只建一张【待批 pending】并给出报价，此时 0 额度**；额度只能由"人看到报价之后"的一次核销拿到。
@@ -371,6 +390,9 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
     ⚠️ 该闸现在 **12 红**（D/E 组还在打已删的 8091 HTTP 转调形状，订正归 T9b）⇒ 别拿它的绿当保护，但 F 组这半是活的。
     要加新的跨进程豁免就往 `SPEND_APPROVAL_AT_SOURCE` 添，同时**必须在那一端加调用**——这张表是后门风险，配对关系由上面两组钉。
   - **一次报价覆盖整条方案，不是每次生成都问**（见上面「批准粒度」）：omni 把报价并进【方案批准】那条消息、hypit 并进 `pricing` 关口；批准一次即自动跑到下一个关口。
+    🔴 这条现在有了机器形状：条子的 `count` 由 `--count-from <任务目录>` 从盘上算 ⇒ 一次点击覆盖整条（换路由/加段数仍会被拒）。
+    🔴 **查"批到没有"只读 `gateway.py approvals`（或 8100 的 `wake`/`attest` 字段），绝不拿 `check_spend_approval()` 当探针**——
+    它本身就是消费点，2026-10-10 有会话这样把另一条会话的 1 段额度吃光了（钱没扣、批准没了，随后回"马上提交"而盘上零 hold）。
   - 用户的同意**只覆盖那次列明的范围**：换路由、加段数、改片型 ⇒ 重新报价再确认。**超时/上游抖导致的自动重试不算扩范围**（失败本就不扣费），但要说明"这是重跑第几段"。
   - 文本/看图按 token 结算（1 分≈100 token），不必逐次确认；但**单条预估 >50 分** 或 **整批预估 >500 分** 要先报价。
   - 报价数字一律从 `gateway.py resolve` / `hypit pricing` 读，**禁止凭记忆写价**；没跑过的路由要标"无数据"。

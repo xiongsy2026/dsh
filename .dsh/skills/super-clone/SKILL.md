@@ -382,11 +382,12 @@ P1 只写文件，不调用 Wan。
 执行表因此多出「模型/路由」一列；`ledger=off` 是**如实**标——这条编译腿直连厂商、不在网关账本上。
 
 contract:
-  version: super-clone-wan3@4
+  version: super-clone-wan3@5
   entry: python .dsh/skills/super-clone/runner/run.py --task-id <段号> --video <原片> --product-images <图…> --product-name <名> --output-dir <目录> [--model-image <脸图>] [--scene-text <场景替换描述>] [--voice-audio <参考音频>]
   # 花钱口三方唯一源：表单 engine_lock(yz-prime) == 本行 == 网关 ROUTES/价目；clone-r2v 是已断开的 RunningHub 腿的批准词，不再是这条线的花钱口
   spend: video.generate/wan3-prime
   steps:
+    - id=material-analysis | 手段=gateway:video.analyze | 证明=material_analysis.json（该段每个素材的内容 sha8 + 缺口清单，由网关素材分析台账对账得出，不是 agent 自述） | 判据=json-list-min:materials=1 | required=1
     - id=storyboard | 证明=该段目录里有 storyboard.json（Step1 MiMo 解析 + Checkpoint A 规范化后【喂给编译器的那一份】） | 判据=json-array-min=1 | required=1
     - id=compile-prompt | 证明=prompt.txt 由 Step1.5 编译器写出且非空 | 判据=json-nonempty | required=1
     - id=compile-bound | 证明=prompt_meta.json（编译器写下：来源 + 它实际吃进去的 storyboard 指纹） | 判据=bind-sha8:storyboard:storyboard_sha8,json-key:source=step1_5_gpt_compiler | required=1
