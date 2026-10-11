@@ -190,6 +190,29 @@ check("K7b 表逐行带出合同的每一步 + 花钱口（只有一句标题 = 
        str(_c.get("spend")) in _tab, len(_c.get("steps") or []) >= 5],
       [True, True, True, True])
 
+# 🔴 打桩判定口：2026-10-11 起 approve 会先问"这张表回填过没有"（报价前置），
+#    自测的会话当然没回填 ⇒ 不指个桩，K8/K9 会被新前置拒掉（那是判据在咬，不是闸坏了）。
+import http.server as _hs
+import threading as _th
+
+
+class _StubGate(_hs.BaseHTTPRequestHandler):
+    def do_GET(self):
+        b = b'{"ok":true,"show":true,"prefilled":true,"submitted":false,"prefill_gap":[],' \
+            b'"unfilled_required":[],"loose_materials":[]}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def log_message(self, *a):
+        pass
+
+
+_sg = _hs.HTTPServer(("127.0.0.1", 0), _StubGate)
+_th.Thread(target=_sg.serve_forever, daemon=True).start()
+_STUB_GATE = "http://127.0.0.1:%d/api/skills/form?session=" % _sg.server_address[1]
 _ap_tmp = os.path.join(tmp, "probe_approvals.json")
 io.open(_ap_tmp, "w", encoding="utf-8").write("{}")
 
@@ -204,6 +227,7 @@ def _run_approve(purpose):
     _env["GATEWAY_SPEND_APPROVALS"] = _ap_tmp
     _env["GATEWAY_LEDGER"] = os.path.join(tmp, "probe_ledger.sqlite")
     _env["GATEWAY_APPROVAL_POPUP"] = "0"
+    _env["GATEWAY_FORM_GATE"] = _STUB_GATE
     r = subprocess.run([sys.executable, GW_PY, "approve", "video.generate", purpose,
                         "--count", "1", "--credits", "60", "--account", "probe-none",
                         "--session", "probe-none", "--scope", "闸自测（不点批准，过期即失效）"],

@@ -110,11 +110,39 @@ check("A8 批准入口：有 pending 绿、无 pending 红、散文里的「批�
        gw.approval_entry_problems("等你批准这条方案我就跑", REAL_FACTS) == []], [True, True, True])
 
 # ── B 组 真跑 approve（临时 approvals/ledger + 抑制弹窗），证「照抄就绿」 ──────────
+# 🔴 打桩判定口：2026-10-11 加了"报价前必须回填过表"的前置（approve 会问 8100），
+#    闸必须有测试缝 —— 直接打线上 8100 等于测一次就往生产状态里写一条真回填。
+import http.server                                             # noqa: E402
+import threading                                               # noqa: E402
+
+STUB = {"payload": {"ok": True, "show": True, "prefilled": True, "submitted": False,
+                    "prefill_gap": [], "unfilled_required": [], "loose_materials": []}}
+
+
+class _StubH(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        b = json.dumps(STUB["payload"], ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def log_message(self, *a):
+        pass
+
+
+_srv = http.server.HTTPServer(("127.0.0.1", 0), _StubH)
+threading.Thread(target=_srv.serve_forever, daemon=True).start()
+STUB_URL = "http://127.0.0.1:%d/api/skills/form?session=" % _srv.server_address[1]
+gw.FORM_GATE_URL = STUB_URL
+
 tmp = tempfile.mkdtemp(prefix="quote-prov-")
 APPR = os.path.join(tmp, "appr.json")
 LEDG = os.path.join(tmp, "ledger.sqlite")
 env = dict(os.environ, GATEWAY_SPEND_APPROVALS=APPR, GATEWAY_LEDGER=LEDG,
-           GATEWAY_APPROVAL_POPUP="0", PYTHONIOENCODING="utf-8:replace")
+           GATEWAY_APPROVAL_POPUP="0", PYTHONIOENCODING="utf-8:replace",
+           GATEWAY_FORM_GATE=STUB_URL)
 env.pop("PYTHONUTF8", None)
 TASK = r"C:" + BS + "dsh" + BS + "productions" + BS + "ef1ba285"
 SID = "session-quoteprov"
@@ -149,6 +177,52 @@ check("B6 变异：段数与总扣分各改一分 ⇒ 恰好这两格红（不�
           unit=gw.unit_price("video.generate", "wan3-prime")))), {"段数", "预计总扣分", "原文未贴"})
 check("B7 approve 的 stdout 里那条批准地址带 ?session=（裸链接从此不是默认形状）",
       ("approval?session=" + SID) in out, True)
+
+# ── F 组 报价前置：没回填过表 ⇒ 不给建批准条子（2026-10-11 16:30 现网那条形状）──────────
+def blockers(payload):
+    STUB["payload"] = payload
+    return gw.form_prefill_blockers("session-x")
+
+
+OKP = {"ok": True, "show": True, "prefilled": True, "submitted": False,
+       "prefill_gap": [], "unfilled_required": [], "loose_materials": []}
+check("F1 回填过且缺口为空 ⇒ 放行", blockers(dict(OKP)), [])
+_p2 = blockers(dict(OKP, prefilled=False))
+check("F2 从没回填过 ⇒ 拒一条，且给得出下一步命令（不是只说不行）",
+      [len(_p2), "从没回填过" in _p2[0], "intent.py prefill" in _p2[0]], [1, True, True])
+check("F3 客户自己交齐了（submitted）⇒ 算满足，不必先回填",
+      blockers(dict(OKP, prefilled=False, submitted=True)), [])
+_p4 = blockers(dict(OKP, prefill_gap=["video"],
+                    loose_materials=[r"C:" + BS + "dsh" + BS + "productions" + BS + "t" + BS + "src" + BS + "a.mp4"]))
+check("F4 缺口非空（素材躺在 src 没归位）⇒ 拒，并点名槽与闲料",
+      [len(_p4), "video" in _p4[0], "a.mp4" in _p4[0]], [1, True, True])
+_p5 = blockers(dict(OKP, unfilled_required=["product_name"]))
+check("F5 必填格还空着 ⇒ 单独一条红因（与「素材没归位」分开，改法不一样）",
+      [len(_p5), "product_name" in _p5[0]], [1, True])
+check("F6 这条线没配表单 ⇒ 不在射程（hypit/omni 不能被这条规则误伤）",
+      blockers({"ok": True, "show": False, "reason": "intent-has-no-form"}), [])
+_p7 = blockers({"ok": True, "show": False, "reason": "no-intent"})
+check("F7 没登记意图 ⇒ 拒（第一步没走，报价没有依据可核）",
+      [len(_p7), "意图" in _p7[0]], [1, True])
+check("F8 approve 没带 --session ⇒ 拒（不猜一个会话 id 去问判定口）",
+      len(gw.form_prefill_blockers("")), 1)
+_keep_url = gw.FORM_GATE_URL
+gw.FORM_GATE_URL = "http://127.0.0.1:1/api/skills/form?session="
+_p9 = gw.form_prefill_blockers("session-x")
+gw.FORM_GATE_URL = _keep_url
+check("F9 8100 真没起来 ⇒ 明说「判定口没回话」，不谎报成「这条会话没回填」（fail-closed 但归因要准）",
+      [len(_p9), "没回话" in _p9[0], "8100" in _p9[0]], [1, True, True])
+STUB["payload"] = dict(OKP, prefilled=False)
+_before = len((json.load(open(APPR, encoding="utf-8")).get("pending") or []) if os.path.isfile(APPR) else [])
+_r1 = subprocess.run([sys.executable, GW_PY, "approve", "video.generate", "wan3-prime",
+                      "--count-from", TASK, "--account", "default", "--session", "session-noprefill",
+                      "--scope", "F10 现网形状：没回填就想报价"],
+                     capture_output=True, text=True, encoding="utf-8", errors="replace",
+                     env=dict(env, GATEWAY_FORM_GATE=STUB_URL), timeout=180)
+_after = len((json.load(open(APPR, encoding="utf-8")).get("pending") or []) if os.path.isfile(APPR) else [])
+check("F10 真跑 approve·没回填 ⇒ 退出码非 0、pending 一张都没多（0 额度）",
+      [_r1.returncode != 0, _after - _before, "从没回填过" in (_r1.stdout or "")], [True, 0, True])
+STUB["payload"] = dict(OKP)
 
 # ── C 组 现网真产物：那条消息必须红在正确的字段 ─────────────────────────────────
 cp = gw.quote_problems(REAL_MSG, REAL_FACTS, unit=60)

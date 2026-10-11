@@ -348,6 +348,16 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    现在：① `approve` 输出的备选地址自带 `?session=`，批准页按会话筛卡、**这条会话没有条子就明说**（不再给一张全局空列表）；
    ② 判据 `gateway.quote_problems()` / `gateway.approval_entry_problems()` 只这一份，页面与闸都读它，不许抄第二份。
    回归 `scripts/check-quote-provenance.py`（A 真值表 / B 真跑 approve 证"照抄就绿" / C **08:23 真消息必须红在那四格** / D 接线与"只一份" / E 变异）。
+   🔴 **报价前置：没回填过表 ⇒ `approve` 不建条子**（2026-10-11 16:30 现网：登记了意图、把默认值写在对话里说"可在提交前改"，
+   但那张表从没回填 ⇒ 右栏不弹、客户没有任何可改的地方，而条子照样建得出来）。`approve` 现在会问判定口
+   （`gateway.form_prefill_blockers(session)`，只读 8100 的结论，网关不解析第二份字段表）：
+   这条会话**回填过**（或客户已自己交齐表）**且** `prefill_gap`/`unfilled_required` 都为空才放行；
+   没登记意图 / 缺口非空 / **判定口没回话** ⇒ 一律拒（fail-closed，0 分 0 额度）。
+   没配表单的档（hypit/omni/film/motion-transfer）不在射程。
+   ⚠️ 同一次修里改掉的判据 bug：覆盖率以前只对着**回填**算 ⇒ 客户交过表的会话恒报"必填没填"（把合格对象判红）。
+   现在算的是**生效值**（交过表以载荷为准，否则以回填为准），`prefilled` 也读原始记录、不被 `submitted` 抹掉。
+   回归 `check-quote-provenance.py` 的 **F 组**（八个分支 + 一条真跑 approve 证"pending 一张都没多"）；
+   闸侧测试缝 = `GATEWAY_FORM_GATE`（不指桩就等于往生产状态里写一条真回填）。
 - 🔴 **花钱那一刀认合同回执（2026-10-11 下移到咽喉）**：`gateway.invoke()` 在**批准之前**先问
    `spend_contract_problems(capability, purpose, params)` —— **成片要写进哪个目录，那个目录（或往上 6 层）里
    就必须有一份该档合同的合格回执**（`.skill_receipt.json`，判据仍读 `skill_contract.check_receipt`，网关不抄第二份）。
