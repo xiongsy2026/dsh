@@ -348,6 +348,17 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    现在：① `approve` 输出的备选地址自带 `?session=`，批准页按会话筛卡、**这条会话没有条子就明说**（不再给一张全局空列表）；
    ② 判据 `gateway.quote_problems()` / `gateway.approval_entry_problems()` 只这一份，页面与闸都读它，不许抄第二份。
    回归 `scripts/check-quote-provenance.py`（A 真值表 / B 真跑 approve 证"照抄就绿" / C **08:23 真消息必须红在那四格** / D 接线与"只一份" / E 变异）。
+- 🔴 **花钱那一刀认合同回执（2026-10-11 下移到咽喉）**：`gateway.invoke()` 在**批准之前**先问
+   `spend_contract_problems(capability, purpose, params)` —— **成片要写进哪个目录，那个目录（或往上 6 层）里
+   就必须有一份该档合同的合格回执**（`.skill_receipt.json`，判据仍读 `skill_contract.check_receipt`，网关不抄第二份）。
+   为什么必须在这儿：`verify_or_raise` 全仓只有 `super_clone_wan3.py` 一处调 ⇒ 合同只约束"走管线的人"，
+   agent 自己 `from backend import gateway` 拼一次调用就能扣费（2026-10-11 现网 08:23 实测：盘上零回执）。
+   四条边界，改之前先想清楚：① **只断提交，不断查询/捞回**（params 带 `job_id` ⇒ 放行，重投=双花）；
+   ② **没有合同档认领的腿不在射程**（`h3`/`motion-rpa`/`video.analyze` 一律放行，别假装管得住）；
+   ③ 判在**批准之前** —— 反过来的话一次"没回执"的调用会先把人批下来的段数吃掉，那是拿别人的授权替自己的绕道买单；
+   ④ **不靠会话号找回执**（8090 那种常驻进程里没有 `DSH_SESSION_ID`，按会话找会正好漏掉它；落点是调用方自己给的，赖不掉）。
+   回归 `scripts/check-spend-receipt.py`（A 真值表 / B 真跑 invoke + 适配器打桩：无回执拒且 0 消耗、
+   有回执走到批准闸、回执+条子齐真放行、失败退段 / C 顺序用 AST 行号钉 / D 变异 / E 覆盖对照）。
 - **唯一例外形态 = hypit**：它的 Provider 协议只认 HTTP，所以生成腿经自写 provider `@weeksir/provider-gateway` POST `http://localhost:8100/api/hypit`（`/uploads`、`/videos`、`/videos/{id}`、`/rates`），服务端 `hypit_bridge.py` 仍转 `gateway.invoke` ⇒ **同一套预扣/结算/审计**。不算第二条轨，只是同一轨换了入口；鉴权用 `.env` 的 `MODEL_GATEWAY_TOKEN`（Bearer）。详见 `.dsh/skills/hypit-pipeline/references/monitor-contract.md` §1.5。
 - 返回归一 JSON：`{ok, result, credits:{estimated,charged,tokens,basis,balance_after}, error}`。
 - 🔴 **hypit 只有三条"已绑 capability"能花钱**（2026-10-03 定）：`@hypit/seedance@1#seedance-2-mini`（`model="mini"`，50 分/5 秒）、`#seedance-2.5`（`model="2.5"`，60 分）、`@hypit/minimax-h3@1#minimax-h3`（`<h3:…>` 元素，无 `model` 属性，60 分）。官方 `hypihub.default` 端点已从 `hypit_runs/hypit.runtime.json` **摘掉**（备份 `hypit.runtime.json.bak-hypihub`）⇒ 未绑定的写法在 `hypit plan` 就报错、0 分，不再静默 POST `https://hypit.ai`（2026-10-03 实测漏绑一条就是这个走法，靠对方欠费才没花出去）。四张表（profile bindings / `provider.js` LANES / 桥 `HYPIT_MODELS`·`LANE_SPECS` / 网关 `ROUTES`）改任何一张都跑：`python scripts/check-runtime-bindings.py`。
