@@ -1167,6 +1167,15 @@ _m16 = re.search(r"onclick:function\(\)\{\s*\n?\s*editing = true;[\s\S]{0,400}?\
 chk("D20", "反向对照：把【改参数】回调里的 render() 摘掉 ⇒ D16 立刻不齐（证明钉的是真接线）",
     [bool(_m16), "render()" in (_m16.group(0) if _m16 else "")], [True, True])
 
+# ── 2026-10-11 改判：弹表不再等回填 ⇒ 空表必须自己说清"agent 还没看过素材" ──
+chk("D21", "表登记完就弹（判定口不再拿回填当前置），页面在未回填时出一行说明，不静默装成正常表",
+    [("await-prefill" in PAGE_SRC),
+     ("!j.prefilled && !j.submitted" in PAGE_JS),
+     ("还没分析这批素材" in PAGE_JS)], [False, True, True])
+chk("D22", "反向对照·压力只是换位置：回填仍是 approve 的硬前置（判据在 gateway，页面/判定口都不放行花钱）",
+    [("form_prefill_blockers" in open(os.path.join(GW, "backend", "gateway.py"),
+                                      encoding="utf-8", errors="replace").read())], [True])
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:
