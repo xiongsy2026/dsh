@@ -327,6 +327,18 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    回归 `scripts/check-approval-count-from.py` 的 K7–K10b（真跑 approve、临时账本 + 批准窗抑制）。
    ⚠️ 表的强度到哪：它保证【事后查得着、当着人亮得着】，不保证 agent 不走合同外那一步（见上条强度边界）。
    常驻服务（8090）里没有 `DSH_SESSION_ID` ⇒ 那一列会明写"未知"，**不许猜一个会话 id 填进去**。
+- 🔴 **报价五格必须有出处、批准入口必须有条子**（2026-10-11 现网 session-241ea3f7 08:23 复盘，两条都落码在 `gateway.py`）：
+   `单价 / 段数 / 预计总扣分 / 余额 / 实扣` 五格各自的**出处不是同一份**，逐格现读：
+   单价→`gateway.py prices`（或 `unit_price(路由)`）、余额→账本 `accounts`、**段数与预计总扣分→这条会话的 pending**
+   （只有 `approve` 建得出来，段数还是它从 `--count-from` 算的）、实扣→素材分析台账的**合计**（报单次=少报重复消耗）。
+   🔴 **把 `approve` 打出的那段报价正文原样贴进消息**，不要重排成表格再自己抄一遍数 —— 重排一次就会手滑。
+   现网那次的四个错：余额写 99544（盘上 99532）、实扣写 40（台账是 40+40+38=118，同一段原片被分析了三次）、
+   段数与总扣分凭空写（`approve` 根本没跑过、没有 pending）。
+   第二条：**消息里出现"批准入口/批准页/approval"字样 ⇒ 这条会话必须在 `approvals` 里有 pending 或未过期条子**。
+   那次它印了 `http://127.0.0.1:8100/approval` 却没建条子 ⇒ 客户点进去是**空位**（比不弹窗更坏，那是指向空气）。
+   现在：① `approve` 输出的备选地址自带 `?session=`，批准页按会话筛卡、**这条会话没有条子就明说**（不再给一张全局空列表）；
+   ② 判据 `gateway.quote_problems()` / `gateway.approval_entry_problems()` 只这一份，页面与闸都读它，不许抄第二份。
+   回归 `scripts/check-quote-provenance.py`（A 真值表 / B 真跑 approve 证"照抄就绿" / C **08:23 真消息必须红在那四格** / D 接线与"只一份" / E 变异）。
 - **唯一例外形态 = hypit**：它的 Provider 协议只认 HTTP，所以生成腿经自写 provider `@weeksir/provider-gateway` POST `http://localhost:8100/api/hypit`（`/uploads`、`/videos`、`/videos/{id}`、`/rates`），服务端 `hypit_bridge.py` 仍转 `gateway.invoke` ⇒ **同一套预扣/结算/审计**。不算第二条轨，只是同一轨换了入口；鉴权用 `.env` 的 `MODEL_GATEWAY_TOKEN`（Bearer）。详见 `.dsh/skills/hypit-pipeline/references/monitor-contract.md` §1.5。
 - 返回归一 JSON：`{ok, result, credits:{estimated,charged,tokens,basis,balance_after}, error}`。
 - 🔴 **hypit 只有三条"已绑 capability"能花钱**（2026-10-03 定）：`@hypit/seedance@1#seedance-2-mini`（`model="mini"`，50 分/5 秒）、`#seedance-2.5`（`model="2.5"`，60 分）、`@hypit/minimax-h3@1#minimax-h3`（`<h3:…>` 元素，无 `model` 属性，60 分）。官方 `hypihub.default` 端点已从 `hypit_runs/hypit.runtime.json` **摘掉**（备份 `hypit.runtime.json.bak-hypihub`）⇒ 未绑定的写法在 `hypit plan` 就报错、0 分，不再静默 POST `https://hypit.ai`（2026-10-03 实测漏绑一条就是这个走法，靠对方欠费才没花出去）。四张表（profile bindings / `provider.js` LANES / 桥 `HYPIT_MODELS`·`LANE_SPECS` / 网关 `ROUTES`）改任何一张都跑：`python scripts/check-runtime-bindings.py`。
