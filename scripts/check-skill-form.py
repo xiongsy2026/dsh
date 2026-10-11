@@ -1271,6 +1271,42 @@ _bad_names = {n.attr for n in ast.walk(ast.parse("x = MA.parse_skill_form(md)"))
 chk("D26b", "反向对照：D26 两条探针都能翻红 —— 违规样例（自己解析字段表 / 只有一处现读门控）必须不成立",
     ["parse_skill_form" not in _bad_names, 1 >= 2], [False, False])
 
+# ── D27 两份判据不许漂（2026-10-11）：intent.py 硬拒的那两种 key 误用，服务端也必须【同样不收】。
+#    直接 POST 8100 是一条真实存在的绕过路（agent 有网络、文件沙箱管不着 HTTP），所以这条不能只测脚本。
+#    真调 form_prefill（自造会话 + 沙盒回填文件，绝不碰线上 form_prefill.json）。
+_D27_SID = "session-keycheck"
+_D27_FILE = os.path.join(SCRATCH, "keycheck_prefill.json")
+_D27_FIX = {"ratio": "16:9", "source_video": "c:\\a.mp4", "product_images": "c:\\p.jpg",
+            "product_name": "假发"}
+_O27 = (MA.hypit_bridge.intent_map, MA.FORM_PREFILL_PATH)
+try:
+    MA.hypit_bridge.intent_map = lambda: {
+        _D27_SID: {"skill": "super-clone", "task": "kc", "ts": _t.time(), "task_dir": SCRATCH}}
+    MA.FORM_PREFILL_PATH = _D27_FILE
+    open(_D27_FILE, "w", encoding="utf-8").write("{}")
+    _r27 = MA.form_prefill({"session": _D27_SID, "skill": "super-clone", "values": _D27_FIX,
+                            "files": [], "notes": {}})
+    _rec27 = (json.load(open(_D27_FILE, encoding="utf-8")) or {}).get(_D27_SID) or {}
+    chk("D27", "🔴 服务端同一份结论：猜错名与「媒体塞 values」都进不了 defaults（只认字段表），"
+        "脚本判红的那些 key 服务端一个都不收",
+        [bool(_r27.get("ok")), sorted(_rec27.get("defaults") or {}) == ["product_name"],
+         {"ratio", "source_video"} <= set(_rec27.get("dropped") or []),
+         bool(_pk(_D27_FIX, _ALLK, _MEDIASK))],
+        [True, True, True, True])
+    chk("D27b", "丢掉的必须【看得见】：门控答复把 prefill_dropped 原样带出来"
+        "（藏起来 = 下一次还是静默；这条和「空表要自己说清没回填」是同一个要求）",
+        ["prefill_dropped" in MA.form_gate_view(_D27_SID)], [True])
+    _clean = dict(_vw["template"]["values"])     # 用 fields 自己给出的那份模板当合法样例（不另抄一遍）
+    _m27 = MA.form_prefill({"session": _D27_SID, "skill": "super-clone",
+                            "values": _clean, "files": [], "notes": {}})
+    _rec27b = (json.load(open(_D27_FILE, encoding="utf-8")) or {}).get(_D27_SID) or {}
+    chk("D27c", "反向对照·同一份判据不是恒含 dropped：换成【fields 模板给的合法样例】再跑一次 ⇒ "
+        "defaults 收齐、dropped 变空（两向都验，才证明上面那三条来路是输入，不是抄来的期望）",
+        [bool(_m27.get("ok")), _rec27b.get("dropped") == [],
+         set(_rec27b.get("defaults") or {}) == set(_clean)], [True, True, True])
+finally:
+    MA.hypit_bridge.intent_map, MA.FORM_PREFILL_PATH = _O27
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:
