@@ -11,7 +11,10 @@ chatglm.cn / kimi 会员账号里的**托管智能体**，自带沙箱、自带�
 钉的是【规则】不是现场：
   - 默认脑必须解析得出非 loopback 的 baseURL（桥被设成脑 ⇒ 红）；
   - 桥地址只准出现在取证探针里，任何 skill/插件/文档硬编码它 = 长出第二条调用轨；
-  - 官方 provider 注册表里真有 GLM/Kimi 裸模型入口 ⇒ "接云端 GLM"不需要装插件，只差一把 API key。
+  - 官方 provider 注册表里真有 GLM/Kimi 裸模型入口 ⇒ "接云端 GLM"不需要装插件，只差一把 API key；
+  - 🔴L8（2026-10-11 用户定"afs-trim 停用、我删除 dsh 的接入"）：settings.yaml 的 providers 里
+    【一条指向本机的桥 lane 都不许有】。这条**现在是红的**，红=接入还没删干净（待办清单，不是故障）；
+    为什么不只钉默认脑——桥只要在册就可能被某条会话选当脑（实测 17 条 modelSelection.lastUsed 记着它）。
 不钉的：AFS 进程活着没活着、托管开关在不在「关闭」——那是外部进程状态，钉了就是随机假红的假保险。
 """
 import os
@@ -64,7 +67,21 @@ default = _st.get("agent-default-model") or {}
 prov, mdl = default.get("provider"), default.get("model")
 base = str(((prm.get(prov) or {}).get("baseURL")) or "")
 LOOPBACK = re.compile(r"https?://(127\.0\.0\.1|localhost|0\.0\.0\.0)(:\d+)?")
-bridge_ids = sorted({p for p, v in prm.items() if LOOPBACK.match(str(v.get("baseURL") or ""))})
+
+
+def local_bridge_lanes(providers):
+    """纯函数（下面 L8t 拿 fixture 跑值表，不靠读现场猜）：点名所有【指向本机】的 provider lane。
+
+    为什么默认拒绝、且不只管默认脑（2026-10-11 用户定：afs-trim 停用、DSH 那侧接入删掉）：
+    一条 loopback lane 就是"绕开统一网关的第二条轨"（2026-10-05 那场 AFS 事故即此形状），
+    而它只要存在，就可能被某条会话的 lastUsed/pending 选中当脑 —— 实测这次就有 17 条会话的
+    modelSelection.lastUsed.provider 记着它。所以判据是"这条 lane 不该在"，不是"默认别选它"。
+    """
+    return sorted(k for k, v in (providers or {}).items()
+                  if LOOPBACK.match(str((v or {}).get("baseURL") or "")))
+
+
+bridge_ids = local_bridge_lanes(prm)
 
 check("L1 settings.yaml 可读，agent-default-model 的 provider 在 providers 里解析得到",
       [("__error__" in _st), bool(prov), bool(mdl), prov in prm], [False, True, True, True])
@@ -122,6 +139,20 @@ check("L6 云端 GLM/Kimi 的裸模型入口已内置：glm-5.3 走 bigmodel.cn 
 check("L7 moonshot 官方端点在册（kimi-k3 走 api.moonshot.cn，鉴权只要 MOONSHOT_API_KEY）",
       [_m.get("api"), str(_m.get("baseUrl", "")).startswith("https://api.moonshot.cn/")],
       ["openai-completions", True])
+# ── L8（2026-10-11 用户定：afs-trim 停用、DSH 那侧接入删掉）─────────────────
+# 🔴 这条现在【该红】：红 = 那条桥 lane 还在 settings.yaml 里没删掉，是待办清单不是故障
+#    （和 check-skill-write-lock.py 的 L5 同一个形状；全绿才说明接入真摘干净了）。
+check("L8 settings.yaml 的 providers 里【一条指向本机的桥 lane 都不许有】（默认拒绝；"
+      "红=接入还没删，删掉即绿 —— 桥只要在册就可能被会话选中当脑，实测 17 条 lastUsed 记着它）",
+      bridge_ids, [])
+check("L8t 值表（fixture，不读现场）：127.0.0.1 与 localhost 两种写法都要被点名，公网 lane 不误伤；"
+      "空/坏输入 ⇒ 空名单（探针不许自己抛）",
+      [local_bridge_lanes({"agnes": {"baseURL": "https://api.agnes-ai.cn/v1"},
+                           "afs-trim": {"baseURL": "http://127.0.0.1:8002/v1"},
+                           "b": {"baseURL": "http://localhost:8002"}}),
+       local_bridge_lanes({"agnes": {"baseURL": "https://api.agnes-ai.cn/v1"}}),
+       local_bridge_lanes(None), local_bridge_lanes({"x": None}), local_bridge_lanes({})],
+      [["afs-trim", "b"], [], [], [], []])
 # ⚠️ 故意不钉的一条：桥 lane 将来若登记进网关（purpose afskimi/afsglm），计价 basis 绝不许是 usage
 #    （实测 usage 恒为 prompt_tokens:1/completion_tokens:1 = 假计量）。那是**登记时**要写的断言，
 #    现在写成"网关里不许出现 afskimi"就是钉现场 —— 做完正事闸反而长红，等于假保险。
