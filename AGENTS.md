@@ -129,8 +129,9 @@ python scripts/intent.py <skill> [任务名]
   所以：**客户交完表 / 点完批准之后 agent 必须自己接着做**，别再等一句"开始"；反过来，被叫醒也**只是开始干活**，
   🔴 **唤醒 ≠ 批准** —— 要花钱那一下仍然报价 + 等人点批准窗（表单叫醒时条子还没有；批准叫醒时条子已生效、只覆盖那一条写明的范围）。
   回归 `scripts/check-form-wake.py`（B 组=表单、E 组=批准，两组的队列规则逐条同构）。
-- agent 读参数只有两条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）与
-  `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、
+- agent 读/查参数只有三条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）、
+  `python scripts/intent.py fields`（只读：这张表到底要哪些 key / 类型 / 必填 / 条件显隐，并给一份可抄的 `--set` 模板）、
+  与 `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、
   不算已提交、不许替客户交表；回填值必须在页面上标「AI 已填 · 可改」并给依据）。
 - 🔴 **回填覆盖率 = 入口硬判据，不是散文**（2026-10-10 现网 ef1ba285：只回填了声音档一格，原片躺在
   `src/` 却让客户自己在页面上选原片）：门控一次回齐 `unfilled_required` / `loose_materials` /
@@ -140,6 +141,17 @@ python scripts/intent.py <skill> [任务名]
   隐藏格（`show=` 不命中）永远不算缺；`outputs/`、`frames/` 不参与扫描（派生物当客户素材会天天误拦）；
   客户手上确实没有的素材留空是对的 ⇒ 这条闸只拦"料在手却没挂上"。
   回归 `scripts/check-skill-form.py` 的 D10–D15b（含服务端/入口两处变异对照）。
+- 🔴 **回填的 key 用错 = 过不去，不是"少填了一格"**（2026-10-11 现网：agent 猜字段名，发的是
+  `source_video` / `ratio`（那是 motion-transfer 那条线的叫法，跨线串味），又把 `product_images` 当文字塞进
+  `values` ⇒ 服务端一条都不收（未知 key 只进 `dropped`，媒体格对 type 直接 `continue`、连 dropped 都不进），
+  而退出码是 **0** ⇒ 它以为填好了，客户 21:02 把已经在手的视频和产品图**自己又传了一遍**）。
+  现在：`intent.py prefill` 在**所有副作用之前**（复制素材、写槽目录、POST 8100 都还没发生）先跑
+  `prefill_key_problems()`（纯函数，判据只有一份），命中 ⇒ **退出码 6、盘上一条都不写**，并把
+  【全部合法 key + 哪些是媒体格（只走 `files`）+ `files` 的写法 + `intent.py fields` 这条免猜命令】一次打回给它。
+  `fields` 的模板**按槽形**出：媒体格只进 `files`、🔒 只读行两处都不进、`select` 给的是字段表里的真选项、
+  条件格标「仅当 voice_mode=… 才出现/才必填」⇒ "该填哪些 key" 不再靠记忆。
+  回归 `scripts/check-skill-form.py` 的 **D23–D26b**（两处变异对照：摘掉"未知 key"那句判断、
+  摘掉"媒体走 files"与"🔒 不进模板"两个分支；探针打在 ast 标识符上而不是整份源码文本上 —— 注释里就写着 `form:`）。
 - 字段表唯一源 = 该 skill `SKILL.md` 的 `form:` 段（行格式 `key|type|label|必填|选项/区间|引擎参数[+可选尾巴]`，
   尾巴从第 7 列起、**顺序无关、不写就没有**：`15MB`=该槽体积上限（钉引擎自己硬拦的那个数）、
   `group=素材`=分组标题（一条都不写=退回按类型自动分，老线一个字不改）、

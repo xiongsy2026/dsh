@@ -41,6 +41,8 @@ USAGE = ("用法: python scripts/intent.py <omni|hypit|super-clone|product-video
          "   # 读对话内表单收上来的引擎入参（登记意图之后、追问客户之前先跑这条）\n"
          "      python scripts/intent.py prefill --set '<json>' [--session <会话id>]"
          "   # 把分析出来的参数【预填】进右栏那张表（客户仍需自己点提交）\n"
+         "      python scripts/intent.py fields [--session <会话id>]"
+         "   # 只读：这张表要哪些 key/类型/必填/条件显隐，并给一份可抄的 --set 模板（猜字段名会被拒）\n"
          "      python scripts/intent.py attempts [条数]"
          "   # 只读：客户点了【提交】但没成交的最近几次（缺哪格/哪条会话/拒因）——"
          "问\"我点了没反应\"先跑这条，别猜\n"
@@ -98,6 +100,28 @@ def die(msg, code=2):
     sys.exit(code)
 
 
+def prefill_key_problems(values, keys, media_keys) -> list:
+    """纯函数（闸整块抠出来跑值表）：回填的 key 有没有用错。
+    🔴 两类都必须【过不去】，不能静默丢：
+      ① 未知 key —— 2026-10-11 现网 20:56：agent 发的是 `source_video`/`ratio`（这条表的 key 是
+         `video`/`aspect_ratio`，那名字来自 motion-transfer 那条线 ⇒ 跨线串味），服务端只记进 dropped；
+      ② 媒体格塞进 values —— 服务端对媒体字段直接 continue（媒体只认 files），连 dropped 都不进，
+         于是"product_images 填了"而表上还是空的。
+    结果就是退出码 0、agent 以为回填成功、客户 21:02 把已经给过的视频和图【再传一遍】。"""
+    bad = []
+    media_sorted = "、".join(sorted(media_keys)) or "（这条线没有媒体格）"
+    unknown = sorted(str(k) for k in (values or {}) if str(k) not in keys)
+    misplaced = sorted(str(k) for k in (values or {}) if str(k) in media_keys)
+    if unknown:
+        bad.append("这些 key 不在这条表里：%s ｜ 合法 key：%s ｜ 媒体格（只走 files，不能进 values）：%s"
+                   % ("、".join(unknown), "、".join(sorted(keys)), media_sorted))
+    if misplaced:
+        bad.append("媒体格 %s 不能走 values，只认 files —— 改成 "
+                   '"files":[{"field":"%s","src":"<盘上路径>"}]'
+                   % ("、".join(misplaced), misplaced[0]))
+    return bad
+
+
 def cmd_prefill(args, sid):
     """把 agent 分析出来的参数【预填】进右栏那张表。
 
@@ -149,6 +173,10 @@ def cmd_prefill(args, sid):
 
     # 🔴 素材根【只由服务端下发】。这里以前硬写 `.dsh/form-uploads/agent/<param>` —— 那是第二份路径
     #    规则，而且是跨会话共享的那一份：两条会话都回填 product_images ⇒ 同名互相覆盖，谁都不知道。
+    _kp = prefill_key_problems(body.get("values") or {}, keys, set(media))
+    if _kp:
+        die("回填的 key 用错了 ⇒ 一条都没提交（未知字段被静默丢掉 = 客户第二天还得重传）：" + " / ".join(_kp)
+            + " ｜ 先跑 python scripts/intent.py fields 看这张表到底要哪些 key（含可直接抄的模板）。", 6)
     updir = str(gate.get("upload_root") or "").strip()
     if not updir or not os.path.realpath(updir).startswith(os.path.realpath(WORKSPACE) + os.sep):
         die("门控没回一个【工作区内】的 upload_root ⇒ 不敢自己拼路径（自己拼就是第二份规则）。"
@@ -200,7 +228,7 @@ def cmd_prefill(args, sid):
                "values": {k: v for k, v in (body.get("values") or {}).items() if k in keys},
                "files": files_out,
                "notes": {k: str(v)[:120] for k, v in (body.get("notes") or {}).items() if k in keys}}
-    dropped = [k for k in (body.get("values") or {}) if k not in keys]
+    dropped = []          # 未知 key 在上面就已经过不去，这里恒空（只为下面 print_obj 的字段形状不变）
     try:
         req = urllib.request.Request(FORM_API_POST, data=json.dumps(payload).encode("utf-8"),
                                      headers={"Content-Type": "text/plain;charset=UTF-8"})
@@ -243,6 +271,69 @@ def cmd_prefill(args, sid):
     return 0 if out.get("ok") else 5
 
 
+def fields_view(gate) -> dict:
+    """纯函数（闸整块抠出来跑值表）：把门控回的那张表翻成【key 清单 + 可直接抄的 --set 模板】。
+
+    🔴 抽成函数而不是写在 cmd_fields 里：写在 IO 函数里就没法测，而这段的产出正是"agent 抄的那份"，
+       它错一个分支（媒体格进了 values、🔒 行被当可填项）就等于让客户白传一遍素材。
+    """
+    updir = str(gate.get("upload_root") or "")
+    tpl_v, tpl_f, tpl_n, lines = {}, [], {}, []
+    for f in (gate.get("fields") or []):
+        k = str(f.get("key") or "")
+        ft = str(f.get("type") or "")
+        req = "必填" if f.get("required") else "选填"
+        ci = f.get("show_if") or {}
+        cond = ("  [仅当 %s=%s 才出现/才必填]" % (ci["key"], "/".join(ci.get("values") or []))
+                if ci.get("key") else "")
+        mark = ("  [%s]" % f["marker"]) if f.get("marker") else ""
+        lines.append("%-18s %-8s %-4s %-16s %s%s%s"
+                     % (k, ft, req, str(f.get("param") or "-"), str(f.get("label") or "")[:22], cond, mark))
+        if f.get("accept"):                      # 媒体格：只认 files，模板里绝不进 values
+            tpl_f.append({"field": k, "src": os.path.join(updir, k, "01-<sha8>-<名字>.<扩展名>")})
+        elif ft == "locked":
+            continue                             # 🔒 只读行没有引擎入参，别往模板里塞
+        elif ft == "select":
+            tpl_v[k] = str((f.get("options") or ["<选一档>"])[0])
+        elif ft == "number":
+            tpl_v[k] = 0
+        else:
+            tpl_v[k] = ("<仅当 %s 时才填：%s>" % (ci["key"], f.get("label") or k)) if ci.get("key") \
+                else ("<%s>" % (f.get("label") or k))
+        tpl_n[k] = "<这一格是凭什么填的（会显示在「AI 已填 · 可改」的悬停上）>"
+    return {"fields": lines, "template": {"values": tpl_v, "files": tpl_f, "notes": tpl_n},
+            "how": "抄这份改完写进文件，再跑 python scripts/intent.py prefill --set @模板.json"
+                   "（🔴 别在 shell 里内联 JSON，引号会被吃掉；媒体只走 files，走 values 会被拒）"}
+
+
+def cmd_fields(args, sid):
+    """把这条会话【该填的那张表】原样列出来 + 一份可直接抄的 --set 模板。
+
+    为什么要有这条：2026-10-11 现网 agent 猜字段名（`source_video`/`ratio` 是另一档 skill 的叫法），
+    猜错还是静默的 ⇒ 客户第二天把素材重传一遍。让它不必猜，顺带堵掉跨线串味这条路。
+    字段表仍读 8100 的门控（唯一源 = 该 skill 的 SKILL.md `form:` 段），这里不解析第二份。
+    """
+    if not sid:
+        die("fields 也要会话 id：$env:DSH_SESSION_ID 或 --session <会话id>")
+    try:
+        with urllib.request.urlopen(FORM_API + urllib.parse.quote(sid), timeout=8) as r:
+            gate = json.loads(r.read().decode("utf-8", errors="replace"))
+    except Exception as e:
+        die("读门控失败（8100 没起？）：%s: %s" % (type(e).__name__, str(e)[:140]), 3)
+    if not gate.get("show"):
+        die("这条会话现在没有表单（reason=%s）—— 先跑 intent.py <档> [任务名] 登记意图。"
+            % gate.get("reason"), 4)
+    out = {"session": sid, "skill": gate.get("skill"), "task": gate.get("task"),
+           "upload_root": str(gate.get("upload_root") or ""), "task_dir": gate.get("task_dir"),
+           "prefilled": gate.get("prefilled"), "submitted": gate.get("submitted"),
+           "unfilled_required": gate.get("unfilled_required"),
+           "prefill_gap": gate.get("prefill_gap"),
+           "loose_materials": [os.path.basename(str(x)) for x in (gate.get("loose_materials") or [])]}
+    out.update(fields_view(gate))
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv):
     args = [a for a in argv]
     sid = os.environ.get("DSH_SESSION_ID") or ""
@@ -263,6 +354,8 @@ def main(argv):
         del args[i:i + 2]
     if not args or args[0] in ("-h", "--help"):
         die(USAGE)
+    if args[0] == "fields":
+        return cmd_fields(args[1:], sid)
     if args[0] == "attempts":
         # 只读：客户点了【提交】但没成交的最近几次（缺哪格 / 哪条会话 / 拒因）。
         # "我点了没反应"不该靠猜 —— 载荷文件里没那一行时，这里是唯一能查的现场。

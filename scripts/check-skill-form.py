@@ -1176,6 +1176,101 @@ chk("D22", "反向对照·压力只是换位置：回填仍是 approve 的硬前
     [("form_prefill_blockers" in open(os.path.join(GW, "backend", "gateway.py"),
                                       encoding="utf-8", errors="replace").read())], [True])
 
+# ── 2026-10-11 现网（同一条会话 20:56 回填 / 21:02 客户重传）：agent 猜字段名，猜错还是【静默】的 ──
+# 事故形状：它发的是 source_video / ratio（那是 motion-transfer 那条线的叫法，跨线串味），
+# 又把 product_images 当文字塞进 values（媒体格只认 files，服务端对媒体字段直接 continue，连 dropped 都不进）。
+# 结果退出码 0、agent 以为填好了 ⇒ 客户第二天把已经在手的视频和图片再传一遍。
+# 修法两条：① key 用错 ⇒ 过不去并列出合法 key + files 模板；② intent.py fields 让它不必猜。
+import ast  # noqa: E402
+_i_tree = ast.parse(_Isrc)
+_i_ns = {"os": os}
+for _fn in ("prefill_key_problems", "fields_view"):
+    _node = next((n for n in _i_tree.body
+                  if isinstance(n, ast.FunctionDef) and n.name == _fn), None)
+    chk("D23x", "intent.py 里 %s 必须是【模块级函数】（写在 cmd_* 里面就抠不出来跑值表，只能靠读代码信它）"
+        % _fn, bool(_node), True)
+    if _node:
+        exec(compile(ast.get_source_segment(_Isrc, _node), "intent.py:" + _fn, "exec"), _i_ns)
+_pk, _fv = _i_ns.get("prefill_key_problems"), _i_ns.get("fields_view")
+# 字段表【用服务端下发给门控的那一份】（_form_fields_wire），不在闸里按 type 自己判媒体格 ——
+# 否则 intent.py 读 accept、闸读 type，两边各判一套，这条测试就成了自证。
+_WIRE = MA._form_fields_wire(SC_FIELDS)
+_ALLK = {f["key"] for f in _WIRE}
+_MEDIASK = {f["key"] for f in _WIRE if f.get("accept")}
+chk("D23y", "覆盖对照：媒体格名单【非空】且含这次真出事的 product_images（空名单会让下面三档全成假绿）",
+    [len(_MEDIASK) >= 2, "product_images" in _MEDIASK,
+     sorted(_MEDIASK) == sorted({f["key"] for f in _WIRE if f["type"] in MEDIA_TYPES})],
+    [True, True, True])
+_legal = {k: "x" for k in sorted(_ALLK - _MEDIASK)}
+chk("D23", "回填 key 判据值表：正常填 ⇒ 放过；猜错名 ⇒ 1 条；媒体塞 values ⇒ 1 条；两种一起 ⇒ 2 条"
+    "（拿真字段表跑，不拿样例跑）",
+    [len(_pk(_legal, _ALLK, _MEDIASK)),
+     len(_pk({"ratio": "16:9", "source_video": "c:\\a.mp4"}, _ALLK, _MEDIASK)),
+     len(_pk({"product_images": "c:\\p.jpg"}, _ALLK, _MEDIASK)),
+     len(_pk({"ratio": "16:9", "product_images": "c:\\p.jpg"}, _ALLK, _MEDIASK))],
+    [0, 1, 1, 2])
+_p1 = _pk({"ratio": "16:9", "source_video": "c:\\a.mp4"}, _ALLK, _MEDIASK)
+_p2 = _pk({"product_images": "c:\\p.jpg"}, _ALLK, _MEDIASK)
+chk("D23b", "🔴 拒得不许只说「不对」：必须当场给出可抄的东西 —— 全部合法 key、媒体格名单、files 写法"
+    "（agent 拿到就能改对，不用再来一轮）",
+    [all(k in _p1[0] for k in _ALLK), "媒体格" in _p1[0] and "video" in _p1[0],
+     '"files":[{"field":"product_images"' in _p2[0]], [True, True, True])
+_cmdp = _Isrc[_Isrc.index("def cmd_prefill"):_Isrc.index("def fields_view")]
+chk("D23c", "免猜命令的出口要落在【拒绝那一句】里：die 文案既点名「一条都没提交」，又指到 intent.py fields",
+    ["intent.py fields" in _cmdp, "一条都没提交" in _cmdp, '"dropped_keys"' in _cmdp], [True, True, True])
+_pk_mut = _Isrc[_Isrc.index("def prefill_key_problems"):_Isrc.index("def cmd_prefill")].replace(
+    "if str(k) not in keys", "if False")
+_ns_m = {"os": os}
+exec(compile(_pk_mut, "intent.py:mutated", "exec"), _ns_m)
+chk("D23m", "变异对照：把「未知 key」那句判断摘成恒不成立 ⇒ 猜错名不再被拦（这条必须翻，否则 D23 是空跑）",
+    [len(_ns_m["prefill_key_problems"]({"ratio": "16:9"}, _ALLK, _MEDIASK)),
+     len(_ns_m["prefill_key_problems"]({"product_images": "p"}, _ALLK, _MEDIASK))], [0, 1])
+chk("D24", "🔴 这道拒必须【在所有副作用之前】：key 判据先于复制素材、先于写槽目录、先于 POST 给 8100"
+    "（在后面 die = 素材已经复制进 inputs/ 了，只是没登记，盘上留一份没人认领的文件）",
+    [(_a := _cmdp.index("prefill_key_problems")) < _cmdp.index("shutil.copyfile"),
+     _a < _cmdp.index("urllib.request.Request(FORM_API_POST"),
+     _a < _cmdp.index('for n, item in enumerate(body.get("files")'),
+     "die(" in _cmdp[_a:_cmdp.index("updir = str(gate")]],
+    [True, True, True, True])
+_vw = _fv({"upload_root": r"C:\dsh\productions\t\inputs", "fields": _WIRE})
+_tv, _tf = _vw["template"]["values"], _vw["template"]["files"]
+_sel = [f for f in _WIRE if f["type"] == "select"]
+_locks = [f for f in _WIRE if f["type"] == "locked"]
+_cond = [f for f in _WIRE if f.get("show_if")]
+chk("D25", "🔴 fields 模板必须【按槽形」出：媒体格只进 files（进 values 就是这次事故）、🔒 行两都不进、"
+    "select 给的是字段表里的真选项、条件格带「仅当」、说明覆盖每个可填格",
+    [sorted(x["field"] for x in _tf) == sorted(_MEDIASK),
+     not (_tv.keys() & _MEDIASK), not (_tv.keys() & {f["key"] for f in _locks}),
+     all(str(_tv[f["key"]]).split(" ")[0] in [o.split(" ")[0] for o in f["options"]] for f in _sel),
+     all(any(f["key"] in ln and "仅当" in ln for ln in _vw["fields"]) for f in _cond),
+     set(_vw["template"]["notes"]) == set(_tv.keys()) | _MEDIASK],
+    [True, True, True, True, True, True])
+_fv_mut = _Isrc[_Isrc.index("def fields_view"):].replace('elif ft == "locked":', "elif False:").replace(
+    'if f.get("accept"):', 'if False:').replace("tpl_f.append", "pass #")
+_ns2 = {"os": os}
+exec(compile(_fv_mut[:_fv_mut.index("\n\n\ndef cmd_fields")], "intent.py:mutated", "exec"), _ns2)
+_vm2 = _ns2["fields_view"]({"upload_root": "X", "fields": _WIRE})
+chk("D25b", "变异对照：摘掉「媒体走 files」和「🔒 不进模板」两处 ⇒ 同一份字段表产出的模板立刻变形"
+    "（证明 D25 钉的是这两个分支，不是恒真断言）",
+    [len(_vm2["template"]["files"]) < len(_tf),
+     bool(_vm2["template"]["values"].keys() & _MEDIASK),
+     bool(_vm2["template"]["values"].keys() & {f["key"] for f in _locks})],
+    [True, True, True])
+# 🔴 探针必须打在【标识符】上，不是打在整份源码字符串上：intent.py 的注释和 die 文案里就写着
+#    "SKILL.md 的 form: 段"，拿整份文本做 not in 会永远红（或被人写进注释里喂绿）。
+_i_names = {n.attr for n in ast.walk(_i_tree) if isinstance(n, ast.Attribute)} | \
+           {n.id for n in ast.walk(_i_tree) if isinstance(n, ast.Name)}
+_i_calls = sum(1 for n in ast.walk(_i_tree)
+               if isinstance(n, ast.Call) and "urlopen" in ast.dump(n.func))
+chk("D26", "🔴 intent.py 里不许有第二份字段表：它【不调】parse_skill_form，字段表一律现读门控"
+    "（唯一源仍是该 skill 的 SKILL.md form: 段）",
+    ["parse_skill_form" not in _i_names, _i_calls >= 2], [True, True])
+_bad_names = {n.attr for n in ast.walk(ast.parse("x = MA.parse_skill_form(md)"))
+              if isinstance(n, ast.Attribute)} | \
+             {n.id for n in ast.walk(ast.parse("urllib.request.urlopen(u)")) if isinstance(n, ast.Name)}
+chk("D26b", "反向对照：D26 两条探针都能翻红 —— 违规样例（自己解析字段表 / 只有一处现读门控）必须不成立",
+    ["parse_skill_form" not in _bad_names, 1 >= 2], [False, False])
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:
