@@ -485,6 +485,10 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
     （`status` 只读 / `sweep` 只掐卡死的那份 / `ensure` 看门狗每一跳 / `restart` **人工重启**）。
     三态 `HEALTHY|WEDGED|DOWN` 由 `classify()` 判，探针拿不到任何 HTTP 应答才算死 —— **404 也算活着**（拿 200 当"活"，路由一改名看门狗就每分钟杀一次健康服务；`/api/health` 在 8100 上根本不存在，用的是 `/api/model/caps`）。
     要手动重启 8100 就 `python svc_8100_guard.py restart`：任务的实例记录会卡成 `LastTaskResult=0x800710E0`（="还在跑"，`/run` 白敲），必须先 `/end` 并**确认 `wscript` 退净**再起。
-    ⚠️ 两个自己踩过的坑，别再踩：① 守卫里调 `schtasks /run` 是**自我递归**（`.cmd` 就是任务动作），第二层会把刚起的那份 `/end` 掉；② `.venv\Scripts\pythonw.exe` 是重定向壳，会再生一个基础解释器子进程 ⇒ **"进程数=2"不等于双实例**，判重只数 `Get-NetTCPConnection -State Listen -LocalPort 8100` 的监听者。
-    回归 `scripts/check-svc-8100.py`（W 组：三态真值表、白名单只杀 model_admin、404/拒连在线对照、`.cmd` 一行不许拆、`ensure` 里禁 schtasks、handler 有 `timeout` 且 bind 失败退 3）。
+    ⚠️ 三个自己踩过的坑，别再踩：① 守卫里调 `schtasks /run` 是**自我递归**（`.cmd` 就是任务动作），第二层会把刚起的那份 `/end` 掉；② `.venv\Scripts\pythonw.exe` 是重定向壳，会再生一个基础解释器子进程 ⇒ **"进程数=2"不等于双实例**，判重只数 `Get-NetTCPConnection -State Listen -LocalPort 8100` 的监听者；
+    ③ 🔴 **兜底那条路自己不许有单点依赖，而且它平时根本不走**（2026-10-11 现网：8100 从 21:31 起一直 DOWN 到 23:53，首页四张技能封面全成碎图标 —— 客户看到的"文件丢失"就是这个，盘上封面 PNG 一张都没少）。
+    死锁形状：守卫把 `model_admin` 的 stdout/stderr 指到**守卫自己那份** `_svc_8100.err.log`（任务那一跳又 `2>>` 同一个文件）⇒ 长期活着的服务继承了那份句柄 ⇒ 下一次真要重启时 `open(LOG,"a")` 撞 `PermissionError` ⇒ `ensure` 每分钟崩在同一行裸 open 上。
+    **"只有出事才走的那条路"恰好是唯一会碰那份日志的路**，所以一行红都看不见，一出事就是永久死锁。
+    现在：服务 stderr 走 `_svc_8100.service.log`（**看门狗的日志绝不被它看着的进程握**）；日志不可开 ⇒ 换带时间戳旁路 ⇒ 再不行 DEVNULL（宁可无声，不可不起）；`Popen` 炸了只报 `SPAWN-FAILED` 不把守卫带走；`status` 三态与 `ensure` 的"没起来"和"起了不应答"分开报。
+    回归 `scripts/check-svc-8100.py`（W 组：三态真值表、白名单只杀 model_admin、404/拒连在线对照、`.cmd` 一行不许拆、`ensure` 里禁 schtasks、handler 有 `timeout` 且 bind 失败退 3、**W9–W9f 兜底路径不许因日志而崩**）。
 - 完整设计：`docs/ADR-model-gateway.md`。

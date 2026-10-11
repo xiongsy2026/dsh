@@ -67,9 +67,11 @@ check("A4 守卫是 HTTP 探针（urllib 打 8100 自己的口，连续 TRIES �
 check("A5 探针 netstat 只用来问『谁在监听』（判 WEDGED 要它），绝不当『在服务』的证据",
       [bool(re.search(r"LISTENING", _gcode)), "classify" in _gcode,
        G.classify([False, False, False], 555) == "WEDGED"], [True, True, True])
-check("A6 解释器只一支：.cmd 用 .venv 起守卫，守卫用 sys.executable 起 model_admin（不混两代 python）",
+check("A6 解释器只一支：.cmd 用 .venv 起守卫，守卫用【自己的 sys.executable】起 model_admin（不混两代 python）",
       [bool(re.search(r'\.venv\\Scripts\\pythonw\.exe" "svc_8100_guard\.py', code_only)),
-       bool(re.search(r"py = sys\.executable", _gcode)),
+       # 🔴 钉的是"用哪个解释器"这件事，不是当年那个局部变量名（2026-10-11 把它内联进 Popen 实参后，
+       #    原来那条 `py = sys\.executable` 就扫不到了 —— 规则没变、形状变了，就该改探针而不是改回代码）
+       bool(re.search(r"Popen\(\[[^\]]*sys\.executable", _gcode)),
        bool(re.search(r"backend\", \"model_admin\.py", _gcode) or re.search(r'os\.path\.join\(HERE, "backend", "model_admin\.py"\)', _gcode))],
       [True, True, True])
 check("A7 崩溃有落盘证据（stderr 进 err.log）", "_svc_8100.err.log" in code_only, True)
@@ -209,6 +211,139 @@ except Exception:
 check("W8 status 子命令：状态与退出码对得上（0=HEALTHY 1=WEDGED 2=DOWN，看门狗靠它判）",
       [_sj.get("state") == {0: "HEALTHY", 1: "WEDGED", 2: "DOWN"}.get(_st.returncode),
        _sj.get("port")], [True, 8100])
+
+# ── W9（2026-10-11 23:53 现网：8100 从 21:31 之后一直 DOWN，首页四张技能封面全成碎图标）──
+# 死因不是"端口被占"也不是"服务起不来"，是【看门狗被自己的日志锁死】：
+#   _spawn_direct() 把服务进程的 stdout/stderr 指到守卫自己那份 _svc_8100.err.log（任务那一跳又 2>> 同一个文件），
+#   长期活着的服务继承了那份句柄 ⇒ 下一次真要重启时 open(LOG,"a") 撞 PermissionError ⇒ ensure 每分钟崩在裸 open 上。
+#   "只有要重启才走的那条路"恰好是唯一会碰这份日志的路 ⇒ 平时一行都不红，一出事就是永久死锁。
+_gsrc = io.open(r"D:\video-skill\svc_8100_guard.py", encoding="utf-8", errors="replace").read()
+import ast as _ast                                                      # noqa: E402
+_gt = _ast.parse(_gsrc)
+
+
+def _fseg(name):
+    n = next((x for x in _gt.body if isinstance(x, _ast.FunctionDef) and x.name == name), None)
+    return _ast.get_source_segment(_gsrc, n) or ""
+
+
+def _fcode(name):
+    """函数体【剥掉 docstring】再扫 —— 我自己的注释里就写着当年那行 `open(LOG,"a")`，
+    拿整段源码做"不许出现"这类断言会被自己的说明文字喂红（这次 W9 第一次跑就是这么红的）。"""
+    n = next((x for x in _gt.body if isinstance(x, _ast.FunctionDef) and x.name == name), None)
+    seg = _fseg(name)
+    if n and n.body and isinstance(n.body[0], _ast.Expr) \
+            and isinstance(n.body[0].value, _ast.Constant) and isinstance(n.body[0].value.value, str):
+        ls = seg.splitlines()
+        del ls[n.body[0].lineno - n.lineno: n.body[0].end_lineno - n.lineno + 1]
+        seg = "\n".join(ls)
+    return seg
+
+
+check("W9 🔴 守卫自己的日志不许被它看着的进程握：_spawn_direct 里没有裸 open(、"
+      "_log_sink 的候选名单里不许出现守卫那份 LOG（当年就是这两处叠成死锁）",
+      [bool(_fcode("_spawn_direct")), bool(_fcode("_log_sink")),
+       not re.search(r"(?<![A-Za-z])open\(", _fcode("_spawn_direct")),
+       not re.search(r"(?<![A-Z_])LOG\b", _fcode("_log_sink")),
+       "SERVICE_LOG" in _fcode("_log_sink")],
+      [True, True, True, True, True])
+check("W9a 反向对照：W9 那两条「不许出现」不是靠没读到东西 —— 同一段源码【连着 docstring】扫必须扫得出 LOG",
+      [bool(_fseg("_log_sink")), bool(re.search(r"(?<![A-Z_])LOG\b", _fseg("_log_sink")))], [True, True])
+_TMPD = os.path.join(os.environ.get("TEMP") or "/tmp", "svc8100-gate")
+os.makedirs(_TMPD, exist_ok=True)
+_OG = (G.SERVICE_LOG, G.subprocess, G.LOG)
+try:
+    G.LOG = os.path.join(_TMPD, "guard.log")     # 🔴 桩跑出来的那句"已拉起"绝不许写进生产日志（假成功样本）
+    G.SERVICE_LOG = os.path.join(_TMPD, "no-such-dir", "svc.log")      # 两条候选都开不了
+    try:
+        _h1, _w1 = G._log_sink()
+        _raised1 = ""
+    except Exception as e:                                             # noqa: BLE001
+        _h1, _w1, _raised1 = None, "", type(e).__name__
+    check("W9b 日志彻底不可用 ⇒ 退到 DEVNULL 而【不抛】（宁可无声，不可不起；抛出来就是这次那种每分钟崩）",
+          [_raised1, _h1 == subprocess.DEVNULL, isinstance(_w1, str)], ["", True, True])
+
+    G.SERVICE_LOG = _TMPD                                              # 第一条撞 PermissionError、第二条可建
+    _h2, _w2 = G._log_sink()
+    check("W9c 主路径不可开时必须【换名字再试一次】而不是放弃：拿到真句柄、落到带时间戳的旁路",
+          [hasattr(_h2, "write"), _w2.startswith("svc8100-gate."), _w2 != "svc8100-gate"],
+          [True, True, True])
+    try:
+        _h2.close()
+    except OSError:
+        pass
+
+    _seen = {}
+
+    class _Sp:
+        DEVNULL = subprocess.DEVNULL
+
+        @staticmethod
+        def Popen(argv, **kw):
+            _seen["argv"] = list(argv)
+            _seen["stdout"] = kw.get("stdout")
+            return type("P", (), {"pid": 1})()
+
+    G.subprocess = _Sp
+    _r1 = G._spawn_direct()
+    check("W9d 真跑 _spawn_direct（Popen 打桩，绝不真起第二个实例）：报 direct-spawn、"
+          "起的确实是 backend/model_admin.py、stderr 落的是服务专用那份而不是守卫日志",
+          [_r1, os.path.basename(_seen["argv"][-1]), _seen["stdout"] is not subprocess.DEVNULL,
+           "svc8100-gate" in str(getattr(_seen["stdout"], "name", ""))],
+          ["direct-spawn", "model_admin.py", True, True])
+
+    try:                                   # 桩留下的句柄要先放掉，否则 Windows 删不掉（W9z 会红）
+        if hasattr(_seen.get("stdout"), "close"):
+            _seen["stdout"].close()
+    except OSError:
+        pass
+
+    class _SpBoom(_Sp):
+        @staticmethod
+        def Popen(argv, **kw):
+            raise OSError("spawn blocked")
+
+    G.subprocess = _SpBoom
+    G.SERVICE_LOG = os.path.join(_TMPD, "no-such-dir", "svc.log")   # 这一档只要 DEVNULL，别再留文件
+    try:
+        _r2 = G._spawn_direct()
+        _raised2 = ""
+    except Exception as e:                                             # noqa: BLE001
+        _r2, _raised2 = "", type(e).__name__
+    check("W9e 连 Popen 都炸时也只【报出来】，不许把守卫带走（守卫一死，这条自愈线就整条没了）",
+          [_raised2, _r2], ["", "direct-spawn-failed:OSError"])
+
+    _old_shape = "def _log_sink():\n    return open(LOG, 'a'), 'main'\n"
+    _ns = {"open": open, "LOG": _TMPD}
+    exec(compile(_old_shape, "old-shape", "exec"), _ns)
+    try:
+        _ns["_log_sink"]()
+        _raised3 = ""
+    except OSError as e:
+        _raised3 = type(e).__name__
+    check("W9f 反向对照·钉的是规则不是当年的修法：把 sink 换回【裸 open 守卫自己那份日志】的旧形状，"
+          "同一份不可开的输入必须抛 ⇒ 证明 W9b 退路真的在起作用（而不是恒真断言）",
+          [_raised3], ["PermissionError"])
+finally:
+    G.SERVICE_LOG, G.subprocess, G.LOG = _OG
+    # 测试残留清干净：旁路日志（svc8100-gate.<ts>）与沙盒目录都不许留下
+    _left = []
+    for _p in os.listdir(os.environ.get("TEMP") or "/tmp"):
+        if _p.startswith("svc8100-gate."):
+            try:
+                os.remove(os.path.join(os.environ.get("TEMP") or "/tmp", _p))
+            except OSError:
+                _left.append(_p)
+    for _p in ("guard.log",):
+        try:
+            os.remove(os.path.join(_TMPD, _p))
+        except OSError:
+            _left.append(_p)
+    try:
+        os.rmdir(_TMPD)
+    except OSError:
+        _left.append("dir:" + os.path.basename(_TMPD))
+    check("W9z 收尾：这一组起的桩文件与沙盒目录全部清掉（残留会让下一次 W9c 拿到旧句柄）", _left, [])
 
 if SELFHEAL:
     print("\n--selfheal：杀掉服务进程，计时看 1 分钟触发多久把它拉回来（右栏会空窗 ~20 秒）")
