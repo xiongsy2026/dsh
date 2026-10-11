@@ -1149,6 +1149,24 @@ chk("D15b", "反向对照：把「缺口非空」那条分支改成永不触发 
     [[n in _m15 for n in ('"prefill_gap"', '"loose_materials"', '"unfilled_required"', "if _gap:")]
      == [True, True, True, True]], [False])
 
+# ── 已提交态能不能改（2026-10-11 现网：客户 08:27 交了表，之后整页被换成只读摘要卡，
+#    卡片上那句「要改就回这一栏重新提交一次」指的路被 showDone 自己 innerHTML="" 清掉了 ⇒
+#    「好像 ai 帮我选了的我没法选」。钉的是「承诺过的路径必须真存在」，不是某个文案字符串。──
+chk("D16", "摘要卡给【改参数】真入口：按钮 + 置 editing + 重新 render（不是一句没有出口的文案）",
+    [('"改参数' in PAGE_JS), ("editing = true" in PAGE_JS), ("render(); paint()" in PAGE_JS)],
+    [True, True, True])
+chk("D17", "摘要卡印的是人话：select 走 matchOption→optLabel，旧的「直接 String(v)」那行必须已消失",
+    [("function displayValue" in PAGE_JS), ("matchOption(f, v)" in PAGE_JS),
+     ('text:Array.isArray(v) ? (v.length + " 个文件") : String(v)' in PAGE_JS)],
+    [True, True, False])
+chk("D18", "轮询不许把正在编辑的表盖回只读卡（submitted 前先问 editing / userDirty）",
+    ["j.submitted && !(editing || userDirty())" in PAGE_JS], [True])
+chk("D19", "editing 有进有出：提交成功与换技能两处都复位（漏一处=这条会话永远不再显示已提交态）",
+    [PAGE_JS.count("editing = false"), PAGE_JS.count("editing = true")], [3, 1])
+_m16 = re.search(r"onclick:function\(\)\{\s*\n?\s*editing = true;[\s\S]{0,400}?\}\}\);", PAGE_JS)
+chk("D20", "反向对照：把【改参数】回调里的 render() 摘掉 ⇒ D16 立刻不齐（证明钉的是真接线）",
+    [bool(_m16), "render()" in (_m16.group(0) if _m16 else "")], [True, True])
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:

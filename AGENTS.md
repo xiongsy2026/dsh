@@ -430,4 +430,10 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
   - 回归：`python scripts/check-spend-approval.py`（真值表 + "闸在预扣之前" + 拒绝时账本零变化 + 双向对照）。
 - 为什么走 tool-jobs 而非 MCP/插件：命令契约写在这里 + 各 skill 的 SKILL.md，**跨会话读文件即恢复、不靠 agent 记忆**；而**积分预扣/结算/审计只在网关里**，所以花钱的路径必须收在一处。⚠️ 旧说法"DSH 不加载 MCP"**已作废**（2026-10-05 实测：内核自带 `@deepseek-ai/dsh-mcp-client`，stdio + streamable-http，只是没装配进 cordis yml）——不用 MCP 是**选择**（审计与扣费），不是"不支持"，别再拿它当理由写进新文档。
 - 🔴 **重启常驻服务（8100/8765）前先 `python D:\video-skill\backend\hypit_bridge.py preflight`，必须看到 `safe_to_restart:true`**。它报的是：在途生成腿、在途导出、未结算预扣。2026-10-02 我就是把"查在途"和"杀进程"写进同一条命令，等于没查——带着 3 条在途腿重启，那 3 段被判死（预扣已回滚，0 分损失，但白等了）。遗留预扣用 `gateway.py holds [N]`（只读，带 `age_hours`）/ `holds-rollback <精确id>` **指名**回收，不自动退（会退掉别的进程正在花的分 ⇒ 双花）；🔴 没有批量开关（`all` / `*` / `--all` 一律拒），旧行没有 ts 就显示"不知道年龄"，不猜。
+  - 🔴 **8100 的存活判据是"答不答话"，不是"端口在不在"**（2026-10-11 现网：keep-alive 没设超时，插件 5s 一轮 + 表单页 8s 一轮把连接攒到 21 条、accept 积压打满 ⇒ 端口仍 LISTENING、进程仍活着，但新连接一律被拒，右栏与表单页同时死）。规则只有一份：`D:\video-skill\svc_8100_guard.py`
+    （`status` 只读 / `sweep` 只掐卡死的那份 / `ensure` 看门狗每一跳 / `restart` **人工重启**）。
+    三态 `HEALTHY|WEDGED|DOWN` 由 `classify()` 判，探针拿不到任何 HTTP 应答才算死 —— **404 也算活着**（拿 200 当"活"，路由一改名看门狗就每分钟杀一次健康服务；`/api/health` 在 8100 上根本不存在，用的是 `/api/model/caps`）。
+    要手动重启 8100 就 `python svc_8100_guard.py restart`：任务的实例记录会卡成 `LastTaskResult=0x800710E0`（="还在跑"，`/run` 白敲），必须先 `/end` 并**确认 `wscript` 退净**再起。
+    ⚠️ 两个自己踩过的坑，别再踩：① 守卫里调 `schtasks /run` 是**自我递归**（`.cmd` 就是任务动作），第二层会把刚起的那份 `/end` 掉；② `.venv\Scripts\pythonw.exe` 是重定向壳，会再生一个基础解释器子进程 ⇒ **"进程数=2"不等于双实例**，判重只数 `Get-NetTCPConnection -State Listen -LocalPort 8100` 的监听者。
+    回归 `scripts/check-svc-8100.py`（W 组：三态真值表、白名单只杀 model_admin、404/拒连在线对照、`.cmd` 一行不许拆、`ensure` 里禁 schtasks、handler 有 `timeout` 且 bind 失败退 3）。
 - 完整设计：`docs/ADR-model-gateway.md`。
