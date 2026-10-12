@@ -158,6 +158,8 @@ python scripts/intent.py <skill> [任务名]
   ⚠️ 花钱那一刀的分工没变：**`approve` 与真提交仍只有 agent 能发起，人点批准窗仍是唯一人证**——
   理由不是客气，是提交之后要盯终态、失败要补跑、交付要贴图、范围一变要重新报价，那些是 agent 的活。
   回归 `scripts/check-form-wake.py` 的 **K1–K10d**（含 Popen 打桩验命令形状、pid 牌子双向、ack 三分流、at 幂等）。
+  📄 五步整条流程（谁触发 / 盘上凭据 / 断了会怎样）写在 **`docs/FLOW-five-step-clone.md`** —— 问"这一步该谁做、
+  做到哪算完"先看那张表，别在散文里找。
 - agent 读/查参数只有三条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）、
   `python scripts/intent.py fields`（只读：这张表到底要哪些 key / 类型 / 必填 / 条件显隐，并给一份可抄的 `--set` 模板）、
   与 `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、
