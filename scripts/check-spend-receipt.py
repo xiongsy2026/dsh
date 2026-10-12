@@ -136,7 +136,7 @@ try:
                             "storyboard-fact-check": f_sc,
                             "compile-bound": f_pm, "negative-lock": f_pt},
                      inputs=[], impl={"negative-lock": "compiler-negative-lock",
-                                      "material-analysis": "gateway:video.analyze",
+                                      "material-analysis": "pipeline:invoke:video.analyze",
                                       "storyboard-fact-check": "runner:--extra-note"},
                      models={"compile-prompt": "m@p · 账本外"})
     check("B4 真回执写出来 ⇒ 判据放行（正向对照：这条闸不是只会拒绝；造不出合格物证就说明我读错了判据）",

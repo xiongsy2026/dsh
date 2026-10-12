@@ -206,10 +206,10 @@
    "bytes": 10888
   },
   "super-clone": {
-   "sha8": "018d6215",
+   "sha8": "085309a0",
    "form8": "4d460de4",
-   "contract8": "53b6c11a",
-   "bytes": 33028
+   "contract8": "d16b3a73",
+   "bytes": 33501
   },
   "video-dewatermark": {
    "sha8": "67146804",
@@ -242,5 +242,5 @@
    "bytes": 2209
   }
  },
- "blessed_by": "check-skill-write-lock --bless super-clone @2026-10-12 08:23"
+ "blessed_by": "check-skill-write-lock --bless super-clone @2026-10-12 09:19"
 }

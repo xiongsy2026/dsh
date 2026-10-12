@@ -44,11 +44,13 @@ Hypit skill 只在抽帧、裁切、原声贴回、写项目文件时加载。�
    `python scripts/intent.py fields` 拿 key，别凭记忆。
 2. 等客户在右栏点【提交这张表】（会被叫醒，不要催、不要代发）。**交完表就没有任何东西需要猜**：
    原片与产品图是服务端存的绝对路径，声音档/比例是客户按下的。
-3. 这时才做需要看内容的部分：`video.analyze` 看图看片（合同 material-analysis 那一步，免批不免账，
-   分要算进报价）、需要换背景时把参考图转成文字。
-4. 跑 `python .dsh/skills/super-clone/runner/run.py --from-form --stage compile`（**0 分、不提交**）
-   出分镜与提示词，对着 `frames/` 逐秒核；分镜/动作标签失真就补 `--extra-note` 重跑同一条
-   （还是 0 分）。🔴 这一档就是"重编译不烧 Wan"那句散文的合法出口 —— 不许再绕开入口手搓 driver。
+3. 🔴 **不要自己去跑 `video.analyze`**（2026-10-12 把执行人锁进管线）：合同 `material-analysis` 那一步
+   由**管线**经 `gateway.invoke("video.analyze")` 自动补跑 —— 会预扣、会结算、会记台账，
+   实扣写进 `material_analysis.json` 的 `auto_spent` 并计入这次报价。熔断默认 120 分（`SUPER_CLONE_ANALYZE_CAP`）。
+   你在这条路上只做一件事：**需要换背景时，把客户给的参考图看成文字写进背景要求**（背景只走文字）。
+4. 跑 `python .dsh/skills/super-clone/runner/run.py --from-form --stage compile`（**不提交、不进执行器**）
+   出分镜与提示词，对着 `frames/` 逐秒核；分镜/动作标签失真就补 `--extra-note` 重跑同一条。
+   🔴 这一档就是"重编译不烧 Wan"那句散文的合法出口 —— 不许再绕开入口手搓 driver。
 5. 认可后去掉 `--stage`（= `--stage submit`）⇒ 报价（五格现读）⇒ 等人在批准窗点一次 ⇒ 盯到终态交付。
 
 素材与事实的口径照旧：原片、产品名、≥1 张产品图是花钱前必须真拿到的；换脸要清晰面部图（一张脸对应
@@ -104,7 +106,7 @@ Hypit skill 只在抽帧、裁切、原声贴回、写项目文件时加载。�
    客户第二天把已经在手的素材自己又传了一遍）。素材归位不用手写命令，`handoff.py` 那条会做无歧义的部分。
    ⚠️ 强度边界：这道门槛管得住"走入口"，agent 自己拼脚本直接 import 引擎函数仍然绕得开 —— 那一条靠
    合同步骤的 `手段=` 白名单拦（`storyboard-fact-check` 已登记 `runner:--extra-note`、
-   `material-analysis` 已登记 `gateway:video.analyze`；花钱那一刀还额外认回执，见 `docs/ADR-skill-contract.md`）。
+   `material-analysis` 已登记 `pipeline:invoke:video.analyze`（2026-10-12 起执行人是管线，不是 agent）；花钱那一刀还额外认回执，见 `docs/ADR-skill-contract.md`）。
 
 ## 硬规则
 
@@ -406,12 +408,12 @@ P1 只写文件，不调用 Wan。
 执行表因此多出「模型/路由」一列；`ledger=off` 是**如实**标——这条编译腿直连厂商、不在网关账本上。
 
 contract:
-  version: super-clone-wan3@6
+  version: super-clone-wan3@7
   entry: python .dsh/skills/super-clone/runner/run.py --from-form   # 值全部从这条会话【已提交】的右栏表单读，参数只作覆盖；老写法逐格给照样能跑
   # 花钱口三方唯一源：表单 engine_lock(yz-prime) == 本行 == 网关 ROUTES/价目；clone-r2v 是已断开的 RunningHub 腿的批准词，不再是这条线的花钱口
   spend: video.generate/wan3-prime
   steps:
-    - id=material-analysis | 手段=gateway:video.analyze | 证明=material_analysis.json（该段每个素材的内容 sha8 + 缺口清单，由网关素材分析台账对账得出，不是 agent 自述） | 判据=json-list-min:materials=1 | required=1
+    - id=material-analysis | 手段=pipeline:invoke:video.analyze | 证明=material_analysis.json（该段每个素材的内容 sha8 + 缺口清单 + executor/auto_spent：这条腿由【管线】经 gateway.invoke 跑，台账与实扣由网关记，不是 agent 自述、也不是 agent 手搓脚本） | 判据=json-list-min:materials=1 | required=1
     - id=storyboard | 证明=该段目录里有 storyboard.json（Step1 MiMo 解析 + Checkpoint A 规范化后【喂给编译器的那一份】） | 判据=json-array-min=1 | required=1
     # 🔴 storyboard-fact-check（2026-10-11 补）：MiMo 的分镜表是【上游解析结果】不是事实（现网 5.1s 单镜头
     #    被解析成 2 镜 + 假"硬切/换装"）。SKILL.md 一直要求"标签不符就按秒写死时间轴压过它"，但这一步

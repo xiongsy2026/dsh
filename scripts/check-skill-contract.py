@@ -153,7 +153,7 @@ def write_sbc(bind_to=None, note="0-1s 正面口播微笑；约 1.0s 双手抬�
 
 
 IMPL_OK = {"negative-lock": "compiler-negative-lock",
-           "material-analysis": "gateway:video.analyze",
+           "material-analysis": "pipeline:invoke:video.analyze",
            "storyboard-fact-check": "runner:--extra-note"}
 
 

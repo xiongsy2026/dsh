@@ -353,10 +353,21 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    `run_pipeline` 的**第一条真语句**就是 `engine_lock_error()`（唯一源 = `super_clone_wan3.LANE_ENGINES`），8090 的
    `/api/super-clone-wan3/submit` 在**建任务记录之前**问一次 ⇒ `engine=h3` 从任何入口都进不来（此前它一路能走到 RunningHub 导演台，
    只被 `rh_video_guard` 挡着，合同/表单/上面那四方全都看不见）。回归 `check-engine-single-source.py` 的 **I 组**。
-   ④ 🔴 **素材必须"真看过"才有资格提交**（合同 `super-clone-wan3@5` 新增必需步 `material-analysis`）：判据**不认 agent 自述**，
-   只认网关的**素材分析台账** —— 每条 `video.analyze` 跑完由网关记 sha8，`_contract_evidence` 在写任何物证之前按内容对账，
-   缺 ⇒ `RuntimeError`（0 消耗、盘上不落半成品）。代价要认：**看图免批但不免账**（`video.analyze` 单价现读 prices，6 分/次），
-   一张图、一段音频都算一次 ⇒ 报价时把这段分算进去。查"看过没"用只读口 `gateway.py analyses [N]`。回归 `check-material-analysis.py`。
+   ④ 🔴 **素材必须"真看过"才有资格提交，而"看"这一步的执行人是【管线】不是 agent**（合同 `super-clone-wan3@7`；
+   @5 起有这个必需步，@7 换了执行人）：判据**不认 agent 自述**、只认网关的**素材分析台账** —— 每条
+   `video.analyze` 跑完由网关记 sha8，`_contract_evidence` 在写任何物证之前按内容对账。
+   🔴 **为什么必须换人**（2026-10-12 现网 session-1e7a5162）：@5 那版只在报错文案里教 agent"先跑 `gateway.py call video.analyze`"
+   ⇒ 它就真的自己干：PowerShell 吃引号 → 猜参数键名 → 写 `_analyze_run.py` 手搓 → 走了 `analyze` 那条**不记账**的近路
+   → 台账 0 条却汇报"预扣/结算/台账齐全"。合同把执行人写成 agent，就是让它自己找路，路一多就找到不记账那条。
+   现在锁死：缺哪几张图由**管线**经 `gateway.invoke("video.analyze")` 自动补跑（会预扣/结算/记台账），
+   范围只含**产品图**（原片的动作与时间轴事实由 Step1 MiMo 那条腿承担，重复看图=重复花钱），
+   **熔断默认 120 分**（`SUPER_CLONE_ANALYZE_CAP` 可调，打满就停下报数，不许死循环烧分），
+   实扣写进 `material_analysis.json` 的 `auto_ran`/`auto_spent`（executor=`pipeline:invoke:video.analyze`）⇒ 报价与交付表读这份。
+   代价要认：**看图免批但不免账**（单价现读 prices，6 分/次；实扣按 token，现网单条 14–40 分）。
+   🔴 同一次还封了那条近路：`gateway.py analyze` 以前直连 `call()` 分发器（记账/预扣/结算只在 `invoke()` 里）
+   ⇒ 现在它转 `invoke()`，**一条能力只有一个入口**；判据也收成一份 `analysis_missing_paths()`（人话版从它套出来）。
+   查"看过没"用只读口 `gateway.py analyses [N]`。回归 `check-material-analysis.py`（M5 结构锚点 / M6 合同手段 /
+   M7a-g 真跑咽喉但 **invoke 打桩、闸自己 0 消耗** / M8a-d 近路与单一判据）。
    🔴🔴 **最高等级：合同没写手段的地方，也不许你自己发明手段**（2026-10-09 用户定性；事故形状=合同只写"删掉字幕/水印"
    这种**结果**，agent 就去手搓 ffmpeg 去字幕、还差点编出"内置去字幕模型"）。判据已落码，不靠自觉：
    ① 每条 step 必须至少有 `证明=`（物证）或 `手段=`（白名单）之一 —— **两者都没有的合同条款本身就是洞**，

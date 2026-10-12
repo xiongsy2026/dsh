@@ -8,6 +8,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -113,8 +114,9 @@ check("M5 咽喉形状无问题（对账→拒→才写物证）", throat_proble
 _check_src = src.replace('    if _missing:', '    if False:', 1)
 # 变异要真的把"拒"整块搬走/删掉，而不是改个条件（改条件判据看不见 ⇒ 控制是假的）
 _b0 = src.find("    if _missing:")
-_b1 = src.find("要花的分先算进报价。")
-_b1 = src.find(chr(10), _b1) + 1 if _b1 > 0 else -1
+# 🔴 锚点用【结构】不用文案：这段的结尾就是"开始写物证"那一行，所以边界天然存在；
+#    以前锚在报错文案的最后一句（"要花的分先算进报价。"），2026-10-12 补跑搬进管线后文案换了 ⇒ 空跑。
+_b1 = src.find("    seg_dir.mkdir(parents=True", _b0) if _b0 > 0 else -1
 check("M5d 前提：拒的那一段能定位（找不到=下面两个变异都是空跑）", [_b0 > 0, _b1 > _b0], [True, True])
 _block = src[_b0:_b1]
 check("M5b 变异：整块删掉【拒】⇒ 报『对账结果没人判』",
@@ -131,42 +133,119 @@ check("M5e 变异对照没顺手把正解也判红（原文仍 0 问题）", thr
 # ── M6 合同里这一步存在且形状合法 ────────────────────────────────────────────
 c = sc.contract_for("super-clone")
 st = next((s for s in c.get("steps") or [] if s.get("id") == "material-analysis"), None)
-check("M6 合同有 material-analysis 步（required=1 + 手段=gateway:video.analyze）",
-      [bool(st), (st or {}).get("required"), (st or {}).get("impl")], [True, True, "gateway:video.analyze"])
+check("M6 合同有 material-analysis 步（required=1 + 手段=【管线】invoke，不再是教 agent 跑 CLI）",
+      [bool(st), (st or {}).get("required"), (st or {}).get("impl")],
+      [True, True, "pipeline:invoke:video.analyze"])
 check("M6b 判据用的是网关认识的谓词（json-list-min / json-key / text-has / bind-sha8 / json-nonempty）",
       str((st or {}).get("pred", "")).startswith(("json-list-min:", "json-key:", "json-array-min=", "text-has=", "json-nonempty")), True)
 check("M6c 合同形状判据无问题（每步都有 证明= 或 手段=）", sc.contract_shape_problems(c), [])
 check("M6d 回执步骤登记了这一行（交付表里看得见）",
       "material-analysis" in io.open(SVC, encoding="utf-8", errors="replace").read(), True)
 
-# ── M7 真跑咽喉（0 消耗：不提交、不调模型）──────────────────────────────────
+# ── M7 真跑咽喉（🔴 invoke 打桩：这条腿现在由【管线】自己跑分析，闸绝不能真去花那份分）──────
 os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger7.json")
 from backend.services import super_clone_wan3 as scw   # noqa: E402
 seg = os.path.join(TMP, "seg7")
 vid = mkfile("src.mp4", 3, 128)
 PROMPT = "[NEGATIVE_LOCK] 成片不得出现字幕、花字、水印；" + "P" * 40
+_REAL_INVOKE = gw.invoke
+_CALLS = []
+
+
+def _stub_invoke(cap, purpose=None, account="local", params=None, fail=False, charged=7):
+    _CALLS.append({"cap": cap, "account": account, "params": dict(params or {})})
+    if not fail:
+        gw.record_media_analysis((params or {}).get("path"), cap, purpose or "default",
+                                 session="", credits={"charged": charged})
+    return {"ok": not fail, "capability": cap, "purpose": purpose or "default",
+            "credits": {"estimated": charged, "charged": 0 if fail else charged},
+            "error": "上游 5xx（桩）" if fail else None}
+
+
+def _run_evidence(**kw):
+    try:
+        scw._contract_evidence(seg, seg_board=[{"shot": 1}], seg_prompt=PROMPT,
+                               compiled_seg={"source": "step1_5_gpt_compiler", "model": "m",
+                                             "provider": "p"},
+                               seg_duration=8.0, ref_video=vid, seg_product_paths=[A, Bf], **kw)
+        return "放行", ""
+    except Exception as e:                                    # noqa: BLE001
+        return type(e).__name__, str(e)[:260]
+
+
 try:
-    scw._contract_evidence(seg, seg_board=[{"shot": 1}], seg_prompt=PROMPT,
-                           compiled_seg={"source": "step1_5_gpt_compiler", "model": "m", "provider": "p"},
-                           seg_duration=8.0, ref_video=vid, seg_product_paths=[A, Bf])
-    m7 = ["没拦住"]
-except Exception as e:
-    m7 = [type(e).__name__, "素材没看过" in str(e)]
-check("M7a 空台账 ⇒ 真跑咽喉必须拒", m7, ["RuntimeError", True])
-check("M7b 拒的时候盘上什么都没写（0 消耗、不留半成品）", os.path.isdir(seg), False)
-gw.record_media_analysis(A, "video.analyze", "default", session="")
-gw.record_media_analysis(Bf, "video.analyze", "default", session="")
-try:
-    scw._contract_evidence(seg, seg_board=[{"shot": 1}], seg_prompt=PROMPT,
-                           compiled_seg={"source": "step1_5_gpt_compiler", "model": "m", "provider": "p"},
-                           seg_duration=8.0, ref_video=vid, seg_product_paths=[A, Bf])
-    ok7 = True
-except Exception as e:
-    ok7 = False
-    m7err = "%s: %s" % (type(e).__name__, str(e)[:120])
-check("M7c 正向对照：补上台账就放行（否则 M7a 是靠'永远拒'假安全）", ok7, True)
-d = json.loads(io.open(os.path.join(seg, "material_analysis.json"), encoding="utf-8").read())
-check("M7d 物证文件里 materials=2、missing=0", [len(d.get("materials") or []), len(d.get("missing") or [])], [2, 0])
+    gw.invoke = lambda *a, **k: _stub_invoke(*a, fail=True, **k)
+    _CALLS.clear()
+    kind, msg = _run_evidence()
+    check("M7a 分析这条腿跑不通 ⇒ 必须拒（台账没记上就是没看过，不放行）",
+          [kind, "素材没看过" in msg], ["RuntimeError", True])
+    check("M7b 🔴 执行人确实是管线：空台账时【管线自己】调了 invoke(video.analyze)，两条素材各一次",
+          [len(_CALLS), sorted(c["params"].get("path") for c in _CALLS) == sorted([A, Bf]),
+           all(c["cap"] == "video.analyze" for c in _CALLS),
+           all(c["params"].get("question") for c in _CALLS),
+           all(int(c["params"].get("max_tokens") or 0) >= 600 for c in _CALLS)],
+          [2, True, True, True, True])
+    check("M7c 拒的时候盘上什么都没写（0 半成品；花钱在前物证在后 = 老 bug 形状）",
+          os.path.isdir(seg), False)
+
+    gw.invoke = _stub_invoke
+    _CALLS.clear()
+    kind, msg = _run_evidence()
+    check("M7d 正向对照：管线补跑成功 ⇒ 放行（M7a 不是靠'永远拒'假安全）", kind, "放行")
+    d = json.loads(io.open(os.path.join(seg, "material_analysis.json"), encoding="utf-8").read())
+    check("M7e 物证里写清【谁跑的、花了几分】（报价与交付表读这份，不靠 agent 自述）",
+          [len(d.get("materials") or []), len(d.get("missing") or []),
+           str(d.get("executor") or ""), len(d.get("auto_ran") or []), d.get("auto_spent")],
+          [2, 0, "pipeline:invoke:video.analyze", 2, 14])
+
+    # 熔断：换一份空台账、每条 999 分 ⇒ 第一条就把预算打满，第二条不许再跑（防"10 张图 × 40 分"这类失控）
+    os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger7b.json")
+    shutil.rmtree(seg, ignore_errors=True)
+    _CALLS.clear()
+    gw.invoke = lambda *a, **k: _stub_invoke(*a, charged=999, **k)
+    kind, msg = _run_evidence()
+    check("M7f 🔴 熔断生效：单条就把预算打满时【第二条不许再跑】，且拒因点名是熔断不是闸坏",
+          [len(_CALLS), "熔断" in msg], [1, True])
+
+    # 已看过就不许再花一次（现网那条原片被同一会话分析了三次 = 118 分，就是缺这条）
+    os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger7c.json")
+    gw.record_media_analysis(A, "video.analyze", "default", session="")
+    gw.record_media_analysis(Bf, "video.analyze", "default", session="")
+    shutil.rmtree(seg, ignore_errors=True)
+    _CALLS.clear()
+    gw.invoke = _stub_invoke
+    kind, msg = _run_evidence()
+    check("M7g 台账里已有记录 ⇒ 一条都不重跑（重复消耗是钱，不是保险），且照常放行",
+          [len(_CALLS), kind], [0, "放行"])
+finally:
+    gw.invoke = _REAL_INVOKE
+
+# ── M8 🔴 近路封了没（2026-10-12 现网：agent 走 `gateway.py analyze` 跑了三次分析，台账 0 条，
+#       因为它直连 call() 分发器，而记账/预扣/结算只在 invoke() 里 ⇒ 一条能力两个入口，便宜的那个不记账）──
+_gwsrc = io.open(r"D:\video-skill\backend\gateway.py", encoding="utf-8", errors="replace").read()
+_seg2 = _gwsrc[_gwsrc.index('elif cmd == "analyze":'):_gwsrc.index('elif cmd == "call":')]
+check("M8a analyze 子命令必须转 invoke（同一条轨：预扣/结算/台账齐全），且不再出现 call(\"video.analyze\")",
+      ['invoke("video.analyze"' in _seg2, 'call("video.analyze"' in _seg2], [True, False])
+check("M8b 变异对照：M8a 那两条不是恒真 —— 旧形状（转 call）喂进去必须一红一绿",
+      ['invoke("video.analyze"' in 'print(call("video.analyze", path=p))',
+       'call("video.analyze"' in 'print(call("video.analyze", path=p))'], [False, True])
+# 真跑一次 CLI：给一个不存在的文件 ⇒ 0 消耗（拿不到文件就发不出去），但【信封形状】能证明走没走 invoke
+_ENV = dict(os.environ)
+_ENV["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger8.json")
+_ENV["GATEWAY_LEDGER"] = os.path.join(TMP, "ledger8.sqlite")
+_ENV["PYTHONIOENCODING"] = "utf-8"
+_r8 = subprocess.run([sys.executable, r"D:\video-skill\backend\gateway.py", "analyze",
+                      os.path.join(TMP, "nope.png"), "这是什么"],
+                     capture_output=True, text=True, encoding="utf-8", errors="replace",
+                     timeout=180, env=_ENV)
+_o8 = _r8.stdout or ""
+check("M8c 真跑 CLI（0 消耗：文件不存在）⇒ 返回的是 invoke 的信封（有 credits/hold_id 字段），不是裸结果",
+      ["hold_id" in _o8 or '"ok"' in _o8, "credits" in _o8], [True, True])
+check("M8d 判据只有一份：人话版 coverage_problems 必须坐在 analysis_missing_paths 上（不自己再算 have 集合）",
+      ["analysis_missing_paths(" in _gwsrc[_gwsrc.index("def analysis_coverage_problems"):
+                                        _gwsrc.index("def analysis_coverage_problems") + 900],
+       "have = {}" in _gwsrc[_gwsrc.index("def analysis_coverage_problems"):
+                             _gwsrc.index("def analysis_coverage_problems") + 900]], [True, False])
 
 shutil.rmtree(TMP, ignore_errors=True)
 check("收尾：临时目录已清，生产台账未被本闸写过",
