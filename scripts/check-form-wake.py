@@ -718,6 +718,195 @@ check("O11 钩子挂的是 agent/turn-stopping + steer（不是 followup：收�
       ['ctx.on("agent/turn-stopping"' in _idx, "agent.steer(" in _idx,
        "budget-used-up" in _idx], [True, True, True])
 
+# ── X 组：死牌子 = 第四份唤醒来源 + 入口自己挂牌（2026-10-12 现网 video33-cardigan-swap）────
+# 两个现网形状一起堵：① 点火那台半路死了 ⇒ `compiled` 那格是【跑完才挂】的，死的永远不报 ⇒ 盘上零条红、
+#   客户干等；② agent 被叫醒后自己跑的那台【没有牌子】（以前只有 8100 点火才写）⇒
+#   收工拦截看不见它（busy=false），跑完回来挂号又被"没有 .compile.pid"拒掉 ⇒ 成功也叫不醒下一个人。
+_XD = os.path.join(SCRATCH, "x-died")
+os.makedirs(_XD, exist_ok=True)
+_XPIDF = os.path.join(_XD, ".compile.pid")
+_XNOW = 1791793500.0
+
+
+def _died(raw="4242", age=60.0, alive=False, tdir=None, skill="super-clone"):
+    """造一份盘上事实（牌子内容/年龄/活否都可拧），返回判据结果。
+
+    🔴 探针一律用桩：闸不许去探别人的进程（不可复现，也等于拿现场当判据）。
+    牌子永远写在 _XD（真实存在的那份），`tdir` 只喂给判据 —— 这样"目录不存在/没有目录"两种形状
+    不用真去创建或删除目录。
+    """
+    io.open(_XPIDF, "w", encoding="utf-8").write(raw)
+    os.utime(_XPIDF, (_XNOW - age, _XNOW - age))
+    d = _XD if tdir is None else tdir
+    return MA.compile_died_items([("s-X", skill, "t", d)], _XNOW,
+                                 (lambda p: True) if alive else (lambda p: False))
+
+
+_x1 = _died()
+check("X1 牌子在、进程没了、落下已 60 秒 ⇒ 一条 compile_died（死掉的机器自己报不了，只能按盘判）",
+      [len(_x1), _x1[0]["kind"], _x1[0]["session"], _x1[0]["pid"],
+       os.path.basename(_x1[0]["log"])] if _x1 else [0],
+      [1, "compile_died", "s-X", 4242, "compile.log"])
+check("X2 进程还活着 ⇒ 不判死（正在跑的编译不许把人叫醒说它死了）", _died(age=60.0, alive=True), [])
+check("X3 牌子 5 秒前才落下 ⇒ 不判（刚点火那一瞬可能被读到；半截写入 ≠ 死了）", len(_died(age=5.0)), 0)
+check("X4 牌子 25 小时前 ⇒ 不判（几天前的死相不该今天把人叫醒 = 过 TTL）",
+      len(_died(age=25 * 3600.0)), 0)
+check("X5 牌子是空的 ⇒ 不判（读不出数就不是证据）", len(_died(raw="")), 0)
+check("X5b 牌子是半截写入的乱码 ⇒ 同样不判（宁可漏判也不误叫人）", len(_died(raw="36x")), 0)
+check("X6 任务目录不存在 ⇒ 不判、不抛", len(_died(tdir=os.path.join(_XD, "nope"))), 0)
+check("X7 没有 task_dir（老意图没建目录）⇒ 不判", len(_died(tdir="")), 0)
+_ns = {"os": os, "io": io, "hypit_bridge": MA.hypit_bridge, "COMPILE_DIED_QUIET_SEC": 30}
+exec(compile(inspect.getsource(MA.compile_died_items)
+             .replace("COMPILE_DIED_QUIET_SEC", "(COMPILE_DIED_QUIET_SEC * 0)"), "<xmut>", "exec"), _ns)
+_died(age=5.0)                    # 摆回 X3 那个现场：牌子刚落下 5 秒、进程是死的
+check("X8 变异对照：把 30 秒静默期拧成 0 ⇒ 刚点火那台也被判死（红才证明 X3 不是靠巧合绿的）",
+      len(_ns["compile_died_items"]([("s-X", "super-clone", "t", _XD)], _XNOW, lambda p: False)), 1)
+os.remove(_XPIDF)
+
+# 泛化：只有【配了点火的档】才判死相（omni/hypit 没有"服务端起的编译"这回事 ⇒ 不无中生有）
+_XSAVE = MA.hypit_bridge.intent_map
+try:
+    io.open(_XPIDF, "w", encoding="utf-8").write("4242")
+    _real_now = time.time()
+    os.utime(_XPIDF, (_real_now - 60, _real_now - 60))
+    MA.hypit_bridge.intent_map = lambda: {"s-X": {"skill": "omni", "task": "t", "ts": _real_now,
+                                                  "task_dir": _XD}}
+    check("X9 skill 没配点火 ⇒ 队列为空（判据按【有没有点火这回事】筛，不是目录里有张牌子就都算）",
+          len(MA.compile_died_queue()), 0)
+    MA.hypit_bridge.intent_map = lambda: {"s-X": {"skill": "super-clone", "task": "t", "ts": _real_now,
+                                                  "task_dir": _XD}}
+    _q9 = MA.compile_died_queue()
+    check("X10 同一条牌子换成配了点火的档 ⇒ 出队（两向对照：X9 与 X10 只差 skill）",
+          [(i["kind"], i["session"], i["pid"]) for i in _q9], [("compile_died", "s-X", 4242)])
+    check("X11 ack 的 pid 与牌子都对不上 ⇒ 拒、牌子【不删】（这一秒可能又点火起了新的一台，"
+          "拿旧那台销账会把新那台的留痕摘掉 = 又变回盘上不存在的编译）",
+          [MA.wake_ack({"kind": "compile_died", "session": "s-X", "pid": 999, "at": 1.5})["ok"],
+           os.path.isfile(_XPIDF)], [False, True])
+    _mt = round(os.path.getmtime(_XPIDF), 3)
+    check("X11b 🔴 老插件那半只发得出 `at`（=牌子 mtime）⇒ 照样销得掉：只重启 8100、没重启 DSH 的"
+          "那个窗口里，一律按 pid 拒 = 永远销不掉账，死牌子一直挂在队列里（比不删更坏）",
+          [MA.wake_ack({"kind": "compile_died", "session": "s-X", "at": _mt}).get("ok"),
+           os.path.isfile(_XPIDF)], [True, False])
+    io.open(_XPIDF, "w", encoding="utf-8").write("4242")      # 又点火起了一台新的
+    _mt2 = round(os.path.getmtime(_XPIDF), 3)
+    check("X11c 拿【上一台】的 at 来销这一台 ⇒ 拒（接受 at 不等于放松身份：还是得对得上）",
+          [MA.wake_ack({"kind": "compile_died", "session": "s-X", "at": _mt})["ok"],
+           os.path.isfile(_XPIDF)], [False, True])
+    _ak12 = MA.wake_ack({"kind": "compile_died", "session": "s-X", "pid": 4242})
+    check("X12 ack 带对 pid ⇒ 销账 = 删掉那份死牌子（这一格没有 pending 标志：牌子本身就是状态，"
+          "别再造第二份状态）", [_ak12.get("ok"), os.path.isfile(_XPIDF)], [True, False])
+    check("X13 牌子已经不在了 ⇒ ok=True + already（重复销账不许报错，插件重试是常态）",
+          MA.wake_ack({"kind": "compile_died", "session": "s-X", "pid": 4242}).get("already"), True)
+    check("X14 没有这条会话 ⇒ 拒（不猜往哪删）",
+          MA.wake_ack({"kind": "compile_died", "session": "no-such", "pid": 1})["ok"], False)
+    check("X15 wake_ack 空 kind ⇒ 照旧拒（第四份队列加进来了，『不猜』这条不能松）",
+          MA.wake_ack({"session": "s-X", "pid": 1})["ok"], False)
+finally:
+    MA.hypit_bridge.intent_map = _XSAVE
+    if os.path.isfile(_XPIDF):
+        os.remove(_XPIDF)
+
+_wvs = inspect.getsource(MA.wake_view)
+check("X16 wake_view 一次合并四个来源（判据分两处问就有缝，也迟早有人只接一半）",
+      [_wvs.count("form_wake_queue("), _wvs.count("approval_wake_queue("),
+       _wvs.count("compile_wake_queue("), _wvs.count("compile_died_queue(")], [1, 1, 1, 1])
+
+# ── 入口自己挂牌：让"agent 起的那台"也在盘上存在 ────────────────────────────────
+RUN = r"C:\dsh\.dsh\skills\super-clone\runner\run.py"
+_run_src = io.open(RUN, encoding="utf-8", errors="replace").read()
+_run_lines = _run_src.splitlines()
+_main_at = next((n for n, l in enumerate(_run_lines, 1) if l.startswith("def main(")), 0)
+_l_claim = [n for n, l in enumerate(_run_lines, 1) if "claim_compile_pid(_gate" in l and n > _main_at]
+_l_coll = [n for n, l in enumerate(_run_lines, 1) if "compile_collision(_gate" in l and n > _main_at]
+_l_imp = [n for n, l in enumerate(_run_lines, 1) if "_ensure_video_skill_on_path()" in l and n > _main_at]
+check("X17 挂牌这一步真的在流程里，且排在【撞车检查之后、导入引擎之前】"
+      "（先检查再挂牌：否则会把别人活着的牌子盖成自己的 = 两台并发）",
+      [len(_l_claim) == 1, bool(_l_claim) and bool(_l_coll) and _l_claim[0] > _l_coll[0],
+       bool(_l_claim) and bool(_l_imp) and _l_claim[0] < _l_imp[0]], [True, True, True])
+check("X18 🔴 只在 --stage compile 挂牌（submit/wait 不挂）：牌子名就是 .compile.pid，"
+      "挂了不相干的档 = obligation 会说谎『编译在跑』",
+      bool(re.search(r"if a\.stage == \"compile\":\s*\n\s*claim_compile_pid\(", _run_src)), True)
+check("X19 牌子路径算法只有一份：读（撞车）与写（挂牌）都走 pid_files，不许各拼一遍",
+      [_run_src.count("for path in pid_files(gate, output_dir)"),
+       _run_src.count('os.path.join(tdir, ".compile.pid")')], [2, 1])
+
+# 真跑：新进程里 import 入口，让【本进程 pid】挂牌 ⇒ 撞车检查必须认不出冲突（那是我自己）
+_XRUN = os.path.join(SCRATCH, "x_claim.py")
+io.open(_XRUN, "w", encoding="utf-8").write(r"""
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("sc_run", r"C:\dsh\.dsh\skills\super-clone\runner\run.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+d = sys.argv[1]
+wrote = m.claim_compile_pid({"task_dir": d}, "")
+pidf = os.path.join(d, ".compile.pid")
+raw = open(pidf, encoding="utf-8").read().strip() if os.path.isfile(pidf) else ""
+print(json.dumps([wrote == pidf, raw == str(os.getpid()), list(m.compile_collision({"task_dir": d}, ""))]))
+""")
+_XD2 = os.path.join(SCRATCH, "x-claim")
+os.makedirs(_XD2, exist_ok=True)
+_p19 = subprocess.run([sys.executable, _XRUN, _XD2], capture_output=True, cwd=r"C:\dsh")
+try:
+    _v19 = json.loads((_p19.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
+except (ValueError, IndexError):
+    _v19 = ["没有输出", (_p19.stderr or b"").decode("utf-8", "replace")[-160:]]
+check("X20 真跑入口函数：写的就是自己这条 pid ⇒ 下次自己再跑不会被自己的牌子撞死"
+      "（compile_collision 认 pid != os.getpid()）", _v19, [True, True, [0, ""]])
+check("X21 挂牌写不上（目录不存在）⇒ 退出码仍是 0、不抛：挂牌失败不许把编译本身拦死",
+      subprocess.run([sys.executable, _XRUN, os.path.join(_XD2, "nope")], capture_output=True,
+                     cwd=r"C:\dsh").returncode, 0)
+
+# 两端配平：服务端要 pid，插件就必须发 pid（少一半 = 销账永远对不上 = 每 5 秒重叫一次）
+check("X22 插件的 ack 对 compile_died 这一格发的是 pid（不是 at）—— 与 X11/X12 服务端那句配对",
+      ['kind: "compile_died", session: item.session, pid: item.pid' in " ".join(plg.split()),
+       'kind: "approval", grant_id: item.grant_id, at: item.at' in " ".join(plg.split())], [True, True])
+_x_node = os.path.join(SCRATCH, "x_text.mjs")
+io.open(_x_node, "w", encoding="utf-8").write(
+    'import { pathToFileURL } from "node:url";\n'
+    'const m = await import(pathToFileURL(process.argv[2]).href);\n'
+    'console.log(JSON.stringify(m.wakeText(JSON.parse(process.argv[3]))));\n')
+_X_CD_ITEM = json.dumps({"kind": "compile_died", "session": "s", "skill": "super-clone",
+                         "pid": 4242, "log": "C:/x/compile.log", "at": 1})
+_X_OK_ITEM = json.dumps({"kind": "compiled", "session": "s", "skill": "super-clone",
+                         "ok": True, "task": "t", "at": 1})
+
+
+def _wake_text(src, item_json, tag):
+    cp = os.path.join(SCRATCH, "plugin-%s.mjs" % tag)
+    io.open(cp, "w", encoding="utf-8").write(src)
+    r = subprocess.run(["node", _x_node, cp, item_json], capture_output=True, cwd=r"C:\dsh")
+    try:
+        return json.loads((r.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return ""
+
+
+_t23 = _wake_text(plg, _X_CD_ITEM, "cd")
+check("X23 真跑 wakeText(死牌子那条) ⇒ 说清死因去哪读、能重跑哪一条、以及报价那一刀仍要人批",
+      [s in _t23 for s in ("编译半路死了", "4242", "compile.log", "--stage compile", "批准")],
+      [True] * 5)
+check("X23b 🔴 两条编译相关的叫醒都写明『重跑必须 run_in_background』：一条编译实测 7–12 分钟，"
+      "前台命令到 10 分钟被工具强杀 —— 现网 18:27 起连死两台就是因为文案没这句，"
+      "agent 拿同一种跑法又跑了一遍（死而复始）",
+      [_t23.count("run_in_background"), _wake_text(plg, _X_OK_ITEM, "cdok").count("run_in_background")],
+      [1, 1])
+check("X23c compiled 那条四步全在（🔴 这条抓的是一个真 bug：`+` 比 `?:` 绑得紧，"
+      "没括号时整条叫醒只剩第 1 步 —— 2026-10-12 现网 agent 就是因为收不到『下一步该报价』自己数出四件事、"
+      "把补跑编译当成必做步骤又起了一台）",
+      [(s in _wake_text(plg, _X_OK_ITEM, "c1")) for s in
+       ("1) 先审编译结果", "2) ", "3) 认可后", "4) 人批过之后", "该你报价")], [True] * 5)
+check("X23d 第 2 步必须写成【默认不重跑，失真才重跑】—— 编号清单会被读成必做步骤",
+      [("默认【不重跑】" in _wake_text(plg, _X_OK_ITEM, "c2")),
+       ("只有分镜/动作标签对不上" in _wake_text(plg, _X_OK_ITEM, "c3"))], [True, True])
+check("X23e 反向对照：把那对括号拆掉（回到出事那版形状）⇒ 第 3、4 步就没了（证明 X23c 测的是括号不是字面）",
+      [(s in _wake_text(plg.replace('+ (item.ok\n', '+ item.ok\n', 1), _X_OK_ITEM, "c4"))
+       for s in ("3) 认可后", "4) 人批过之后")], [False, False])
+_t24 = _wake_text(plg.replace('  if (kind === "compile_died") {',
+                              '  if (kind !== "compile_died") {', 1), _X_CD_ITEM, "cdmut")
+check("X24 变异对照：把 kind 判据反着写 ⇒ 死牌子那格拿到的是【表单文案】（红才说明 X23 在测分支）",
+      ["编译半路死了" in _t24, "表单已提交" in _t24], [False, True])
+check("X25 死牌子那条不许变成第二种人证：文案里不许出现『已经批了 / 直接提交』",
+      [s in _t23 for s in ("已经批了", "直接提交")], [False, False])
+
 print(_safe("\n=== 表单唤醒闸：%d 条断言，失败 %d ===" % (TOTAL[0], len(fails))))
 if fails:
     print(_safe("失败清单: " + " | ".join(f.split()[0] for f in fails)))

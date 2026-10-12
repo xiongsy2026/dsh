@@ -24,7 +24,7 @@ export const inject = ["agents"];
 const WAKE_URL = "http://127.0.0.1:8100/api/skills/form/wake";
 const ACK_URL = "http://127.0.0.1:8100/api/skills/form/wake/ack";
 const TICK_MS = 5000;                       // 与右栏 presence 同周期：客户交完表最多等 5 秒
-const WAKE_REV = "wake-20261012d";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
+const WAKE_REV = "wake-20261012f";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
 const MAX_PER_TICK = 3;                     // 一轮最多叫 3 条：多会话同时交表时不许把驱动堵死
 // 🔴 一次 HTTP 最多等多久。8002/8100 这类本机服务"TCP 收下但不回话"是真的发生过的
 //    （2026-10-11 现网：8100 keep-alive 攒到积压打满，端口 LISTENING 却一律拒新连接）。
@@ -84,14 +84,33 @@ export function wakeText(item) {
     const skill = String((item && item.skill) || "该技能");
     return "【编译已完成（0 分，没提交）· 该你报价了】\n"
       + "客户交表时服务端就自动点了火（技能：" + skill + "），现在 `--stage compile` 跑完了。\n"
-      + item.ok
+      + (item.ok
         ? "1) 先审编译结果：读该段 `storyboard.json` / `prompt.txt` / `prompt_meta.json`，对着 `frames/` 逐秒核动作与分镜。\n"
-        : "1) 🔴 编译【失败】：先读任务目录里的 `compile.log` 找死因，如实报出来，别当成上游问题、也别静默重跑。\n"
-      + "2) 分镜/动作标签失真 ⇒ 补 --extra-note 重跑同一条 --stage compile（还是 0 分）；不许绕开入口手搓脚本。\n"
+        : "1) 🔴 编译【失败】：先读任务目录里的 `compile.log` 找死因，如实报出来，别当成上游问题、也别静默重跑。\n")
+      // 🔴 括号是必须的：`+` 比 `?:` 绑得紧，没括号时整条消息只剩第 1 步（2026-10-12 现网就是这么只剩一行，
+      //    agent 拿不到"下一步该报价"，自己数出四件事把【补跑编译】当成必做步骤又起了一台）。
+      + "2) 🔴 默认【不重跑】：只有分镜/动作标签对不上 `frames/` 才补 --extra-note 重跑同一条 --stage compile"
+      + "（还是 0 分）；产物齐、分镜对得上就直接进第 3 步。不许绕开入口手搓脚本。\n"
+      + "   重跑必须 `run_in_background: true`：一条编译实测 7–12 分钟，前台命令到 10 分钟会被工具强杀。\n"
       + "3) 认可后：跑 gateway.py approve 建待批条子（段数从盘上算），把 approve 打出的报价正文【原样】贴进消息，"
       + "等人点【批准，开始跑】—— 这一刀仍只有人能点。\n"
       + "4) 人批过之后由你提交 wan3.0、盯到终态、present → deliver_pack → 原样贴 markdown。\n"
       + "（本条由 8100 的编译完成事件触发，不是客户手打的。）";
+  }
+  if (kind === "compile_died") {
+    const skill = String((item && item.skill) || "该技能");
+    return "【编译半路死了 · 客户还在等 · 该你出声了】\n"
+      + "客户交表时服务端点了火（技能：" + skill + "），那台 `--stage compile`（pid " + item.pid
+      + "）进程已经没了，牌子却还挂在任务目录上 ⇒ 它没跑完，也没往队列里报过任何东西。\n"
+      + "1) 先读 " + item.log + " 找死因，把死因如实说给人（上游 429 / 额度 / 编码崩 / 被杀），"
+      + "🔴 不许把「表交了」当成「进管线了」汇报。\n"
+      + "2) 同一条 --stage compile 重跑一次（还是 0 分、不提交）；入口现在自己挂牌，"
+      + "再起第二台会被入口直接拒 ⇒ 别绕开入口手搓 driver。\n"
+      + "   🔴 必须 `run_in_background: true` + `job_output` 收：一条编译实测 7–12 分钟，"
+      + "前台命令到 10 分钟被工具强杀 —— 现网那两台就是这么死的，别用同一种跑法再死一次。\n"
+      + "3) 重跑还是死 ⇒ 同一个死因最多试 3 次，然后停下报证据（compile.log + 账本 error），别死磕。\n"
+      + "4) 编译出来才走报价那一刀：approve 建条子 ⇒ 人在批准窗点一次 ⇒ 你提交、盯终态、交付。\n"
+      + "（本条由 8100 的「死牌子」判据触发 —— 它读的是盘上事实，不是谁的自述。）";
   }
   if (kind === "approval") {
     const lane = String(item.capability || "?") + (item.purpose ? "/" + item.purpose : "");
@@ -189,7 +208,11 @@ async function tick(ctx) {
       //    按会话清会把后批那条一起抹掉 = 人明明点了，agent 却永远不被叫。
       const ackBody = item.kind === "approval"
         ? { kind: "approval", grant_id: item.grant_id, at: item.at }
-        : { kind: (item.kind || "form"), session: item.session, at: item.at };
+        : item.kind === "compile_died"
+          // 🔴 死牌子那一格按 pid 销账（不是 at）：服务端只删【报上来的那台】的牌子，
+          //    万一这一秒又点火起了新的一台，pid 对不上就不删 —— 免得把新那台的留痕摘了。
+          ? { kind: "compile_died", session: item.session, pid: item.pid }
+          : { kind: (item.kind || "form"), session: item.session, at: item.at };
       await fetchJson(ACK_URL, ackBody);
       done++;
     } catch (e) {

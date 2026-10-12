@@ -48,8 +48,10 @@ Hypit skill 只在抽帧、裁切、原声贴回、写项目文件时加载。�
    由**管线**经 `gateway.invoke("video.analyze")` 自动补跑 —— 会预扣、会结算、会记台账，
    实扣写进 `material_analysis.json` 的 `auto_spent` 并计入这次报价。熔断默认 120 分（`SUPER_CLONE_ANALYZE_CAP`）。
    你在这条路上只做一件事：**需要换背景时，把客户给的参考图看成文字写进背景要求**（背景只走文字）。
-4. 跑 `python .dsh/skills/super-clone/runner/run.py --from-form --stage compile`（**不提交、不进执行器**）
-   出分镜与提示词，对着 `frames/` 逐秒核；分镜/动作标签失真就补 `--extra-note` 重跑同一条。
+4. 🔴 跑 `python .dsh/skills/super-clone/runner/run.py --from-form --stage compile` **必须 `run_in_background: true`**
+   （**不提交、不进执行器**）出分镜与提示词，对着 `frames/` 逐秒核；分镜/动作标签失真就补 `--extra-note` 重跑同一条。
+   为什么这条也要后台：一条编译实测 **7–12 分钟**（裁片 + ASR/demucs + MiMo 分镜 + 编译器），前台到 10 分钟
+   就被工具强杀 ⇒ 产物没落、牌子变死牌、又得整条重跑（2026-10-12 现网 18:27 起连死两台就是这个形状）。
    🔴 这一档就是"重编译不烧 Wan"那句散文的合法出口 —— 不许再绕开入口手搓 driver。
 5. 认可后去掉 `--stage`（= `--stage submit`）⇒ 报价（五格现读）⇒ 等人在批准窗点一次 ⇒ 提交 ⇒ 盯到终态交付。
 6. 🔴 **提交那一下必须"后台跑"，等结果用 `--stage wait`（2026-10-12 补，现网 session-5282eabf）**：

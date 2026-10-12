@@ -84,13 +84,11 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def compile_collision(gate: dict | None, output_dir: str) -> tuple:
-    """纯判据：这条任务【已经有一台编译在跑】吗 ⇒ 返回 (那台的 pid, 牌子路径)；没有返回 (0, "")。
+def pid_files(gate: dict | None, output_dir: str) -> list:
+    """牌子 `.compile.pid` 的路径【只这一处算法】（读与写共用，别各拼一遍）。
 
-    牌子 = 8100 点火时在任务目录写的 `.compile.pid`（跑完由服务端摘）。
-    🔴 这条为什么必须有：交表即点火之后，那条会话的 agent 收到唤醒又自己敲了一次 runner
-       （2026-10-12 现网 11:51:50 点火 + 11:52:28 自起 = 同一任务两台并发）⇒
-       同名产物（prompt.txt / storyboard.json / 回执）互相覆盖，MiMo 与编译器还要各跑一遍。
+    两个候选：意图里的 task_dir，和 output_dir 的上一层（=同一个任务目录）——
+    点火那条走前者，手跑那条两个都能命中，所以都留着。
     """
     cands = []
     tdir = str((gate or {}).get("task_dir") or "").strip()
@@ -99,7 +97,40 @@ def compile_collision(gate: dict | None, output_dir: str) -> tuple:
     od = str(output_dir or "").strip().rstrip("\\/")
     if od:
         cands.append(os.path.join(os.path.dirname(od), ".compile.pid"))
-    for path in list(dict.fromkeys(cands)):
+    return list(dict.fromkeys(cands))
+
+
+def claim_compile_pid(gate: dict | None, output_dir: str) -> str:
+    """入口把"我这台在跑"写进牌子（不靠 8100 点火那条替它写）。
+
+    🔴 为什么必须自己写（2026-10-12 现网 video33-cardigan-swap 16:23）：牌子以前**只有服务端点火才写**
+       ⇒ agent 被叫醒后自己跑的那台编译在盘上等于"不存在"：`obligation_view` 看不见它（busy=false，
+       收工拦截拦不住，它一收工客户就没人管了），跑完回来的 `POST /api/skills/form/compiled`
+       也被"这台编译不是我起的（没有 .compile.pid）"拒掉 ⇒ **编译成功却永远叫不醒下一个人**。
+       现在不管谁起，判据都只有一份：牌子在 = 这台在跑；摘牌 = 报完那一下。
+    写在 collisions 检查之后：撞到别人活着的那台会直接退出，不会把别人的牌子盖成自己的。
+    """
+    for path in pid_files(gate, output_dir):
+        if not os.path.isdir(os.path.dirname(path)):
+            continue
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+        except OSError:
+            return ""                     # 写不上牌子不影响编译本身（别把它做成硬失败），只是少一份留痕
+        return path
+    return ""
+
+
+def compile_collision(gate: dict | None, output_dir: str) -> tuple:
+    """纯判据：这条任务【已经有一台编译在跑】吗 ⇒ 返回 (那台的 pid, 牌子路径)；没有返回 (0, "")。
+
+    牌子 = 任务目录的 `.compile.pid`（谁起谁写，跑完由服务端摘；见 claim_compile_pid）。
+    🔴 这条为什么必须有：交表即点火之后，那条会话的 agent 收到唤醒又自己敲了一次 runner
+       （2026-10-12 现网 11:51:50 点火 + 11:52:28 自起 = 同一任务两台并发）⇒
+       同名产物（prompt.txt / storyboard.json / 回执）互相覆盖，MiMo 与编译器还要各跑一遍。
+    """
+    for path in pid_files(gate, output_dir):
         try:
             with open(path, encoding="utf-8") as f:
                 raw = (f.read() or "").strip()
@@ -353,7 +384,16 @@ def report_compiled(sid: str, ok: bool, error: str = "") -> None:
                              "error": str(error or "")[:200]}).encode("utf-8"),
             headers={"Content-Type": "text/plain;charset=UTF-8"})
         with urllib.request.urlopen(req, timeout=8) as r:
-            r.read()
+            raw = r.read()
+        # 🔴 服务端说了什么必须出声：HTTP 200 + {"ok":false,"error":…} 这一形状过去被整个丢掉，
+        #    于是"编译跑完了但没人被叫醒"在盘上零条红（2026-10-12 现网就是拿不到这一行才查了一个小时）。
+        try:
+            ans = json.loads(raw.decode("utf-8", errors="replace") or "{}")
+        except ValueError:
+            ans = {}
+        if ans.get("ok") is False:
+            print("[编译回执] 8100 不收这一格（%s）⇒ 编译结果照样落盘，但没人被自动叫醒，"
+                  "请人回一句让 agent 接着报价" % str(ans.get("error") or "没给原因")[:140])
     except (urllib.error.URLError, OSError, ValueError) as e:
         print("[编译回执] 8100 没收下（%s: %s）⇒ 编译结果照样落盘，但没人被自动叫醒，"
               "请自己回一句让 agent 接着报价" % (type(e).__name__, str(e)[:100]))
@@ -540,6 +580,11 @@ def main(argv=None) -> int:
         _fg = form_gate_verdict(_gate)
         if _fg:
             raise SystemExit(_fg)
+    # ⓪d 自己挂牌（只在「只编译」这一档）：所有会早退的校验都过了、还没动引擎之前。
+    #     不挂牌的那半形状现网演过一遍：agent 自己起的编译跑完，挂号被"这台不是我起的"拒掉
+    #     ⇒ 产物落盘却没人被叫醒；收工拦截也看不见它 ⇒ 它一收工，客户对着右栏干等。
+    if a.stage == "compile":
+        claim_compile_pid(_gate, vals.get("output_dir"))
     _ensure_video_skill_on_path()
     # 延迟导入：--help / 参数校验不需要重依赖（playwright 等）
     from backend.services.super_clone_wan3 import run_pipeline  # noqa
