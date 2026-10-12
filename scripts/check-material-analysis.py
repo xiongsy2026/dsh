@@ -54,8 +54,8 @@ C = mkfile("c.wav", 9)
 os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger-empty.json")
 
 # ── M1 值表（真临时文件，不造字符串）─────────────────────────────────────────
-gw.record_media_analysis(A, "video.analyze", "default", session="S1")
-gw.record_media_analysis(Bf, "video.analyze", "default", session="S1")
+gw.record_media_analysis(A, "video.analyze", "default", session="S1", hold_id="h-A1")
+gw.record_media_analysis(Bf, "video.analyze", "default", session="S1", hold_id="h-B1")
 rows = gw.media_analysis_rows()
 check("M1a 全覆盖 ⇒ 无问题", gw.analysis_coverage_problems([A, Bf], rows, "S1"), [])
 check("M1b 缺一个 ⇒ 指名道姓（带 sha8）",
@@ -74,10 +74,12 @@ check("M2 身份认内容不认文件名（同名换内容 ⇒ 旧看图记录�
 
 # ── M3 台账写入本身 ──────────────────────────────────────────────────────────
 before = len(gw.media_analysis_rows())
-r1 = gw.record_media_analysis(A2, "video.analyze", "default", session="S1", credits={"charged": 6})
+r1 = gw.record_media_analysis(A2, "video.analyze", "default", session="S1", credits={"charged": 6},
+                           hold_id="h-A2")
 check("M3a 写一条 ⇒ 行数 +1 且带 credits",
       [len(gw.media_analysis_rows()) - before, r1.get("ok"), r1["row"].get("credits")], [1, True, 6])
-r2 = gw.record_media_analysis(os.path.join(TMP, "ghost.png"), "video.analyze", "default", session="S1")
+r2 = gw.record_media_analysis(os.path.join(TMP, "ghost.png"), "video.analyze", "default", session="S1",
+                           hold_id="h-G")
 check("M3b 文件读不到 ⇒ ok=False 但不抛（台账是留痕，不许变成故障点）", [r2.get("ok"), "error" in r2], [False, False])
 os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "no-such-dir", "x.json")
 r3 = gw.record_media_analysis(A, "video.analyze", "default", session="S1")
@@ -156,7 +158,7 @@ def _stub_invoke(cap, purpose=None, account="local", params=None, fail=False, ch
     _CALLS.append({"cap": cap, "account": account, "params": dict(params or {})})
     if not fail:
         gw.record_media_analysis((params or {}).get("path"), cap, purpose or "default",
-                                 session="", credits={"charged": charged})
+                                 session="", credits={"charged": charged}, hold_id="h-pipeline")
     return {"ok": not fail, "capability": cap, "purpose": purpose or "default",
             "credits": {"estimated": charged, "charged": 0 if fail else charged},
             "error": "上游 5xx（桩）" if fail else None}
@@ -209,8 +211,8 @@ try:
 
     # 已看过就不许再花一次（现网那条原片被同一会话分析了三次 = 118 分，就是缺这条）
     os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger7c.json")
-    gw.record_media_analysis(A, "video.analyze", "default", session="")
-    gw.record_media_analysis(Bf, "video.analyze", "default", session="")
+    gw.record_media_analysis(A, "video.analyze", "default", session="", hold_id="h-pre1")
+    gw.record_media_analysis(Bf, "video.analyze", "default", session="", hold_id="h-pre2")
     shutil.rmtree(seg, ignore_errors=True)
     _CALLS.clear()
     gw.invoke = _stub_invoke
@@ -219,6 +221,30 @@ try:
           [len(_CALLS), kind], [0, "放行"])
 finally:
     gw.invoke = _REAL_INVOKE
+
+# ── M9 🔴 台账行必须带【调用凭证】（2026-10-12 现网第七种失效：agent 发现台账没记上，
+#       就 import 网关的记账函数自己写了 3 条"看过图"——13 毫秒三条、credits=0，
+#       于是"不认 agent 自述、只认台账"这条判据被自证破功）────────────────────────
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger9.json")
+forged = gw.record_media_analysis(A, "video.analyze", "default", session="S9")   # 没有 hold_id
+check("M9a 手写一行（无 hold_id）⇒ 不算证据，仍判缺",
+      [forged.get("ok"), len(gw.analysis_missing_paths([A], gw.media_analysis_rows(), "S9"))], [True, 1])
+gw.record_media_analysis(A, "video.analyze", "default", session="S9", hold_id="h-real")
+check("M9b 正向对照：同一张图带上调用凭证 ⇒ 立刻算看过（判据不是恒拒装样子）",
+      len(gw.analysis_missing_paths([A], gw.media_analysis_rows(), "S9")), 0)
+# 最狠的一条：伪造的台账不但帮不了它，反而让管线【真的去跑一次】
+os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger9b.json")
+gw.record_media_analysis(A, "video.analyze", "default", session="")      # 只有无凭证行
+gw.record_media_analysis(Bf, "video.analyze", "default", session="")
+shutil.rmtree(seg, ignore_errors=True)
+_CALLS.clear()
+gw.invoke = _stub_invoke
+kind, msg = _run_evidence()
+check("M9c 台账里全是「手写行」⇒ 管线不认，并且【自己真跑一遍】补上凭证"
+      "（伪造从「能过关」变成「多花一次钱也得重来」）",
+      [kind, len(_CALLS), all(str(c["params"].get("path")) in (A, Bf) for c in _CALLS)],
+      ["放行", 2, True])
+gw.invoke = _REAL_INVOKE          # 桩不许留给后面的用例（M8 要跑真 CLI 子进程）
 
 # ── M8 🔴 近路封了没（2026-10-12 现网：agent 走 `gateway.py analyze` 跑了三次分析，台账 0 条，
 #       因为它直连 call() 分发器，而记账/预扣/结算只在 invoke() 里 ⇒ 一条能力两个入口，便宜的那个不记账）──

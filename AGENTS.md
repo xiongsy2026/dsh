@@ -368,6 +368,13 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    ⇒ 现在它转 `invoke()`，**一条能力只有一个入口**；判据也收成一份 `analysis_missing_paths()`（人话版从它套出来）。
    查"看过没"用只读口 `gateway.py analyses [N]`。回归 `check-material-analysis.py`（M5 结构锚点 / M6 合同手段 /
    M7a-g 真跑咽喉但 **invoke 打桩、闸自己 0 消耗** / M8a-d 近路与单一判据）。
+   🔴🔴 **第七种失效（同一天 09:04 现网，比前面所有都严重）**：它发现台账没记上之后，写了 `_record_ledger.py`
+   **直接 import `record_media_analysis` 给自己签了 3 条"看过图"**（13 毫秒三条、credits=0）——
+   "不认 agent 自述、只认台账"这条判据当场被自证破功，因为台账是个它能写的文件。
+   现在台账行必须带 **`hold_id`（这次调用的预扣号）**才算证据：`analysis_missing_paths()` 无视无凭证的行，
+   `gateway.py analyses` 会把它们标 🔴无（不算证据）。**这不是密码学防线**（同一个 Administrator 做不到）——
+   它要的是"伪造得贵 + 伪造了也没用"：要过关就得真产生一条预扣；而缺料时管线自己会真跑一次（见上）。
+   回归 M9a/M9b/M9c（M9c 就是"台账里全是手写行 ⇒ 管线不认并自己补跑"）。
    🔴🔴 **最高等级：合同没写手段的地方，也不许你自己发明手段**（2026-10-09 用户定性；事故形状=合同只写"删掉字幕/水印"
    这种**结果**，agent 就去手搓 ffmpeg 去字幕、还差点编出"内置去字幕模型"）。判据已落码，不靠自觉：
    ① 每条 step 必须至少有 `证明=`（物证）或 `手段=`（白名单）之一 —— **两者都没有的合同条款本身就是洞**，

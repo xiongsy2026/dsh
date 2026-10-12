@@ -615,7 +615,14 @@ _SEG = os.path.join(_t34_dir, "step2_wan3")
 # 否则这里拿到的永远是"素材没看过"而不是它真正要验的那三件事（真判据见 check-material-analysis.py）。
 from backend import gateway as _g34                              # noqa: E402
 os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(_t34_dir, "ledger.json")
-_g34.record_media_analysis(_pro, "video.analyze", "default", session="")
+# 合同 @7 起台账行必须带【调用凭证】(hold_id)，手写的一律不算 ⇒ 夹具也要给凭证，不然这条验不到东西。
+_g34.record_media_analysis(_pro, "video.analyze", "default", session="", hold_id="h-T34")
+# 🔴 再加一层保险：把 invoke 换成"必失败"的桩。万一台账漂了（判据认为缺料），管线会自己去补跑
+#    —— 那条腿是真花钱的，闸绝不许去调上游（真扣钱 + 拖慢 + 结果不可复现）。
+_real34 = _g34.invoke
+_g34.invoke = lambda *a, **k: {"ok": False, "capability": "video.analyze", "purpose": "default",
+                               "credits": {"estimated": 0, "charged": 0},
+                               "error": "闸里不许真调上游（T34 桩）"}
 _stamp = {"prompt": "…不得出现字幕、花字、水印…", "source": "step1_5_gpt_compiler",
           "model": "gpt-5.6-sol", "provider": "hub.nocannobb.com", "ledger": "off"}
 try:
@@ -626,6 +633,8 @@ try:
     _imp_err = _imp_err or ("导入失败" if not _svc else "")
 except Exception as _e:                                          # noqa: BLE001
     _v34, _imp_err = {}, "%s: %s" % (type(_e).__name__, str(_e)[:90])
+finally:
+    _g34.invoke = _real34
 _t34_files = {f: os.path.isfile(os.path.join(_SEG, f)) for f in
               ("prompt.txt", "storyboard.json", "prompt_meta.json", ".skill_receipt.json")}
 check("T34 入口外的物证写者实调成功（%s）：四件套全落盘" % (_imp_err or "ok"),
