@@ -147,6 +147,14 @@ python scripts/intent.py <skill> [任务名]
      所以这不是"给 8100 加执行端点"（那条禁令照旧有效）；
   ③ 挂号必须对得上 `.compile.pid`（`compiled_report`）—— 谁都能 POST 一下就能凭空造一条待醒 = 注入面；
   ④ 同一条任务不许起第二台（pid 活着 ⇒ 复用；跑完摘牌 ⇒ 改参数重交允许再起一台）。
+     🔴 2026-10-12 现网补了另一半：光服务端判没用 —— 那条会话的 agent 收到唤醒后自己又敲了一次 runner
+     （11:51:50 点火 + 11:52:28 自起 = 同一任务两台并发，同名产物互相覆盖、MiMo/编译器各跑一遍）。
+     现在【入口自己也拒】：读 `.dsh/skills/super-clone/runner/run.py` 的 `compile_collision()`，
+     牌子活着 ⇒ 在 import 引擎之前退出（0 分、0 调用、一个文件都不写），并把"看 compile.log / 等它摘牌"说给人看；
+     唤醒文案里也明写了"别再自己起 runner"。回归 `check-skill-form.py` 的 **D31–D31d**（值表 + 真跑 CLI + 顺序锚点 + 反向对照）。
+     ⚠️ 顺带一条 UI 债：入口是控制台程序，被【没有控制台的父进程】起时 Windows 会新建一个黑框（客户桌面上凭空一个窗口，
+     点 X 还会把跑到一半的编译杀掉）⇒ `main()` 第一句 `_hide_console_window()` 自己摘掉，
+     人要盯着输出排障就 `SUPER_CLONE_SHOW_CONSOLE=1`。
   ⚠️ 花钱那一刀的分工没变：**`approve` 与真提交仍只有 agent 能发起，人点批准窗仍是唯一人证**——
   理由不是客气，是提交之后要盯终态、失败要补跑、交付要贴图、范围一变要重新报价，那些是 agent 的活。
   回归 `scripts/check-form-wake.py` 的 **K1–K10d**（含 Popen 打桩验命令形状、pid 牌子双向、ack 三分流、at 幂等）。

@@ -24,7 +24,7 @@ export const inject = ["agents"];
 const WAKE_URL = "http://127.0.0.1:8100/api/skills/form/wake";
 const ACK_URL = "http://127.0.0.1:8100/api/skills/form/wake/ack";
 const TICK_MS = 5000;                       // 与右栏 presence 同周期：客户交完表最多等 5 秒
-const WAKE_REV = "wake-20261012b";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
+const WAKE_REV = "wake-20261012c";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
 const MAX_PER_TICK = 3;                     // 一轮最多叫 3 条：多会话同时交表时不许把驱动堵死
 // 🔴 一次 HTTP 最多等多久。8002/8100 这类本机服务"TCP 收下但不回话"是真的发生过的
 //    （2026-10-11 现网：8100 keep-alive 攒到积压打满，端口 LISTENING 却一律拒新连接）。
@@ -71,6 +71,8 @@ export function wakeText(item) {
     + "客户刚在右栏「填参数」提交了这条会话的参数（技能：" + skill + "）。\n"
     + "1) 先读参数：python scripts/intent.py payload   （键名就是引擎入参，不用再问客户）\n"
     + "2) 按该技能 SKILL.md 的流程继续跑，不要再等客户回一句\u201c开始\u201d。\n"
+    + "   🔴 但【不要再自己敲 runner 起第二台】：交表那一下 8100 已经自动把编译起跑了（同一条任务起两台会"
+    + "把 prompt/分镜/回执互相覆盖，入口现在也会直接拒）。盯 任务目录\\compile.log 等它跑完即可。\n"
     + "3) 🔴 要花钱的那一下仍然先报价，并等人在 http://127.0.0.1:8100/approval 点一次批准 —— 提交表单不等于批准。\n"
     + "（本条由 8100 的表单提交事件触发，不是客户手打的。）";
 }

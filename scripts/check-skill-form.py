@@ -1402,6 +1402,67 @@ chk("D30d", "反向对照：D30 那几条「不许出现」不是恒真 —— �
      "shutil.copyfile" not in "shutil.copyfile(a, b)",
      "urllib.request.Request(" not in "urllib.request.Request(u, data=b'x')"], [False, False, False])
 
+# ---- D31 入口不许在客户桌面上留黑框，也不许给同一条任务起第二台（2026-10-12 现网两条）----
+import tempfile                                          # noqa: E402
+
+_TD31 = tempfile.mkdtemp(prefix="dsh-coll-")
+os.makedirs(os.path.join(_TD31, "outputs"), exist_ok=True)
+_PF31 = os.path.join(_TD31, ".compile.pid")
+# 用一个【自己生的】活进程当"别人那台"——拿现网某个 pid 当 fixture = 钉现场，别人一死这条就随机红
+_LIVE31 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+
+
+def _coll31(pid_text, with_gate=True):
+    with open(_PF31, "w", encoding="utf-8") as f:
+        f.write(pid_text)
+    return _sc_ns["compile_collision"]({"task_dir": _TD31} if with_gate else None,
+                                       os.path.join(_TD31, "outputs"))
+
+
+chk("D31", "牌子判据值表：死 pid / 本进程自己 / 脏牌子 ⇒ 允许起；活的别人 ⇒ 冲突；没给 gate 只靠 output_dir 也要认出来",
+    [_coll31("4242")[0], _coll31(str(os.getpid()))[0], _coll31("not-a-pid")[0],
+     _coll31(str(_LIVE31.pid))[0], _coll31(str(_LIVE31.pid), False)[0]],
+    [0, 0, 0, _LIVE31.pid, _LIVE31.pid])
+_LIVE31.kill()
+_LIVE31.wait()
+# 真跑 CLI 那一条要另开一台"别人"（上面那台已经按脚本 kill 掉了 ⇒ 拿它当牌子就测不到冲突，
+# 只会让入口往下走、错在别的校验上 —— 这就是 got=[True, False, ...] 的形状）
+_LIVE31B = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+with open(_PF31, "w", encoding="utf-8") as f:
+    f.write(str(_LIVE31B.pid))
+_cr31 = subprocess.run(
+    [sys.executable, os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py"),
+     "--video", os.path.join(_TD31, "x.mp4"), "--product-images", os.path.join(_TD31, "p.png"),
+     "--product-name", "闸里的假任务", "--output-dir", os.path.join(_TD31, "outputs")],
+    capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace",
+    env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+_io31 = _cr31.stdout + _cr31.stderr
+# 🔴 断言只吃【ASCII 标记】：子进程被重定向后按 cp936 写 stderr，父进程按 utf-8 解就是乱码 ——
+#    拿中文子串当判据会红在自己的解码上（现网这条第一次跑就是这么红的）。"pid=" + ".compile.pid"
+#    + "compile.log" 三个只有撞牌子那条路会同时出现，够点名了。
+chk("D31b", "真跑入口：这条任务已有一台在跑 ⇒ 退出非 0、说清『不起第二台』，且 outputs 里一个文件都没写"
+    "（拒必须发生在 import 引擎之前 —— 晚一步 MiMo 的钱就花出去了）",
+    [_cr31.returncode != 0, all(x in _io31 for x in ("pid=", ".compile.pid", "compile.log")),
+     os.listdir(os.path.join(_TD31, "outputs")) == [], "run_pipeline" not in _io31],
+    [True, True, True, True])
+_LIVE31B.kill()
+_LIVE31B.wait()
+try:
+    os.remove(_PF31)
+except OSError:
+    pass
+_m31 = SC_RUN[SC_RUN.index("def main("):]
+chk("D31c", "顺序钉死：摘控制台窗口是 main 的第一句，撞牌子的检查排在 import 引擎之前；"
+    "并且留了一条给人排障的出口（SUPER_CLONE_SHOW_CONSOLE）",
+    [0 < _m31.index("_hide_console_window()") < _m31.index("compile_collision(") < _m31.index(
+        "_ensure_video_skill_on_path()"), "SUPER_CLONE_SHOW_CONSOLE" in SC_RUN], [True, True])
+_m31b = _m31.replace("_hide_console_window()", "pass  #", 1).replace(
+    "compile_collision(_gate, vals.get(\"output_dir\"))", "(0, \"\")", 1)
+chk("D31d", "反向对照：把摘窗那行和牌子检查各删一次 ⇒ 上面那条顺序断言必须红（不红就是它本来就恒真）",
+    [("_hide_console_window()" in _m31b) and (0 < _m31b.index("_hide_console_window()")),
+     "compile_collision(" in _m31b], [False, False])
+shutil.rmtree(_TD31, ignore_errors=True)
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:

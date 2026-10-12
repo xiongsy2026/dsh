@@ -38,6 +38,82 @@ def _ensure_video_skill_on_path() -> None:
         sys.path.insert(0, VIDEO_SKILL_HOME)
 
 
+def _hide_console_window() -> None:
+    """把入口自己的控制台窗口摘掉（人要盯着输出排障时设 SUPER_CLONE_SHOW_CONSOLE=1 就留着）。
+
+    🔴 为什么入口自己做而不是让调用方加参数：8100 点火那条是 DETACHED 起的（本来没窗口），但 agent
+       或人从【没有控制台的父进程】里敲 `python run.py`，Windows 会给这个控制台子进程新建一个黑框
+       ⇒ 客户桌面上凭空弹一个窗口（2026-10-12 现网就是这个），而且他顺手点 X 就把跑到一半的编译杀掉，
+       MiMo 那几分钟白等。这里【只摘窗口、不改输出去向】—— 点火那条仍然把 stdout 写进 compile.log。
+    """
+    if os.name != "nt" or (os.environ.get("SUPER_CLONE_SHOW_CONSOLE") or "").strip():
+        return
+    try:
+        import ctypes
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)          # SW_HIDE
+    except Exception:                                          # noqa: BLE001
+        pass                                                   # 摘不掉不影响跑
+
+
+def _pid_alive(pid: int) -> bool:
+    """只问「还在不在」，绝不动它。用 ctypes 的查询语义，不拿信号当探针。"""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)     # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not k32.GetExitCodeProcess(h, ctypes.byref(code)):
+                return False
+            return code.value == 259                 # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
+    except Exception:                                # noqa: BLE001
+        return False
+
+
+def compile_collision(gate: dict | None, output_dir: str) -> tuple:
+    """纯判据：这条任务【已经有一台编译在跑】吗 ⇒ 返回 (那台的 pid, 牌子路径)；没有返回 (0, "")。
+
+    牌子 = 8100 点火时在任务目录写的 `.compile.pid`（跑完由服务端摘）。
+    🔴 这条为什么必须有：交表即点火之后，那条会话的 agent 收到唤醒又自己敲了一次 runner
+       （2026-10-12 现网 11:51:50 点火 + 11:52:28 自起 = 同一任务两台并发）⇒
+       同名产物（prompt.txt / storyboard.json / 回执）互相覆盖，MiMo 与编译器还要各跑一遍。
+    """
+    cands = []
+    tdir = str((gate or {}).get("task_dir") or "").strip()
+    if tdir:
+        cands.append(os.path.join(tdir, ".compile.pid"))
+    od = str(output_dir or "").strip().rstrip("\\/")
+    if od:
+        cands.append(os.path.join(os.path.dirname(od), ".compile.pid"))
+    for path in list(dict.fromkeys(cands)):
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = (f.read() or "").strip()
+        except OSError:
+            continue
+        try:
+            pid = int(raw.splitlines()[0])
+        except (ValueError, IndexError):
+            continue
+        if pid != os.getpid() and _pid_alive(pid):
+            return pid, path
+    return 0, ""
+
+
 def fold_scene_text(customer_request, scene_text) -> str:
     """背景描述的唯一落点：并进 customer_request 的「背景要求」段。
     编译器只从 customer_request 里读背景（compiler-contract.md 任务4），所以这里不另开入参。
@@ -282,6 +358,7 @@ def report_compiled(sid: str, ok: bool, error: str = "") -> None:
 
 
 def main(argv=None) -> int:
+    _hide_console_window()          # 别在客户桌面上留一个能误杀编译的黑框
     p = build_parser()
     a = p.parse_args(argv)
     sid = (a.session or os.environ.get("DSH_SESSION_ID") or "").strip()
@@ -310,6 +387,16 @@ def main(argv=None) -> int:
         if _un:
             print("[表单里还有] %s ⇒ 这几格不是引擎入参（是给 agent 读的口径），本入口不吃"
                   % "、".join(_un))
+
+    # ⓪b 同一条任务不许起第二台（在导入引擎、动任何盘之前；拒 = 0 分、0 调用）。
+    _cpid, _cfile = compile_collision(_gate, vals.get("output_dir"))
+    if _cpid:
+        raise SystemExit(
+            "[已经在跑] 这条任务的编译已有一台在跑（pid=%s，牌子=%s）⇒ 不起第二台：\n"
+            "  两台会写同一批产物（prompt.txt / storyboard.json / 回执互相覆盖），MiMo 和编译器还要各跑一遍。\n"
+            "  看进度：type 「%s」（8100 点火那条把输出写在这里），跑完会自动叫醒你。\n"
+            "  要重跑：等那台结束（它跑完会摘牌），或在右栏改参数重新提交那张表。"
+            % (_cpid, _cfile, os.path.join(os.path.dirname(_cfile), "compile.log")))
 
     _miss = missing_required(vals)
     if _miss:
