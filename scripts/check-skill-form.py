@@ -1448,6 +1448,56 @@ chk("D31", "牌子判据值表：死 pid / 本进程自己 / 脏牌子 ⇒ 允�
     [0, 0, 0, _LIVE31.pid, _LIVE31.pid])
 _LIVE31.kill()
 _LIVE31.wait()
+
+# ---- D31e 🔴 祖先那一支不算撞车（2026-10-12 18:26 现网：一整天"点火零产物"的真死因）----
+# 8100 用 `D:\video-skill\.venv\Scripts\pythonw.exe` 起子进程 —— 那是个【重定向壳】：
+# 实测 `Popen.pid=65192`，而真正执行 run.py 的是它的子进程 55020。牌子写的是壳的号 ⇒
+# run.py 一读牌子 = 我自己爸、判活为真 ⇒ **把自己拒了**，outputs/ 空，
+# compile.log 里那句【已经在跑 pid=58268】是它自己打印的。这条只能真跑 subprocess 验
+# （父子关系在闸自己进程里造不出来）。
+_ANC31 = r'''
+import importlib.util, json, os, subprocess, sys
+spec = importlib.util.spec_from_file_location("sc_anc", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+d, mode = sys.argv[2], sys.argv[3]
+pidf = os.path.join(d, ".compile.pid")
+kid, wrote = None, 0
+if mode == "parent":
+    wrote = os.getppid()
+    open(pidf, "w").write(str(wrote))                   # 牌子 = 把我起来的那个壳（现网形状）
+else:
+    kid = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(25)"])
+    wrote = kid.pid
+    open(pidf, "w").write(str(wrote))                   # 牌子 = 一个活着的【外人】
+got = list(m.compile_collision({"task_dir": d}, ""))
+if kid:
+    kid.kill(); kid.wait()
+print(json.dumps({"wrote": wrote, "collision": got, "is_parent": wrote == os.getppid()}))
+'''
+_ANC31F = os.path.join(_TD31, "anc.py")
+with open(_ANC31F, "w", encoding="utf-8") as f:
+    f.write(_ANC31)
+_run31mod = os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py")
+_a1 = subprocess.run([sys.executable, _ANC31F, _run31mod, _TD31, "parent"],
+                     capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+_a2 = subprocess.run([sys.executable, _ANC31F, _run31mod, _TD31, "foreign"],
+                     capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+
+
+def _anc31(r):
+    try:
+        j = json.loads((r.stdout or "").strip())
+    except ValueError:
+        return {"wrote": 0, "collision": ["-", "-"], "is_parent": "没输出/解析不了: " + (r.stderr or "")[-120:]}
+    return {"wrote": j.get("wrote"), "collision": j.get("collision"), "is_parent": j.get("is_parent")}
+
+
+_p31, _f31 = _anc31(_a1), _anc31(_a2)
+chk("D31e", "牌子=我自己父亲（venv 重定向壳）⇒ 不算撞车（否则 8100 点火那台会把自己拒了、零产物）",
+    [_p31["is_parent"], _p31["collision"]], [True, [0, ""]])
+chk("D31e2", "反向：牌子=一个活着的外人 ⇒ 照旧判冲突（两向一起才算数，只测一边=恒绿半边）",
+    [_f31["is_parent"], _f31["collision"][0] == _f31["wrote"],
+     str(_f31["collision"][1]).endswith(".compile.pid")], [False, True, True])
 # 真跑 CLI 那一条要另开一台"别人"（上面那台已经按脚本 kill 掉了 ⇒ 拿它当牌子就测不到冲突，
 # 只会让入口往下走、错在别的校验上 —— 这就是 got=[True, False, ...] 的形状）
 _LIVE31B = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])

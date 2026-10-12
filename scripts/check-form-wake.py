@@ -576,6 +576,12 @@ try:
           [True, ["--from-form", "--session", "s-K", "--stage", "compile"],
            os.path.normcase(MA.WORKSPACE_DIR), True, False])
         check("K3 常量写死 compile（改成别的值 = 让服务端自己花钱）", MA.KICKOFF_STAGE, "compile")
+        check("K3b 🔴 点火那台子进程的输出编码钉 utf-8：日志文件是我们以 utf-8 开的，"
+              "子进程默认按系统 ANSI(cp936) 往里写字节 ⇒ compile.log 半文件是乱码"
+              "（2026-10-12 现网 agent 第一句就是『输出是 GBK 乱码，让我换个方式读』，白烧几步）",
+              [(_cmds[-1][1].get("env") or {}).get("PYTHONIOENCODING"),
+               "PATH" in (_cmds[-1][1].get("env") or {})],          # env 要整份传，别把系统 PATH 清了
+              ["utf-8", True])
         check("K4 留了 pid 牌子（同一条任务不许起第二台，同名产物会互相覆盖）",
               os.path.isfile(_KPID) and open(_KPID).read().strip() == "4242", True)
         _r2 = MA.kickoff_compile("s-K", "super-clone", {"task_dir": _KD})

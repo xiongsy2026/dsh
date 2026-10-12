@@ -122,6 +122,50 @@ def claim_compile_pid(gate: dict | None, output_dir: str) -> str:
     return ""
 
 
+def _ancestor_pids() -> set:
+    """我这条进程的【祖先链】（父、祖父…）。拿不到就返回只含直接父亲的小集合 —— 宁少不多。"""
+    out = set()
+    pid = os.getpid()
+    try:
+        out.add(os.getppid())
+    except OSError:
+        pass
+    if os.name != "nt":
+        return out
+    try:                                     # 只读快照：查不到就停在父亲那一层，绝不抛（撞车检查不许变成故障点）
+        import ctypes as _c
+        import ctypes.wintypes as _wt
+
+        class _PE(_c.Structure):
+            _fields_ = [("dwSize", _c.c_ulong), ("cntUsage", _c.c_ulong), ("th32ProcessID", _c.c_ulong),
+                        ("th32DefaultHeapID", _c.c_void_p), ("th32ModuleID", _c.c_ulong),
+                        ("cntThreads", _c.c_ulong), ("th32ParentProcessID", _c.c_ulong),
+                        ("pcPriClassBase", _c.c_long), ("dwFlags", _c.c_ulong),
+                        ("szExeFile", _c.c_char * 260)]
+
+        k32 = _c.windll.kernel32
+        snap = k32.CreateToolhelp32Snapshot(0x2, 0)              # TH32CS_SNAPPROCESS
+        if snap in (None, _wt.HANDLE(-1).value, 0xFFFFFFFF):
+            return out
+        entry = _PE()
+        entry.dwSize = _c.sizeof(_PE)
+        parent_of = {}
+        if k32.Process32First(snap, _c.byref(entry)):
+            while True:
+                parent_of[entry.th32ProcessID] = entry.th32ParentProcessID
+                if not k32.Process32Next(snap, _c.byref(entry)):
+                    break
+        k32.CloseHandle(snap)
+        for _ in range(24):                                     # 走 24 层封顶，防环
+            pid = parent_of.get(pid)
+            if not pid:
+                break
+            out.add(int(pid))
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
 def compile_collision(gate: dict | None, output_dir: str) -> tuple:
     """纯判据：这条任务【已经有一台编译在跑】吗 ⇒ 返回 (那台的 pid, 牌子路径)；没有返回 (0, "")。
 
@@ -129,7 +173,14 @@ def compile_collision(gate: dict | None, output_dir: str) -> tuple:
     🔴 这条为什么必须有：交表即点火之后，那条会话的 agent 收到唤醒又自己敲了一次 runner
        （2026-10-12 现网 11:51:50 点火 + 11:52:28 自起 = 同一任务两台并发）⇒
        同名产物（prompt.txt / storyboard.json / 回执）互相覆盖，MiMo 与编译器还要各跑一遍。
+
+    🔴 祖先那一支不算撞车（2026-10-12 现网 18:26，一整天"点火零产物"的真死因）：
+       8100 用 `D:\\video-skill\\.venv\\Scripts\\pythonw.exe` 起子进程，那是个**重定向壳** ——
+       实测 `Popen.pid=65192` 而真正执行 run.py 的是它的**子进程 55020**。牌子写的是壳的号，
+       于是 run.py 一读牌子 = 我自己爸、`_pid_alive` 为真 ⇒ **把自己拒了**，
+       compile.log 里那句【已经在跑 pid=58268】是它自己打印的，outputs/ 因此是空的。
     """
+    mine = _ancestor_pids() | {os.getpid()}
     for path in pid_files(gate, output_dir):
         try:
             with open(path, encoding="utf-8") as f:
@@ -140,7 +191,9 @@ def compile_collision(gate: dict | None, output_dir: str) -> tuple:
             pid = int(raw.splitlines()[0])
         except (ValueError, IndexError):
             continue
-        if pid != os.getpid() and _pid_alive(pid):
+        if pid in mine:
+            continue                           # 那是我自己 / 把我起来的壳，不是竞争者
+        if _pid_alive(pid):
             return pid, path
     return 0, ""
 
