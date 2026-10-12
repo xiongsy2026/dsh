@@ -293,9 +293,11 @@ for _tag, _old, _new in [
           [_mut != ma_src, bool(approve_hook_problems(_mut))], [True, True])
 
 # 插件侧：两种来源的文案与销账
-check("E11 插件销账按 kind 分流（批准那格用 grant_id，不用 session 当键）",
-      ['kind: "approval", grant_id: item.grant_id' in plg_src, 'kind: "form", session: item.session' in plg_src],
-      [True, True])
+check("E11 插件销账按 kind 分流（批准那格用 grant_id；表单/编译那两格用 session+at）",
+      ['kind: "approval", grant_id: item.grant_id' in plg_src,
+       'kind: (item.kind || "form"), session: item.session' in plg_src,
+       'kind: "form", session: item.session' in plg_src],
+      [True, True, False])   # 第三条 = 旧字面：改成按 item.kind 分流后它【不该】还在（证明改的是真分流）
 check("E12 批准文案：写死【不要再等确认、不要重新报价】，也写死【只覆盖这次范围】",
       all(s in plg_src for s in ("批准已生效", "不要再等一句确认", "也不要重新报价", "只覆盖上面写明的范围")), True)
 check("E13 🔴 批准文案里不许出现硬编码价格数字（分数/段数一律从条子读）",
@@ -519,6 +521,83 @@ _node = subprocess.run(["node", "-e",
                        capture_output=True, text=True, timeout=60)
 check("W7 这份宿主插件 import 得动（语法/引用错在桌面端会变成崩溃循环，不只是「这条线不工作」）",
       (_node.stdout or "").strip(), "ok")
+
+# ── K 组：交表即点火（2026-10-12 用户定：提交表单 = 直接进管线跑编译，别等 agent 想起来）────
+# 🔴 切点写死在【编译】：服务端只能起 --stage compile；花钱那一下仍只有 agent 能发起、仍要人点一次批准。
+import importlib.util as _ilu                                     # noqa: E402
+_mspec = _ilu.spec_from_file_location("ma_k", r"D:\video-skill\backend\model_admin.py")
+MA = _ilu.module_from_spec(_mspec)
+_mspec.loader.exec_module(MA)
+_KD = os.path.join(SCRATCH, "kick")
+os.makedirs(_KD, exist_ok=True)
+_KW = os.path.join(SCRATCH, "compile_wake.json")
+_KPID = os.path.join(_KD, ".compile.pid")
+_KSAVE = (MA.COMPILE_WAKE_PATH, MA.hypit_bridge.intent_map)
+_REAL_POPEN = __import__("subprocess").Popen
+try:
+    MA.COMPILE_WAKE_PATH = _KW
+    MA.hypit_bridge.intent_map = lambda: {"s-K": {"skill": "super-clone", "task": "k", "ts": time.time(),
+                                                  "task_dir": _KD}}
+    check("K1 只给白名单里的线点火：没登记的 skill ⇒ 不起、并说清『仍由 agent 决定』（不猜命令）",
+          [MA.kickoff_compile("s-X", "omni", {})["started"],
+           "agent" in MA.kickoff_compile("s-X", "omni", {})["why"]], [False, True])
+    check("K1b 任务目录缺失 ⇒ 不起（不猜往哪写日志/产物）",
+          MA.kickoff_compile("s-K", "super-clone", {"task_dir": ""})["started"], False)
+    _cmds = []
+
+    def _fake_popen(cmd, **kw):
+        _cmds.append((list(cmd), kw))
+        return type("P", (), {"pid": 4242})()
+
+    __import__("subprocess").Popen = _fake_popen
+    try:
+        _r1 = MA.kickoff_compile("s-K", "super-clone", {"task_dir": _KD})
+        _c1 = _cmds[-1][0] if _cmds else []
+        check("K2 🔴 真起的那条命令：只有 --from-form + --session <id> + --stage compile，"
+              "参数就这四个 token、命令【不来自请求体】、无 shell、cwd 锁在工作区",
+          [_r1.get("started"), _c1[2:], os.path.normcase(_cmds[-1][1].get("cwd")),
+           "--stage" in " ".join(_c1) and "submit" not in " ".join(_c1),
+           any("&" in x or "|" in x or ";" in x for x in _c1)],
+          [True, ["--from-form", "--session", "s-K", "--stage", "compile"],
+           os.path.normcase(MA.WORKSPACE_DIR), True, False])
+        check("K3 常量写死 compile（改成别的值 = 让服务端自己花钱）", MA.KICKOFF_STAGE, "compile")
+        check("K4 留了 pid 牌子（同一条任务不许起第二台，同名产物会互相覆盖）",
+              os.path.isfile(_KPID) and open(_KPID).read().strip() == "4242", True)
+        _r2 = MA.kickoff_compile("s-K", "super-clone", {"task_dir": _KD})
+        check("K5 pid 还活着 ⇒ 复用不重起（这条用 os.kill(pid,0) 判活，4242 不存在 ⇒ 应再起一台）",
+              [_r2.get("started"), _r2.get("reused")], [True, None])
+        # 真活着的 pid：用本进程的 pid（一定活着）
+        open(_KPID, "w").write(str(os.getpid()))
+        _r3 = MA.kickoff_compile("s-K", "super-clone", {"task_dir": _KD})
+        check("K5b 真有活着的编译 ⇒ reused、不起第二台", [_r3.get("started"), _r3.get("reused")], [False, True])
+
+        check("K6 🔴 编译回来挂号：没有 pid 文件 ⇒ 拒（否则任何本机进程 POST 一下就能凭空造一条待醒）",
+              (open(_KPID, "w").close(), MA.compiled_report({"session": "s-K", "pid": 1})["ok"])[1], False)
+        open(_KPID, "w").write(str(os.getpid()))
+        _rr = MA.compiled_report({"session": "s-K", "pid": os.getpid(), "ok": True})
+        check("K7 pid 对得上 ⇒ 挂号成功，并把『我在跑』的牌子摘掉（改参数重交后允许再起一台）",
+              [_rr.get("ok"), os.path.isfile(_KPID)], [True, False])
+        _q = MA.compile_wake_queue(json.load(open(_KW, encoding="utf-8")))
+        check("K8 队列项形状：kind=compiled + 带 ok 位（失败也要叫醒 agent，别让它停在『编译中』）",
+              [len(_q), _q[0].get("kind"), _q[0].get("session"), _q[0].get("ok")], [1, "compiled", "s-K", True])
+        _wv = MA.wake_view()
+        check("K9 三份来源合并成【一条队列】（插件问两次就有缝，也迟早有人只接一半）",
+              sorted({i.get("kind") for i in _wv.get("pending") or []}),
+              sorted({i.get("kind") for i in _wv.get("pending") or []} | {"compiled"}))
+        check("K9b 合并里确实有 compiled 这一格", any(i.get("kind") == "compiled" for i in _wv["pending"]), True)
+        check("K10 ack 必须带 kind，且不猜：空 kind ⇒ 拒",
+              MA.wake_ack({"session": "s-K", "at": _q[0]["at"]})["ok"], False)
+        _ak = MA.wake_ack({"kind": "compiled", "session": "s-K", "at": _q[0]["at"]})
+        check("K10b kind=compiled + at 对得上 ⇒ 销账成功", _ak.get("ok"), True)
+        check("K10c 销过账就不再出现在待发队列（叫过一次别每 5 秒重叫 = 无限烧 token）",
+              len(MA.compile_wake_queue(json.load(open(_KW, encoding="utf-8")))), 0)
+        check("K10d at 对不上 ⇒ 不清（客户在插件路上又重交了一次时，旧 ack 不许抹掉新那格）",
+              (MA.compiled_report({"session": "s-K", "ok": True}),
+               MA.wake_ack({"kind": "compiled", "session": "s-K", "at": 1.0})["ok"])[1], False)
+    finally:
+        __import__("subprocess").Popen = _REAL_POPEN
+finally:
+    MA.COMPILE_WAKE_PATH, MA.hypit_bridge.intent_map = _KSAVE
 
 print(_safe("\n=== 表单唤醒闸：%d 条断言，失败 %d ===" % (TOTAL[0], len(fails))))
 if fails:

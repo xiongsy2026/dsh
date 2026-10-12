@@ -137,6 +137,19 @@ python scripts/intent.py <skill> [任务名]
   【不叫、也不销账】，日志会打 `form-wake 等着没叫: … 原因=agent-not-live`（这条 10-10 就要求出声）。
   ⚠️ 改这份宿主插件要**完整重启 DSH** 才生效（`patchReload:live` 只 watch patch 文件）；
   没重启期间 `check-form-wake.py` 的 **Z1 恒红是有意的**（已加载 rev ≠ 源码 rev = 部署待办，不是故障）。
+- 🔴 **交表 = 点火（2026-10-12 用户定："提交给 agent 这个按钮，是否直接进 skill 管线"）**：客户点【提交这张表】
+  那一下，8100 自己起一条 `runner/run.py --from-form --session <id> --stage compile`（`model_admin.kickoff_compile`），
+  **不再等 agent 想起来跑**。跑完由 runner 回调 `POST /api/skills/form/compiled` 挂第三份唤醒来源（`kind=compiled`），
+  agent 被叫到的时候【编译结果已经在盘上】——它要做的是审分镜、报价、建条子、人批过之后提交 wan3.0、盯终态、交付。
+  四条例外都不许越：
+  ① 服务端只允许起 `--stage compile`（常量写死 `KICKOFF_STAGE`，改成别的值 = 让服务端自己花钱，闸 K2/K3 红）；
+  ② 命令**不来自请求体** —— 只有白名单 `KICKOFF_RUNNERS` 里那条 runner、四个固定参数、无 shell、cwd 锁工作区，
+     所以这不是"给 8100 加执行端点"（那条禁令照旧有效）；
+  ③ 挂号必须对得上 `.compile.pid`（`compiled_report`）—— 谁都能 POST 一下就能凭空造一条待醒 = 注入面；
+  ④ 同一条任务不许起第二台（pid 活着 ⇒ 复用；跑完摘牌 ⇒ 改参数重交允许再起一台）。
+  ⚠️ 花钱那一刀的分工没变：**`approve` 与真提交仍只有 agent 能发起，人点批准窗仍是唯一人证**——
+  理由不是客气，是提交之后要盯终态、失败要补跑、交付要贴图、范围一变要重新报价，那些是 agent 的活。
+  回归 `scripts/check-form-wake.py` 的 **K1–K10d**（含 Popen 打桩验命令形状、pid 牌子双向、ack 三分流、at 幂等）。
 - agent 读/查参数只有三条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）、
   `python scripts/intent.py fields`（只读：这张表到底要哪些 key / 类型 / 必填 / 条件显隐，并给一份可抄的 `--set` 模板）、
   与 `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、

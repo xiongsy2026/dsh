@@ -259,6 +259,28 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+COMPILED_URL = "http://127.0.0.1:8100/api/skills/form/compiled"
+
+
+def report_compiled(sid: str, ok: bool, error: str = "") -> None:
+    """跑完编译回来挂号（交表即点火的回程那一半）。
+    🔴 失败【不许挡住交付】：叫不醒人是"少一次自动播报"，把这一步做成硬失败反而会让已经跑完的
+       0 分编译白跑（而且它自己还要退出非 0，看起来像编译失败）。所以只打一行，不改退出码。"""
+    import urllib.error
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            COMPILED_URL,
+            data=json.dumps({"session": sid, "pid": os.getpid(), "ok": bool(ok),
+                             "error": str(error or "")[:200]}).encode("utf-8"),
+            headers={"Content-Type": "text/plain;charset=UTF-8"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            r.read()
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        print("[编译回执] 8100 没收下（%s: %s）⇒ 编译结果照样落盘，但没人被自动叫醒，"
+              "请自己回一句让 agent 接着报价" % (type(e).__name__, str(e)[:100]))
+
+
 def main(argv=None) -> int:
     p = build_parser()
     a = p.parse_args(argv)
@@ -320,7 +342,8 @@ def main(argv=None) -> int:
     from backend.services.super_clone_wan3 import run_pipeline  # noqa
 
     os.makedirs(vals["output_dir"], exist_ok=True)
-    result = asyncio.run(run_pipeline(
+    try:
+        result = asyncio.run(run_pipeline(
         task_id=vals["task_id"],
         video_path=vals["video"],
         product_image_paths=list(vals["product_images"]),
@@ -340,7 +363,12 @@ def main(argv=None) -> int:
         voice_audio_paths=list(vals["voice_audio"]) if vals.get("voice_audio") else None,
         as_duration_chunk=vals.get("as_duration_chunk") or False,
         stop_after=("compile" if a.stage == "compile" else None),
-    ))
+        ))
+    except Exception as e:                                    # noqa: BLE001
+        # 编译炸了也要回程报一句 —— 否则交完表页面永远停在"编译中"，人只能来问
+        if a.stage == "compile":
+            report_compiled(sid, False, "%s: %s" % (type(e).__name__, str(e)[:180]))
+        raise
     print(json.dumps(result, ensure_ascii=False, default=str))
     if isinstance(result, dict) and result.get("compiled_only"):
         # ⑤ 只编译档位：物证与回执已经落盘，一条都没提交 ⇒ 明确出声，别让人以为在跑
@@ -348,6 +376,8 @@ def main(argv=None) -> int:
               "、".join(str(s.get("dir")) for s in (result.get("segments") or [])[:6]))
         print("[下一步] 对着 frames/ 逐秒核动作与分镜；不符就补 --extra-note 重跑同一条 --stage compile"
               "（还是 0 分）；认可后去掉 --stage（或 --stage submit）再走报价。")
+        if a.stage == "compile":
+            report_compiled(sid, True)                        # 交表即点火的回程：叫 agent 来报价
         return 0
     if isinstance(result, dict):
         if result.get("success") is False or result.get("error"):

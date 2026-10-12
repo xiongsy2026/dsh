@@ -24,7 +24,7 @@ export const inject = ["agents"];
 const WAKE_URL = "http://127.0.0.1:8100/api/skills/form/wake";
 const ACK_URL = "http://127.0.0.1:8100/api/skills/form/wake/ack";
 const TICK_MS = 5000;                       // 与右栏 presence 同周期：客户交完表最多等 5 秒
-const WAKE_REV = "wake-20261012a";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
+const WAKE_REV = "wake-20261012b";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
 const MAX_PER_TICK = 3;                     // 一轮最多叫 3 条：多会话同时交表时不许把驱动堵死
 // 🔴 一次 HTTP 最多等多久。8002/8100 这类本机服务"TCP 收下但不回话"是真的发生过的
 //    （2026-10-11 现网：8100 keep-alive 攒到积压打满，端口 LISTENING 却一律拒新连接）。
@@ -43,6 +43,19 @@ const waitNoted = new Set();                // "等着没叫"每个 key 只报�
 /** 叫醒消息。🔴 导出只为让闸能真跑它（同 wakeDecision 的理由：判据抽出来才测得动，别在闸里重写一遍）。 */
 export function wakeText(item) {
   const kind = String((item && item.kind) || "form");
+  if (kind === "compiled") {
+    const skill = String((item && item.skill) || "该技能");
+    return "【编译已完成（0 分，没提交）· 该你报价了】\n"
+      + "客户交表时服务端就自动点了火（技能：" + skill + "），现在 `--stage compile` 跑完了。\n"
+      + item.ok
+        ? "1) 先审编译结果：读该段 `storyboard.json` / `prompt.txt` / `prompt_meta.json`，对着 `frames/` 逐秒核动作与分镜。\n"
+        : "1) 🔴 编译【失败】：先读任务目录里的 `compile.log` 找死因，如实报出来，别当成上游问题、也别静默重跑。\n"
+      + "2) 分镜/动作标签失真 ⇒ 补 --extra-note 重跑同一条 --stage compile（还是 0 分）；不许绕开入口手搓脚本。\n"
+      + "3) 认可后：跑 gateway.py approve 建待批条子（段数从盘上算），把 approve 打出的报价正文【原样】贴进消息，"
+      + "等人点【批准，开始跑】—— 这一刀仍只有人能点。\n"
+      + "4) 人批过之后由你提交 wan3.0、盯到终态、present → deliver_pack → 原样贴 markdown。\n"
+      + "（本条由 8100 的编译完成事件触发，不是客户手打的。）";
+  }
   if (kind === "approval") {
     const lane = String(item.capability || "?") + (item.purpose ? "/" + item.purpose : "");
     return "【批准已生效 · 接着往下跑，不要再问“点了没有”】\n"
@@ -137,7 +150,7 @@ async function tick(ctx) {
       //    按会话清会把后批那条一起抹掉 = 人明明点了，agent 却永远不被叫。
       const ackBody = item.kind === "approval"
         ? { kind: "approval", grant_id: item.grant_id, at: item.at }
-        : { kind: "form", session: item.session, at: item.at };
+        : { kind: (item.kind || "form"), session: item.session, at: item.at };
       await fetchJson(ACK_URL, ackBody);
       done++;
     } catch (e) {
