@@ -325,10 +325,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--from-form", action="store_true",
                    help="🔴 值全部从这条会话【已提交】的右栏表单读（媒体是服务端存的绝对路径），"
                         "命令行显式给的参数只作覆盖。没有它 agent 就得手抄参数 —— 抄就有猜错的那一天。")
-    p.add_argument("--stage", default="submit", choices=["compile", "submit"],
+    p.add_argument("--stage", default="submit", choices=["compile", "submit", "wait"],
                    help="compile=只走到「物证+回执+合同核验」就返回（不提交、不建预扣、0 分）；"
                         "submit=照常出片。SKILL.md 要求「不符就补 extra-note 重编译（0 分）」，"
-                        "这一档就是那句散文的合法出口 —— 以前没有它，遵守它只能绕开入口。")
+                        "这一档就是那句散文的合法出口 —— 以前没有它，遵守它只能绕开入口。\n"
+                        "wait=【只捞不投】第 5 步：读盘上已提交未落盘的任务号（wan3_job.json），"
+                        "查询 + 下载 + 交付，一个提交请求都不发。")
     p.add_argument("--session", default=None,
                    help="DSH 会话 id（默认读 $env:DSH_SESSION_ID）。用于查右栏那张表有没有出现过；"
                         "读不到就不判（常驻服务里没有会话 id，绝不猜一个填进去）。")
@@ -357,6 +359,78 @@ def report_compiled(sid: str, ok: bool, error: str = "") -> None:
               "请自己回一句让 agent 接着报价" % (type(e).__name__, str(e)[:100]))
 
 
+def find_pending_jobs(task_dir: str) -> list:
+    """盘上有哪些【已提交、成片还没落盘】的 wan3 任务（只读）。
+
+    号是网关在提交成功那一刻当场落的（`wan3_job.json`，成片旁边）—— 没有这份留痕，
+    进程一死号就丢，剩下的唯一动作就是重投（=双花）。
+    """
+    import glob
+    out = []
+    for p in glob.glob(os.path.join(task_dir, "outputs", "**", "wan3_job.json"), recursive=True):
+        try:
+            with open(p, encoding="utf-8") as f:
+                j = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(j, dict) or j.get("kind") != "wan3_job" or not str(j.get("task_id") or "").strip():
+            continue
+        dest = str(j.get("output_path") or "").strip()
+        if dest and os.path.isfile(dest):
+            continue                                   # 已落盘 = 到终态了，不重复捞
+        out.append({"job": str(j["task_id"]).strip(), "dest": dest, "file": p})
+    return out
+
+
+def wait_only(a, sid: str) -> int:
+    """`--stage wait`：第 5 步「拿到视频」的合法出口 —— 只按盘上的号查询 + 下载，绝不重投。
+
+    🔴 为什么这一档必须存在（2026-10-12 现网 session-5282eabf）：agent 的前台命令被 DSH 工具
+       10 分钟上限强杀（dsh-pwsh-local 的 maxTimeoutMs=6e5，自己传更大也夹回来），而一条
+       wan3-prime 生成实测 10–17 分钟 ⇒ "提交 + 等终态"写在同一条命令里必然被打断。
+       打断之后它只剩两个坏选择：再 call 一次（双花）或收工（客户永远等不到片）。
+       有了这一档：提交归提交、等待归等待，任何一条只读命令都能把片子捞回来。
+    """
+    tdir = ""
+    if sid:
+        try:
+            tdir = str((read_form_gate(sid) or {}).get("task_dir") or "").strip()
+        except Exception as e:                                  # noqa: BLE001
+            print("[等待] 读不到判定口(%s: %s)⇒ 改用 --output-dir 定位任务目录" % (type(e).__name__, str(e)[:80]))
+    if not tdir and (a.output_dir or "").strip():
+        tdir = os.path.dirname(os.path.abspath(a.output_dir))   # output_dir = <任务>/outputs
+    if not tdir or not os.path.isdir(tdir):
+        raise SystemExit("[等待] 定位不到任务目录（要 --session <会话id> 或 --output-dir <任务>/outputs）"
+                         "⇒ 不捞也不投（没有目录就没有号，猜一个目录去捞 = 替别人重投）。")
+    jobs = find_pending_jobs(tdir)
+    if not jobs:
+        raise SystemExit(
+            "[等待] 这条任务盘上没有【已提交、成片未落盘】的任务号（%s/outputs/**/wan3_job.json 不存在或都已落盘）"
+            "⇒ 什么都不做。\n"
+            "  wait 不是重投的口子：没号 = 这次根本没提交上过（或成片已经在盘上）。"
+            "要出片请跑 --stage submit；别拿 wait 赌一次。" % tdir)
+    _ensure_video_skill_on_path()
+    from backend import gateway as gw                            # noqa: BLE001
+    bad = 0
+    for j in jobs:
+        print("[等待] 只捞任务号 %s → %s（一个提交请求都不发）" % (j["job"], j["dest"]))
+        env = gw.invoke("video.generate", "wan3-prime", "local",
+                        {"job_id": j["job"], "output_path": j["dest"]}) or {}
+        res = env.get("result") or {}
+        cr = env.get("credits") or {}
+        path = str(res.get("path") or j["dest"])
+        got = os.path.isfile(path)
+        print("[等待] 上游回：%s | ok=%s | 成片落盘=%s | 实扣 %s 分（hold=%s）"
+              % (str(res.get("kind") or env.get("error") or "")[:120], bool(env.get("ok")), got,
+                 cr.get("charged"), str(cr.get("hold_id") or "")[:12]))
+        if not (env.get("ok") and got):
+            bad += 1
+            print("        还没到手 ⇒ 继续用同一条 --stage wait 捞（号还在 %s），**不要重投**。" % j["file"])
+        else:
+            print("        到手：接下来 present → deliver_pack → 原样贴 markdown。")
+    return 2 if bad else 0
+
+
 def main(argv=None) -> int:
     _hide_console_window()          # 别在客户桌面上留一个能误杀编译的黑框
     p = build_parser()
@@ -364,6 +438,11 @@ def main(argv=None) -> int:
     sid = (a.session or os.environ.get("DSH_SESSION_ID") or "").strip()
     vals = {d: v for d, v in vars(a).items() if d not in ("from_form", "stage", "session")}
     _gate = None
+
+    # ⓪ 「只捞不投」走在所有校验之前：这一步不需要原片/产品图那五格（号在盘上），
+    #    拿 missing_required 拦它等于逼人再提交一次 —— 那正是这一档要避免的双花。
+    if a.stage == "wait":
+        return wait_only(a, sid)
 
     # ① 入口自己读表：值来自"客户在右栏提交的那一份"，命令行显式给的只作覆盖（来源逐格印出来）。
     if a.from_form:

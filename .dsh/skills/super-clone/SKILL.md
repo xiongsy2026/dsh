@@ -51,7 +51,16 @@ Hypit skill 只在抽帧、裁切、原声贴回、写项目文件时加载。�
 4. 跑 `python .dsh/skills/super-clone/runner/run.py --from-form --stage compile`（**不提交、不进执行器**）
    出分镜与提示词，对着 `frames/` 逐秒核；分镜/动作标签失真就补 `--extra-note` 重跑同一条。
    🔴 这一档就是"重编译不烧 Wan"那句散文的合法出口 —— 不许再绕开入口手搓 driver。
-5. 认可后去掉 `--stage`（= `--stage submit`）⇒ 报价（五格现读）⇒ 等人在批准窗点一次 ⇒ 盯到终态交付。
+5. 认可后去掉 `--stage`（= `--stage submit`）⇒ 报价（五格现读）⇒ 等人在批准窗点一次 ⇒ 提交 ⇒ 盯到终态交付。
+6. 🔴 **提交那一下必须"后台跑"，等结果用 `--stage wait`（2026-10-12 补，现网 session-5282eabf）**：
+   DSH 的前台命令到 **10 分钟会被工具强杀**（`dsh-pwsh-local` 的 `maxTimeoutMs=6e5`，自己传更大也夹回来），
+   而一条 wan3-prime 生成实测 **10–17 分钟** ⇒ "提交 + 等终态"写在同一条前台命令里必然被打断。
+   跑法：`run_in_background: true` 起 `--stage submit`，用 `job_output` 收；被打断/没等到也不要紧——
+   **提交成功那一刻任务号就落在成片旁边（`wan3_job.json`）**，之后任何一条
+   `python .dsh/skills/super-clone/runner/run.py --stage wait` 都能按号把片子捞回来（只 GET，一个提交请求都不发）。
+   🔴 三条禁令：① 没等到 ≠ 重投（重投=双花，平台按次计费）；② 不许绕开入口自己拼 HTTP；
+   ③ 盘上没有 `wan3_job.json` 却说"已提交"= 谎报 —— 那一刻只是**我们预扣了**，上游有没有任务，
+   以号为准（`gateway.py holds` / 号在不在盘上）。没到终态就收工会被宿主插件拦回来（`agent/turn-stopping`）。
 
 素材与事实的口径照旧：原片、产品名、≥1 张产品图是花钱前必须真拿到的；换脸要清晰面部图（一张脸对应
 一段时间）；换背景**只走文字**（客户给参考图就先转成文字写进背景要求，🔴 图本身不进引擎）。

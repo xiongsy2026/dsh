@@ -1364,9 +1364,10 @@ chk("D28e", "入口面：--from-form / --stage 两个开关在、四格 required
     [("--from-form" in SC_RUN), ("--stage" in SC_RUN),
      _bp_code.count("required=True"), "_miss = missing_required(vals)" in SC_RUN],
     [True, True, 0, True])
-chk("D28f", "只编译档位：--stage 走 stop_after 传给管线，且早退路径自己声明 0 消耗（不许看着像已提交）",
-    ["stop_after=(" in SC_RUN, 'choices=["compile", "submit"]' in SC_RUN,
-     "compiled_only" in SC_RUN], [True, True, True])
+chk("D28f", "档位就是合法出口：--stage 走 stop_after 传给管线；compile 早退自己声明 0 消耗；"
+    "wait 是第 5 步「拿到视频」的出口（只捞不投）—— 少一档，遵守规则的人就只能绕开入口手搓",
+    ["stop_after=(" in SC_RUN, 'choices=["compile", "submit", "wait"]' in SC_RUN,
+     "compiled_only" in SC_RUN, 'a.stage == "wait"' in SC_RUN], [True, True, True, True])
 
 # ── D30 handoff.py（五刀之②）：一条命令交接，且【一个模型都不调】——这是"别拿分析当弹表前置"的落点 ──
 sys.path.insert(0, HERE)
@@ -1462,6 +1463,80 @@ chk("D31d", "反向对照：把摘窗那行和牌子检查各删一次 ⇒ 上�
     [("_hide_console_window()" in _m31b) and (0 < _m31b.index("_hide_console_window()")),
      "compile_collision(" in _m31b], [False, False])
 shutil.rmtree(_TD31, ignore_errors=True)
+
+# ---- D32 `--stage wait`：第 5 步「拿到视频」的合法出口（只捞不投）----------------------
+# 现网形状（session-5282eabf）：agent 的前台命令被工具 10 分钟上限强杀，而一条 wan3-prime 生成
+# 实测 10–17 分钟 ⇒ 提交必然被打断；没有"只按号捞"这一档，它剩下的唯一动作就是再 call 一次（双花）。
+_WT = tempfile.mkdtemp(prefix="dsh-wait-")
+_WS = os.path.join(_WT, "outputs", "step2_wan3")
+os.makedirs(_WS, exist_ok=True)
+_WJOB, _WMP4 = os.path.join(_WS, "wan3_job.json"), os.path.join(_WS, "seg01-prime.mp4")
+
+
+def _wj32(tid="prime_deadbeef", dest=_WMP4, raw=None):
+    with open(_WJOB, "w", encoding="utf-8") as f:
+        f.write(raw if raw is not None else json.dumps(
+            {"kind": "wan3_job", "task_id": tid, "output_path": dest}))
+
+
+_wj = _sc_ns["find_pending_jobs"]
+_a32 = [_wj(_WT) == []]                                    # ① 没号 ⇒ 空
+_wj32()
+_a32.append([j["job"] for j in _wj(_WT)] == ["prime_deadbeef"])   # ② 有号、成片不在 ⇒ 该捞
+open(_WMP4, "wb").write(b"v")
+_a32.append(_wj(_WT) == [])                                # ③ 已落盘 ⇒ 不重复捞
+_wj32(raw='{"kind":"other"}')
+_a32.append(_wj(_WT) == [])                                # ④ 不是那份形状 ⇒ 忽略
+_wj32(raw="{坏 json")
+_a32.append(_wj(_WT) == [])                                # ⑤ 坏 json ⇒ 忽略且不抛
+try:
+    os.remove(_WMP4)
+except OSError:
+    pass
+chk("D32", "号判据值表：没号⇒空 / 有号且成片不在⇒该捞 / 已落盘⇒不重复捞 / 形状不对与坏 json⇒忽略不抛",
+    _a32, [True] * 5)
+_w1 = subprocess.run([sys.executable, os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py"),
+                      "--stage", "wait", "--output-dir", os.path.join(_WT, "outputs")],
+                     capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace",
+                     env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+_w1t = (_w1.stdout or "") + (_w1.stderr or "")
+chk("D32b", "真跑：没号 ⇒ 退非 0 且明说「wait 不是重投的口子」，一个请求都不发"
+    "（缺号还往下走 = 拿只捞当重投，那是双花的另一条路）",
+    [_w1.returncode != 0, "不是重投" in _w1t, "product" not in _w1t.lower()], [True, True, True])
+_wj32()
+_w2 = subprocess.run([sys.executable, "-c", """
+import importlib.util, io, json, os, sys
+sys.path.insert(0, r"D:\\video-skill")
+spec = importlib.util.spec_from_file_location("w2", r"%s")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+import backend.gateway as gw
+calls = []
+def fake(cap, purpose, account, params):
+    calls.append({"cap": cap, "purpose": purpose, "params": dict(params)})
+    return {"ok": False, "result": {"kind": "poll_running"}, "credits": {"charged": 0}, "error": "桩"}
+gw.invoke = fake
+try:
+    rc = m.main(["--stage", "wait", "--output-dir", r"%s"])
+except SystemExit as e:
+    rc = e.code if isinstance(e.code, int) else 9
+io.open(r"C:\\dsh\\scripts\\_wait_calls.json", "w", encoding="utf-8").write(
+    json.dumps({"rc": rc, "calls": calls}, ensure_ascii=False))
+""" % (os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py"), os.path.join(_WT, "outputs"))],
+                     capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace")
+_w2f = os.path.join(HERE, "_wait_calls.json")
+_w2j = json.load(open(_w2f, encoding="utf-8")) if os.path.isfile(_w2f) else {}
+if os.path.isfile(_w2f):
+    os.remove(_w2f)
+_c0 = (_w2j.get("calls") or [{}])[0]
+chk("D32c", "真跑（gateway 打桩、绝不发真请求）：有号 ⇒ 恰好一次 invoke，params 带 job_id、"
+    "【不带 prompt】⇒ 物理上提交不出去（适配器认 job_id 才走 poll 模式）",
+    [len(_w2j.get("calls") or []), _c0.get("params", {}).get("job_id"),
+     "prompt" in _c0.get("params", {}), _w2j.get("rc") != 0, (_w2.stdout or "") + (_w2.stderr or "") != ""],
+    [1, "prime_deadbeef", False, True, True])
+chk("D32d", "顺序钉死：wait 分支走在 missing_required 之前 —— 它不需要原片/产品图那五格（号在盘上），"
+    "拿必填拦它等于逼人再提交一次",
+    0 < _m31.index('a.stage == "wait"') < _m31.index("missing_required(vals)"), True)
+shutil.rmtree(_WT, ignore_errors=True)
 
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))

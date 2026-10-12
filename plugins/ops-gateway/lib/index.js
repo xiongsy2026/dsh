@@ -24,7 +24,7 @@ export const inject = ["agents"];
 const WAKE_URL = "http://127.0.0.1:8100/api/skills/form/wake";
 const ACK_URL = "http://127.0.0.1:8100/api/skills/form/wake/ack";
 const TICK_MS = 5000;                       // 与右栏 presence 同周期：客户交完表最多等 5 秒
-const WAKE_REV = "wake-20261012c";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
+const WAKE_REV = "wake-20261012d";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
 const MAX_PER_TICK = 3;                     // 一轮最多叫 3 条：多会话同时交表时不许把驱动堵死
 // 🔴 一次 HTTP 最多等多久。8002/8100 这类本机服务"TCP 收下但不回话"是真的发生过的
 //    （2026-10-11 现网：8100 keep-alive 攒到积压打满，端口 LISTENING 却一律拒新连接）。
@@ -35,6 +35,43 @@ const MAX_PER_TICK = 3;                     // 一轮最多叫 3 条：多会话
 const FETCH_TIMEOUT_MS = 4000;
 const ROUND_WATCHDOG_MS = 30000;            // 兜底：整轮超过 30 秒还没 settle 就强制复位（fetch 之外的 await 也可能挂）
 const HEARTBEAT_EVERY = 12;                 // 12 × 5s = 一分钟一条心跳：让"停摆"变成看得见的东西，而不是等客户来问
+
+// ── 收工拦截（agent/turn-stopping）──────────────────────────────────────────────
+// 2026-10-12 现网 session-5282eabf：agent 把提交起起来就 turn/end 了，而"后台那条命令跑完"
+// 不是表单提交/批准核销/编译跑完这三个事件源之一 ⇒ 没有任何东西会把它叫回来 ⇒ "必须盯到终态"
+// 只是一句散文。这一格把它变成机制：回合要结束时问一次 8100"这条会话还有活没跑完吗"，
+// 有 ⇒ 把它按回去继续盯。预算（90 秒一次、同一份活最多 6 次）是防止它变成无限烧 token。
+const OBLIGATION_URL = "http://127.0.0.1:8100/api/skills/obligation";
+const STOP_MIN_MS = 90000;
+const STOP_MAX = 6;
+const stopState = new Map();                // session -> {key, n, last}
+
+/** 纯判据：这次收工拦不拦。抽成函数（并导出）是为了能被闸整块抠出去跑值表。 */
+export function stopDecision(busy, items, prev, now, minMs, maxN) {
+  if (!busy || !Array.isArray(items) || !items.length) return { act: "allow", why: "" };
+  const key = items.map(i => String(i.kind) + ":" + String(i.who)).sort().join(",");
+  const p = prev && prev.key === key ? prev : null;          // 活换了（捞完了/又提交了一条）⇒ 预算重置
+  const n = p ? Number(p.n) || 0 : 0;
+  if (n >= (maxN || STOP_MAX)) return { act: "allow", why: "budget-used-up" };
+  if (p && now - Number(p.last || 0) < (minMs || STOP_MIN_MS)) return { act: "allow", why: "too-soon" };
+  return { act: "steer", why: "", key, n: n + 1 };
+}
+
+/** 拦回去时对它说的话。🔴 导出只为让闸真跑它，判据不在闸里重写第二份。 */
+export function stopText(v) {
+  const kinds = ((v && v.items) || []).map(i => i.kind === "compiling"
+    ? "编译还在跑（pid " + i.who + "，日志 " + i.where + "）"
+    : "已提交、成片未落盘（任务号 " + i.who + "）").join("；");
+  return "【还没到终态 · 不许收工】\n盘上事实：" + kinds + "。\n"
+    + "1) 🔴 不许再提交一次（重投=双花），也不许自己拼 HTTP 绕过入口。\n"
+    + "2) 编译在跑 ⇒ 看那份 compile.log 等它摘牌；成片没到手 ⇒ 跑 "
+    + "`python .dsh/skills/super-clone/runner/run.py --stage wait`（只按盘上的号捞，一个提交请求都不发）。\n"
+    + "3) 长命令一律 `run_in_background: true` + `job_output` 收：前台命令到 10 分钟会被工具强杀，"
+    + "而一条 wan3-prime 生成实测 10–17 分钟 —— 这就是上次断在这儿。\n"
+    + "4) 到手照旧：present → deliver_pack → 原样贴 markdown。同一条命令连续 3 次没进展就停下报证据，别无限循环。\n"
+    + "（本条由 ops-gateway 在你要收工的那一刻发出，不是客户手打的。）";
+}
+
 
 // 本进程已叫过的 (session|at)。ack 失败/进程重启时它兜住"同一次提交只叫一次"。
 const woken = new Set();
@@ -166,6 +203,42 @@ async function tick(ctx) {
 export function apply(ctx) {
   try {
     note("info", "ops-gateway host " + WAKE_REV);
+    // ── 收工拦截：回合要结束时问一次"这条会话还有活吗"，有就把它按回去继续盯 ──────────
+    // 🔴 三条安全线：① 读不到会话/8100 没回话/任何异常 ⇒ 一律【放行收工】（这条是拦截器，
+    //      它坏了绝不能变成"谁都别想结束回合"）；② 不碰 composer、不代发，steer 送的是固定文案；
+    //   ③ 有预算（见 stopDecision），同一份活最多拦 6 次，之后放人写报告。
+    try {
+      ctx.on("agent/turn-stopping", async ({ agent }) => {
+        let sid = "";
+        try {
+          sid = String((agent && agent.session && agent.session.id) || "").trim();
+          if (!sid) return;
+          const v = await fetchJson(OBLIGATION_URL + "?session=" + encodeURIComponent(sid));
+          const d = stopDecision(v && v.busy, v && v.items, stopState.get(sid), Date.now());
+          if (d.act !== "steer") {
+            if (!(v && v.busy)) stopState.delete(sid);
+            if (d.why === "budget-used-up") {
+              note("warn", "收工拦截: " + sid + " 同一份活已拦满 " + STOP_MAX + " 次仍没到终态 ⇒ 放它收工写报告");
+              stopState.delete(sid);
+            }
+            return;
+          }
+          const { createUserMessage } = await import("@deepseek-ai/dsh-llm");
+          agent.steer(createUserMessage({
+            content: [{ type: "text", text: stopText(v) }],
+            source: { kind: "plugin", plugin: "ops-gateway" }
+          }));
+          stopState.set(sid, { key: d.key, n: d.n, last: Date.now() });
+          note("info", "收工拦截: " + sid + " 盘上还有没跑完的活 ⇒ 按回去继续盯（第 " + d.n + " 次）");
+        } catch (e) {
+          note("warn", "收工拦截失败（放行收工，绝不卡死回合）: " + (e && e.message));
+        }
+      });
+    } catch (e) {
+      // ctx.on 拿不到（宿主没给这个钩子）也不能影响唤醒主链
+      note("warn", "收工拦截没挂上（唤醒链照常）: " + (e && e.message));
+    }
+
     let running = false;
     let ticks = 0, hung = 0, lastRound = "never";
     const run = () => {

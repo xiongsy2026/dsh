@@ -430,7 +430,7 @@ def real_runs():
 
 
 if http(GATEWAY).get("hypit", {}).get("reason") != "ops-view":
-    print("\n!! 8100 没在跑或判定口不是新版，跳过 HTTP 段")
+    print(_safe("\n!! 8100 没在跑或判定口不是新版，跳过 HTTP 段"))
     fails.append(("B0 网关可达", http(GATEWAY).get("hypit", {}).get("reason"), "ops-view"))
 else:
     before = real_runs()
@@ -446,8 +446,10 @@ else:
     #    依赖外部进程活着的断言是假保险：红了查不出规则坏没坏。所以先探端口，
     #    没人活着就【出声 SKIP】—— 不判红，也不算过。
     if not port_open(5179):
-        print("\n!! B3/B4 SKIP：127.0.0.1:5179 上没有活着的 studio（多半是 8100 刚重启，"
-              "把它养的那份查看器一起带走了）⇒ 这两条本轮不判，也不算通过")
+        # 🔴 走 _safe：这条 SKIP 里全是 ⇒ /（）这类字符，GBK 控制台上裸 print 会【崩在这条打印上】——
+        #    闸崩比闸红更糟（整个 gate 后面的断言一条都没跑，看起来却像"跑过了"）。
+        print(_safe("\n!! B3/B4 SKIP：127.0.0.1:5179 上没有活着的 studio（多半是 8100 刚重启，"
+                    "把它养的那份查看器一起带走了）⇒ 这两条本轮不判，也不算通过"))
     else:
         check("B3 主人拿到 up", mine.get("up"), True)
         check("B4 交叉核对生效（studio 自报路径对上）", mine.get("run_verified"), True)
@@ -480,7 +482,7 @@ else:
                 if [s for s in ([str(before[k].get("session") or "")] +
                                 [str(x) for x in (before[k].get("sessions") or [])]) if s and ME not in s]]
     if _gone and not _foreign:
-        print("   （B7 说明：消失的键 %s 上只有本闸自测会话 ⇒ 是 fixture 收尾，不算动了别人的）" % _gone)
+        print(_safe("   （B7 说明：消失的键 %s 上只有本闸自测会话 ⇒ 是 fixture 收尾，不算动了别人的）" % _gone))
     check("B7 没动到别人的登记（判据=键上还有别人的会话，不是键集合没变）", _foreign, [])
 
 shutil.rmtree(FAKE_RUNS, ignore_errors=True)
@@ -505,7 +507,7 @@ check("Vb 端口活着但服务别的工程 ⇒ 绝不复用（宁可去起新�
 hb._free_studio_port = _real_free
 hb.studio_release(ME, RUN)
 
-print("\n=== %d 条断言，失败 %d ===" % (total[0], len(fails)))
+print(_safe("\n=== %d 条断言，失败 %d ===" % (total[0], len(fails))))
 for name, got, want in fails:
-    print("  FAIL", name, "got", got, "want", want)
+    print(_safe("  FAIL %s got=%r want=%r" % (name, got, want)))
 sys.exit(1 if fails else 0)

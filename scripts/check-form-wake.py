@@ -366,20 +366,29 @@ check("D6 页面/插件里不出现价格数字（表单只收输入）",
 # ── D7-D10 🔴 inject 与"守卫 ctx"：这次事故的形状必须变成闸，不能靠我记得 ──────────────
 #    判据抽成纯函数（同一份判据既给静态断言用，也给变异对照用），字符串先剥注释再剥裸字符串：
 #    否则注释里写一句"别读 ctx.logger"就会自己把自己判红。
+# 核心成员白名单：这些不是【服务】，是 Cordis 上下文自带的方法，不需要 inject 也不会抛。
+# 官方出处：dsh-hooks-claude-code 的 inject 只有 ["shell","sessionProjections"]，
+# 而它里面就是 `ctx.on("agent/turn-stopping", ...)`（lib/index.js:292）⇒ "on" 是核心成员。
+# 🔴 往里加东西必须给得出这种出处（和 2026-10-09 那次"我多写了 logger/timer 把桌面端弄成崩溃循环"
+#    是同一条判据的反面：那次是我读了不该读的，这次是别把读得对的也一并禁掉）。
+CTX_CORE = {"on"}
+
+
 def ctx_violations(src):
     code = re.sub(r"/\*[\s\S]*?\*/", "", re.sub(r"//[^\n]*", "", src))
     code = re.sub(r"(['\`])(?:\\.|(?!\1)[\s\S])*?\1", '""', code)      # 字符串/模板里的 ctx.x 不算属性读
     m = re.search(r"export const inject = \[([^\]]*)\]", code)
     if not m:
         return ["没声明 inject"], []
-    allowed = set(re.findall(r'"([^"]+)"', m.group(1)))
+    allowed = set(re.findall(r'"([^"]+)"', m.group(1))) | CTX_CORE
     used = sorted(set(re.findall(r"ctx\.([A-Za-z_]\w*)", code)))
     return sorted(u for u in used if u not in allowed), sorted(allowed)
 
 
 viol7, allowed7 = ctx_violations(plg)
-check("D7 🔴 代码里读的每个 ctx 成员都必须在 inject 名单内（读没注入的成员 = apply 抛 = 崩溃循环）",
-      [viol7, allowed7, bool(allowed7)], [[], ["agents"], True])
+check("D7 🔴 代码里读的每个 ctx 成员都必须在 inject 名单内（读没注入的成员 = apply 抛 = 崩溃循环）；"
+      "核心成员 on 有官方出处（dsh-hooks-claude-code 也只 inject 服务，不 inject on）",
+      [viol7, [a for a in allowed7 if a != "on"], bool(allowed7)], [[], ["agents"], True])
 
 # 真跑一次：拿守卫 ctx 代理把插件 import 进来调 apply —— Cordis 就是这么拦的，读源码看不出来
 NODE_GUARD = r"""
@@ -604,6 +613,110 @@ try:
         __import__("subprocess").Popen = _REAL_POPEN
 finally:
     MA.COMPILE_WAKE_PATH, MA.hypit_bridge.intent_map = _KSAVE
+
+# ── O 组：收工拦截（agent/turn-stopping）——"必须盯到终态"从散文变成机制 ──────────────
+# 现网形状（session-5282eabf，13:14:56）：agent 把提交起起来就 turn/end，而"后台命令跑完"不在三个
+# 事件源里 ⇒ 没有任何东西把它叫回来。这一组钉的是：拦不拦由【盘上事实】判，且它坏了必须放行收工。
+NODE_O = r"""
+import { pathToFileURL } from "node:url";
+const m = await import(pathToFileURL(process.argv[2]).href);
+const f = m.stopDecision, t = m.stopText;
+const it = [{ kind: "awaiting_video", who: "prime_1" }];
+const K = "awaiting_video:prime_1";
+const rows = [
+  ["没活 ⇒ 放行收工", f(false, [], null, 1000)],
+  ["有活、第一次 ⇒ 拦回去继续盯", f(true, it, null, 1000).act],
+  ["同一份活、离上次只过 10 秒 ⇒ 放行（too-soon：不许每个 step 都灌一条）",
+   f(true, it, { key: K, n: 1, last: 1000 }, 11000).why],
+  ["隔够 90 秒 ⇒ 再拦一次、计数 +1", f(true, it, { key: K, n: 1, last: 1000 }, 100000).n],
+  ["活换了（捞完又提交一条）⇒ 预算重置回 1",
+   f(true, [{ kind: "awaiting_video", who: "prime_2" }], { key: K, n: 3, last: 1000 }, 100000).n],
+  ["同一份活拦满 6 次 ⇒ 放它收工写报告（不许无限烧 token）",
+   f(true, it, { key: K, n: 6, last: 1000 }, 100000).act],
+  ["脏输入：items 是 null 也不许抛", f(true, null, null, 1).act],
+  ["文案点名三件事：不许重投 / --stage wait / 长命令后台跑",
+   [t({ items: it }).includes("不许再提交"), t({ items: it }).includes("--stage wait"),
+    t({ items: it }).includes("run_in_background")]],
+];
+console.log(JSON.stringify(rows.map(r => [r[0], r[1]])));
+"""
+_osrc = os.path.join(SCRATCH, "stop_decision.mjs")
+io.open(_osrc, "w", encoding="utf-8").write(NODE_O)
+_p = subprocess.run(["node", _osrc, PLUGIN], capture_output=True, cwd=r"C:\dsh")
+try:
+    _rowsO = json.loads((_p.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
+except (ValueError, IndexError):
+    _rowsO = None
+    check("O0 stopDecision 可被 import 并跑值表（拿不到结果=整组按失败计）",
+          (_p.returncode, (_p.stderr or b"").decode("utf-8", "replace")[-200:]), (0, ""))
+if _rowsO:
+    _wantO = [["没活 ⇒ 放行收工", {"act": "allow", "why": ""}],
+              ["有活、第一次 ⇒ 拦回去继续盯", "steer"],
+              ["同一份活、离上次只过 10 秒 ⇒ 放行（too-soon：不许每个 step 都灌一条）", "too-soon"],
+              ["隔够 90 秒 ⇒ 再拦一次、计数 +1", 2],
+              ["活换了（捞完又提交一条）⇒ 预算重置回 1", 1],
+              ["同一份活拦满 6 次 ⇒ 放它收工写报告（不许无限烧 token）", "allow"],
+              ["脏输入：items 是 null 也不许抛", "allow"],
+              ["文案点名三件事：不许重投 / --stage wait / 长命令后台跑", [True, True, True]]]
+    for (_n, _g), (_n2, _w) in zip(_rowsO, _wantO):
+        check("O1 " + _n, _g, _w)
+
+# 服务端那份义务判据（task_obligations / obligation_view）——同样要能被整块抠出来跑值表
+import inspect                                       # noqa: E402
+
+_TDO = os.path.join(SCRATCH, "obl-task")
+_SEG = os.path.join(_TDO, "outputs", "step2_wan3")
+os.makedirs(_SEG, exist_ok=True)
+
+
+def _obl(mutate=""):
+    src = inspect.getsource(MA.task_obligations)
+    if mutate == "no-file-check":                     # 变异：把「成片没落盘」那半条摘掉 ⇒ 已出片也恒拦
+        src = src.replace("and not os.path.isfile(dest)", "")
+    ns = {"os": os, "io": io, "json": json, "_proc_alive": lambda p: int(p) == os.getpid()}
+    exec(compile(src, "<obl>", "exec"), ns)
+    return ns["task_obligations"]
+
+
+def _job(tid, dest):
+    io.open(os.path.join(_SEG, "wan3_job.json"), "w", encoding="utf-8").write(json.dumps(
+        {"kind": "wan3_job", "task_id": tid, "output_path": dest}))
+
+
+_mp4 = os.path.join(_SEG, "seg01-prime.mp4")
+check("O2 盘上没有号 ⇒ 没义务（不能拿「任务在跑」当默认值，那等于谁都别想收工）",
+      _obl()(_TDO), [])
+_job("prime_deadbeef", _mp4)
+check("O3 有号、成片没落盘 ⇒ awaiting_video（带号与落点，插件只读结论、不算第二份判据）",
+      [(x["kind"], x["who"]) for x in _obl()(_TDO)], [("awaiting_video", "prime_deadbeef")])
+io.open(_mp4, "wb").write(b"mp4-bytes")
+check("O4 成片已落盘 ⇒ 义务清掉（不清 = 片子都捞到手了还在拦，收不了工）", _obl()(_TDO), [])
+check("O4b 变异对照：摘掉「成片没落盘」那半条 ⇒ 已出片也恒拦（抓到才说明 O4 不是靠巧合绿）",
+      len(_obl("no-file-check")(_TDO)), 1)
+os.remove(_mp4)
+os.remove(os.path.join(_SEG, "wan3_job.json"))
+io.open(os.path.join(_TDO, ".compile.pid"), "w", encoding="utf-8").write(str(os.getpid()))
+check("O5 点火那台还活着 ⇒ compiling（pid 用本进程自己，不依赖某个外部服务活着）",
+      [(x["kind"], x["who"]) for x in _obl()(_TDO)], [("compiling", os.getpid())])
+io.open(os.path.join(_TDO, ".compile.pid"), "w", encoding="utf-8").write("4242")
+check("O6 牌子上是个死 pid（跑完没摘/机器重启过）⇒ 不算义务，否则那个人永远收不了工",
+      _obl()(_TDO), [])
+io.open(os.path.join(_SEG, "wan3_job.json"), "w", encoding="utf-8").write("{坏 json")
+check("O7 号文件是坏的 ⇒ 忽略、不抛（留痕坏了不许变成「无法收工」）", _obl()(_TDO), [])
+_MA_SRC = io.open(os.path.join(os.path.dirname(MA.__file__), "model_admin.py"),
+                  encoding="utf-8", errors="replace").read()
+check("O8 路由接上了、且和 wake 一样只听环回（这份表暴露本机哪些会话在干活）",
+      ["/api/skills/obligation" in _MA_SRC,
+       '_not_loopback("/api/skills/obligation")' in _MA_SRC,
+       "def obligation_view" in _MA_SRC], [True, True, True])
+check("O9 读不到会话/没登记意图 ⇒ busy=False（没有事实就不拦；这条不是「默认有罪」）",
+      [MA.obligation_view("no-such-session")["busy"], MA.obligation_view("")["ok"]], [False, True])
+_idx = io.open(PLUGIN, encoding="utf-8", errors="replace").read()
+check("O10 判据只有一份：插件里不许自己算义务（不许出现 wan3_job / .compile.pid / isfile），它只读 8100 的结论",
+      ["wan3_job" not in _idx, ".compile.pid" not in _idx, "isfile" not in _idx], [True, True, True])
+check("O11 钩子挂的是 agent/turn-stopping + steer（不是 followup：收工那一刻要把它按回【当前回合】）",
+      ['ctx.on("agent/turn-stopping"' in _idx, "agent.steer(" in _idx,
+       "budget-used-up" in _idx], [True, True, True])
 
 print(_safe("\n=== 表单唤醒闸：%d 条断言，失败 %d ===" % (TOTAL[0], len(fails))))
 if fails:
