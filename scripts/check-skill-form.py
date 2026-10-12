@@ -439,8 +439,15 @@ def _at(hay, needle):
 chk("D9d", "🔴 这道门槛必须落在【导入引擎之前】（先跑再拦=已经动过盘、可能已经花过分）",
     0 <= _at(_m, "form_gate_verdict(") < _at(_m, "_ensure_video_skill_on_path()"), True)
 _rg = _at(_m, "read_form_gate(")
-chk("D9e", "读不到会话 id ⇒ 明说不判（绝不拿空 id 去查、也绝不猜一个填进去）",
-    ("读不到会话 id" in _m[:_rg]) if _rg >= 0 else False, True)
+# 🔴 钉的是规则不是字面：2026-10-11 入口多了 --from-form 那条分支，它的第一次 read_form_gate 在
+#    "读不到会话 id" 那句之前 —— 文案顺序变了、规则没变（没 id 就拒、绝不猜）。所以两条拒因任一在前都算，
+#    但"绝不猜一个填进去"这句必须在（那是这条规则的本体）。
+chk("D9e", "读不到会话 id ⇒ 明说不判/直接拒（绝不拿空 id 去查、也绝不猜一个填进去）",
+    ([("读不到会话 id" in _m[:_rg]) or ("要会话 id" in _m[:_rg]),
+      "绝不猜一个填进去" in _m[:_rg]] if _rg >= 0 else [False, False]), [True, True])
+_bad2 = "sid = a.session\nread_form_gate(sid)"
+chk("D9e2", "反向对照：D9e 不是恒真 —— 拿一段「没 id 就直接查表」的违规样例喂同一对探针 ⇒ 两条都必须不成立",
+    [any(p in _bad2 for p in ("读不到会话 id", "要会话 id")), "绝不猜一个填进去" in _bad2], [False, False])
 
 # ---- D7 缩略图显示名：盘上带 sha8，界面上必须剥掉（不剥就变成 `01-40fd465c-`，客户认不出自己的文件）----
 _a = PAGE_CODE.index("function dispName")
@@ -1306,6 +1313,94 @@ try:
          set(_rec27b.get("defaults") or {}) == set(_clean)], [True, True, True])
 finally:
     MA.hypit_bridge.intent_map, MA.FORM_PREFILL_PATH = _O27
+
+# ── D28 入口自己读表（2026-10-11 五刀之①）：agent 不再是"表单 → 命令行"的人肉转录层 ──
+# 现网形状：21:04 那次它把绝对路径【手抄】进 driver（抄对了），20:55 那次把 key 名抄成另一条线的叫法
+# （source_video/ratio）⇒ 抄这个动作本身就是猜的来源。这条改动把"抄"删掉，所以判据要钉住三件事：
+# 优先级（命令行赢）、空值不算给过（不许把空串当"客户选了"）、表里多出来的格不许静默丢。
+_ap = _sc_ns["apply_form_values"]
+_am = _sc_ns["missing_required"]
+_p28 = _sc_ns["build_parser"]()
+_md28 = _sc_ns["multi_dests"](_p28)
+_K28 = {a.dest: None for a in _p28._actions if a.dest and a.dest != "help"}
+_G28 = {"submitted": True, "task_dir": r"C:\dsh\productions\t1",
+        "params": {"video": r"C:\dsh\productions\t1\inputs\video\01-aabb.mp4",
+                   "product_images": [r"C:\dsh\productions\t1\inputs\product_images\01-cc.jpg"],
+                   "product_name": "假发", "customer_request": "换整头", "voice_mode": "preserve_original",
+                   "aspect_ratio": "adaptive", "scene_text": "", "voice_script": "客户要的口播全文"}}
+_v28, _pr28, _un28 = _ap(dict(_K28, product_name="命令行给的"), _G28, _md28)
+# 来源行是 "key␣␣来源" 的形状 ⇒ 按 key 查，不拿"第几条"当判据（顺序会变，按位置断言必假红）
+_src28 = {x.split()[0]: x.split()[-1] for x in _pr28}
+chk("D28", "🔴 合并规则值表：命令行显式给的赢、其余从表单取、空串不算给过、媒体按槽形归一、"
+    "task_id/output_dir 从任务目录落、表里多出来的格【点名不静默】",
+    [_v28["product_name"], _src28.get("product_name"), _src28.get("video"), _src28.get("task_id"),
+     _v28["video"], _v28["product_images"], _v28["scene_text"], _v28["output_dir"],
+     _un28, _am(_v28)],
+    ["命令行给的", "命令行", "表单", "任务目录",
+     r"C:\dsh\productions\t1\inputs\video\01-aabb.mp4",
+     [r"C:\dsh\productions\t1\inputs\product_images\01-cc.jpg"], None,
+     os.path.join(r"C:\dsh\productions\t1", "outputs"),
+     ["voice_script=客户要的口播全文"], []])
+_v28b, _pr28b, _ = _ap(dict(_K28), dict(_G28, params={"product_name": "假发"}), _md28)
+chk("D28b", "缺格必须点名（不许静默补一个默认值 —— 那等于替客户做决定，还一路走到报价）；"
+    "task_id/output_dir 从任务目录推出来 ⇒ 不该出现在缺的名单里",
+    [sorted(_am(_v28b)), any(x.split()[0] == "product_name" and x.split()[-1] == "表单" for x in _pr28b)],
+    [["product_images", "video"], True])
+chk("D28c", "正向对照（防误杀）：同一份输入里命令行与表单都给了 ⇒ 命令行的值留在最终参数表上，"
+    "且来源行说得清是谁给的",
+    [_src28.get("product_name"),
+     _ap(dict(_K28, product_name="命令行给的"), _G28, _md28)[0]["product_name"]], ["命令行", "命令行给的"])
+_m28 = SC_RUN[SC_RUN.index("def apply_form_values"):SC_RUN.index("def missing_required")]
+_ns28 = {"multi_dests": _sc_ns["multi_dests"]}
+exec(compile(_m28.replace('if vals[key] not in (None, "", []):', "if False:"),
+             "mutated", "exec"), _ns28)
+chk("D28d", "变异对照：把「命令行给了就跳过」那句改死 ⇒ 命令行值被表单覆盖（证明优先级那条真在起作用）",
+    [_ns28["apply_form_values"](dict(_K28, product_name="命令行给的"), _G28, _md28)[0]["product_name"]],
+    ["假发"])
+# 数 required=True 必须【只数代码】：注释里写着"以前它是 required=True"，整份文本数会被自己的说明喂红
+_bp_code = "\n".join(l for l in SC_RUN[SC_RUN.index("def build_parser"):SC_RUN.index("def main(")].splitlines()
+                     if not l.strip().startswith("#"))
+chk("D28e", "入口面：--from-form / --stage 两个开关在、四格 required 已交给表单（但缺格由 missing_required 拒）",
+    [("--from-form" in SC_RUN), ("--stage" in SC_RUN),
+     _bp_code.count("required=True"), "_miss = missing_required(vals)" in SC_RUN],
+    [True, True, 0, True])
+chk("D28f", "只编译档位：--stage 走 stop_after 传给管线，且早退路径自己声明 0 消耗（不许看着像已提交）",
+    ["stop_after=(" in SC_RUN, 'choices=["compile", "submit"]' in SC_RUN,
+     "compiled_only" in SC_RUN], [True, True, True])
+
+# ── D30 handoff.py（五刀之②）：一条命令交接，且【一个模型都不调】——这是"别拿分析当弹表前置"的落点 ──
+sys.path.insert(0, HERE)
+import handoff as HF                                                     # noqa: E402
+_MF29 = [{"key": "video", "accept": ["mp4", "mov"], "max": 1},
+         {"key": "product_images", "accept": ["jpg", "png"], "max": 10},
+         {"key": "model_image", "accept": ["jpg", "png"], "max": 10},
+         {"key": "voice_audio", "accept": ["mp3", "wav"], "max": 5}]
+_f29a, _s29a = HF.slot_plan(_MF29, [r"C:\t\inputs\a.mp4"])
+_f29b, _s29b = HF.slot_plan(_MF29, [r"C:\t\inputs\a.jpg"])
+_f29c, _s29c = HF.slot_plan(_MF29, [r"C:\t\inputs\a.mp4", r"C:\t\inputs\b.mp4"])
+_f29d, _s29d = HF.slot_plan(_MF29, [r"C:\t\inputs\1.wav", r"C:\t\inputs\2.mp3"])
+_f29e, _s29e = HF.slot_plan(_MF29, [r"C:\t\inputs\note.txt"])
+chk("D30", "🔴 归位只填【无歧义】的：一个文件只对一个槽才挂；一图两槽（产品图/脸图）⇒ 留空给客户选；"
+    "单值槽来了两张图 ⇒ 整格留空；多值槽按上限截断；扩展名对不上任何槽 ⇒ 不动它",
+    [[x["field"] for x in _f29a], sorted(_s29a), [x["field"] for x in _f29b], bool(_s29b),
+     [x["field"] for x in _f29c], sorted(_s29c), sorted(x["field"] for x in _f29d), sorted(_s29e)],
+    [["video"], [], [], True, [], ["video"], ["voice_audio", "voice_audio"], ["note.txt"]])
+_HS = open(os.path.join(HERE, "handoff.py"), encoding="utf-8", errors="replace").read()
+_HS_CODE = "\n".join(l for l in _HS.splitlines() if not l.strip().startswith("#"))
+chk("D30b", "handoff 真的【一个模型都不调】：不 import 网关、不打 video.analyze、不 POST 8100 —— "
+    "它只登记 + 归位 + 打印（这条是 44 分钟空等的正解：把机械动作和判断分开，判断挪到交表之后）",
+    ["gateway.py" not in _HS_CODE, "video.analyze" not in _HS_CODE,
+     "urllib.request.Request(" not in _HS_CODE, _HS_CODE.count("urlopen") == 1,
+     "intent.py" in _HS_CODE], [True, True, True, True, True])
+chk("D30c", "归位走的是同一条回填口（intent.py prefill）⇒ 复制/sha8 命名/服务端判 key 只有一份；"
+    "handoff 里不许出现第二份复制逻辑",
+    ['INTENT, "prefill"' in _HS_CODE, "shutil.copyfile" not in _HS_CODE,
+     "form_prefill" not in _HS_CODE], [True, True, True])
+chk("D30d", "反向对照：D30 那几条「不许出现」不是恒真 —— 违规样例（自己调网关、自己复制文件、自己 POST 8100）"
+    "喂进同一组探针必须全都不成立",
+    ["gateway.py" not in 'subprocess.run([PY, "gateway.py", "call", "video.analyze"])',
+     "shutil.copyfile" not in "shutil.copyfile(a, b)",
+     "urllib.request.Request(" not in "urllib.request.Request(u, data=b'x')"], [False, False, False])
 
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))

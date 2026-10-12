@@ -31,12 +31,30 @@ Wan 边界：`references/wan3-limits.md`
 
 Hypit skill 只在抽帧、裁切、原声贴回、写项目文件时加载。不要用 Hypit 的「按新词重做关系」覆盖本复刻合同。
 
-## 先做的事
+## 先做的事（顺序是死的，2026-10-11 重排：agent 是衔接层，不是分析层）
 
-1. 确认素材：原片、产品名、至少 1 张产品图。换脸要清晰面部图（可多张，一张脸对应一段时间）。换背景**只走文字**（米白客厅、微水泥墙、柔光…）；客户给参考图（如他家客厅照）时，先用看图能力把它**转成文字**写进背景要求，🔴 **图本身不进引擎**。
-2. 在 `productions/<任务>/BRIEF.md` 写下目标。
-3. 简单单（只换产品，≤15s，一张脸或无人脸）：可以整段一次走管线。
-4. 难单（多脸、快切、<2s 镜、要对齐原声）：先分析，写出 `TIMELINE.md`，**等人批准后再打 Wan**。
+🔴 **第一条命令就是交接，不是分析**。现网形状（session-71b9a32d）：客户 20:17 点单，agent 先抽帧、
+看图、写 BRIEF/ANALYSIS，44 分钟后表才出现在客户眼前（还是他自己把素材传完才出现的）——
+那 44 分钟没有一分钟在为他干活。所以顺序倒过来：
+
+1. `python scripts/handoff.py super-clone [任务名]` —— 一条命令做完：登记意图、建任务目录、
+   把手里**无歧义**的素材归位到对应槽、把右栏那张表弹给客户。**一个模型都不调**。
+   拿不准的格子一律留空让客户自己选（🔴 不许猜一个值填进去 —— 填了就等于替客户做决定，
+   而且错了没人知道）。需要理解才能定的两格（产品名、需求描述）按客户原话补，跑
+   `python scripts/intent.py fields` 拿 key，别凭记忆。
+2. 等客户在右栏点【提交这张表】（会被叫醒，不要催、不要代发）。**交完表就没有任何东西需要猜**：
+   原片与产品图是服务端存的绝对路径，声音档/比例是客户按下的。
+3. 这时才做需要看内容的部分：`video.analyze` 看图看片（合同 material-analysis 那一步，免批不免账，
+   分要算进报价）、需要换背景时把参考图转成文字。
+4. 跑 `python .dsh/skills/super-clone/runner/run.py --from-form --stage compile`（**0 分、不提交**）
+   出分镜与提示词，对着 `frames/` 逐秒核；分镜/动作标签失真就补 `--extra-note` 重跑同一条
+   （还是 0 分）。🔴 这一档就是"重编译不烧 Wan"那句散文的合法出口 —— 不许再绕开入口手搓 driver。
+5. 认可后去掉 `--stage`（= `--stage submit`）⇒ 报价（五格现读）⇒ 等人在批准窗点一次 ⇒ 盯到终态交付。
+
+素材与事实的口径照旧：原片、产品名、≥1 张产品图是花钱前必须真拿到的；换脸要清晰面部图（一张脸对应
+一段时间）；换背景**只走文字**（客户给参考图就先转成文字写进背景要求，🔴 图本身不进引擎）。
+简单单（只换产品、≤15s、一张脸或无人脸）可以整段一次走管线；难单（多脸、快切、<2s 镜、要对齐原声）
+先分析写出 `TIMELINE.md`，**等人批准后再打 Wan**。
 
 ## 输入
 
@@ -66,8 +84,10 @@ Hypit skill 只在抽帧、裁切、原声贴回、写项目文件时加载。�
 
 1. **`product_images` 在表单上是选填，在引擎上是必填** —— 这不是矛盾，是两件事：
    表单不拿它卡住客户提交（客户可能随后在对话里发图）；但**花钱那一刀之前 agent 必须真的拿到 ≥1 张**，
-   拿不到就停下来要图，绝不拿原片里的旧商品当"已经换好了"。`runner/run.py` 的 `--product-images`
-   仍是 `required=True`，这条没被放宽。
+   拿不到就停下来要图，绝不拿原片里的旧商品当"已经换好了"。入口这条硬判据现在在
+   `runner/run.py:missing_required`（合并完表单值之后还空着 ⇒ 点名拒，0 分）——
+   以前它是 argparse 的 `required=True`，那等于强制"由人敲命令行"，把 agent 钉成表单到引擎之间的
+   人肉转录层；改成表单能覆盖之后，**缺格照样拒，只是不必再抄参数**。
 2. **`voice_script` 是 agent 读的字段，不是引擎入参** —— 只有 `voice_mode=rewrite_voice`（换人声+改口播）才有意义，
    而那一档【离开最小复刻编译器】（见『声音模式与换音色』），走独立配音/口型同步 = 换方案 = 重新报价。
    所以 agent 读到非空 `voice_script` 时：先报价、等批准，再决定走哪条流程；不许把它塞进 `--customer-request` 蒙过去。
@@ -75,12 +95,16 @@ Hypit skill 只在抽帧、裁切、原声贴回、写项目文件时加载。�
    要原声却给了人声 = 拒）。表单不做这个校验，入口做，所以绕过表单直接敲命令也拦得住。
 4. **表没出现过 ⇒ 入口不进引擎** —— 判据在 `runner/run.py:form_gate_verdict`，落在【导入引擎之前】：
    这条会话登记了 super-clone，但既没回填（`defaults`/`default_files` 全空）也没被客户提交 ⇒ 直接 `SystemExit`，0 分、不动盘。
-   回填用的就是那条命令：`python scripts/intent.py prefill --set '{"values":{…},"files":[…]}'`
-   （素材会被复制进 `<task_dir>/inputs`、按 `NN-sha8-名` 命名、右栏当场弹出）。
-   🔴 **为什么钉在入口而不是写在文档里提醒**（2026-10-10 现网实测）：三条会话全部回 `await-prefill`
-   ⇒ 表单一张都没弹过 —— 回填当时是一条【可以跳过的额外命令】，而可选步骤就等于不存在的步骤。
-   ⚠️ 强度边界：这道门槛管得住"走入口"，agent 自己拼脚本直接 import 引擎函数仍然绕得开 —— 那一条要靠
-   合同步骤的 `手段=` 白名单（见 `docs/ADR-skill-contract.md`），目前 `storyboard` 步还没登记白名单。
+   🔴 但"弹表"【不再等回填】（2026-10-11 再改判，推翻 10-10 那版）：登记 + 配了字段表就弹、空表也弹 ——
+   10-10 版把"agent 已回填"当弹表前置，实测代价是客户对着空右栏等几十分钟、中间看不见 agent 卡在哪。
+   压力没取消，只是换了位置：**空表可以弹，但空表换不来一次扣费**（`gateway.py approve` 先问回填覆盖率，
+   没回填 ⇒ 不建待批条子、0 额度）。
+   回填走 `python scripts/intent.py prefill --set @模板.json`，key 先跑 `python scripts/intent.py fields` 拿
+   （🔴 猜 key 会被入口退码 6 拒、盘上一条都不写：2026-10-11 现网猜错之后退出码是 0，agent 以为填好了，
+   客户第二天把已经在手的素材自己又传了一遍）。素材归位不用手写命令，`handoff.py` 那条会做无歧义的部分。
+   ⚠️ 强度边界：这道门槛管得住"走入口"，agent 自己拼脚本直接 import 引擎函数仍然绕得开 —— 那一条靠
+   合同步骤的 `手段=` 白名单拦（`storyboard-fact-check` 已登记 `runner:--extra-note`、
+   `material-analysis` 已登记 `gateway:video.analyze`；花钱那一刀还额外认回执，见 `docs/ADR-skill-contract.md`）。
 
 ## 硬规则
 
@@ -382,13 +406,19 @@ P1 只写文件，不调用 Wan。
 执行表因此多出「模型/路由」一列；`ledger=off` 是**如实**标——这条编译腿直连厂商、不在网关账本上。
 
 contract:
-  version: super-clone-wan3@5
-  entry: python .dsh/skills/super-clone/runner/run.py --task-id <段号> --video <原片> --product-images <图…> --product-name <名> --output-dir <目录> [--model-image <脸图>] [--scene-text <场景替换描述>] [--voice-audio <参考音频>]
+  version: super-clone-wan3@6
+  entry: python .dsh/skills/super-clone/runner/run.py --from-form   # 值全部从这条会话【已提交】的右栏表单读，参数只作覆盖；老写法逐格给照样能跑
   # 花钱口三方唯一源：表单 engine_lock(yz-prime) == 本行 == 网关 ROUTES/价目；clone-r2v 是已断开的 RunningHub 腿的批准词，不再是这条线的花钱口
   spend: video.generate/wan3-prime
   steps:
     - id=material-analysis | 手段=gateway:video.analyze | 证明=material_analysis.json（该段每个素材的内容 sha8 + 缺口清单，由网关素材分析台账对账得出，不是 agent 自述） | 判据=json-list-min:materials=1 | required=1
     - id=storyboard | 证明=该段目录里有 storyboard.json（Step1 MiMo 解析 + Checkpoint A 规范化后【喂给编译器的那一份】） | 判据=json-array-min=1 | required=1
+    # 🔴 storyboard-fact-check（2026-10-11 补）：MiMo 的分镜表是【上游解析结果】不是事实（现网 5.1s 单镜头
+    #    被解析成 2 镜 + 假"硬切/换装"）。SKILL.md 一直要求"标签不符就按秒写死时间轴压过它"，但这一步
+    #    以前【既没物证也没授权手段】⇒ 改一次就要自己论证一次合法性，论证不出来就绕开入口手搓 driver。
+    #    现在手段只认 runner 的 --extra-note，物证由管线落盘（镜数/时长/分镜指纹 + 改动的全文与 sha8）。
+    #    ⚠️ 强度边界：它证明"对账发生过、改的是哪一版"，不证明"改得对"——对不对由人在审帧那一刀看。
+    - id=storyboard-fact-check | 手段=runner:--extra-note | 证明=storyboard_check.json（喂进编译的镜数/时长 + storyboard_sha8 + extra_note 的 chars/sha8；有改动时全文另落 extra_note.txt） | 判据=json-nonempty | required=1
     - id=compile-prompt | 证明=prompt.txt 由 Step1.5 编译器写出且非空 | 判据=json-nonempty | required=1
     - id=compile-bound | 证明=prompt_meta.json（编译器写下：来源 + 它实际吃进去的 storyboard 指纹） | 判据=bind-sha8:storyboard:storyboard_sha8,json-key:source=step1_5_gpt_compiler | required=1
     - id=negative-lock | 手段=compiler-negative-lock | 证明=prompt.txt 里真的含后端负向锁定段（字幕/花字/水印不生成）——手段在 super_clone_wan3.py:275（后端常量）与 :669（编译器禁令），不是像素级清洗、更不是手搓 ffmpeg | 判据=text-has=不得出现字幕;水印 | required=1

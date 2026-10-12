@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 WS = r"C:\dsh"
 LIVE = os.path.join(WS, ".dsh", "skills")
@@ -120,12 +121,44 @@ def decide(rows, base):
 
 def main(argv):
     bless = "--bless" in argv
+    only = None
+    if bless:
+        _i = argv.index("--bless")
+        if _i + 1 < len(argv) and not argv[_i + 1].startswith("--"):
+            only = [x.strip() for x in argv[_i + 1].split(",") if x.strip()]
     rows = lanes(LIVE)
     check("L0 指纹用服务端那两个解析器（拿到空档 = 闸在自己算，那条判据就废了）",
           PARSER_ERR or all(v["form8"] or v["contract8"] for v in rows.values()), True)
     check("L1 枚举到技能档（空集会让后面每一条都假绿）", len(rows) >= 8, True)
 
     if bless:
+        # 🔴 整批认基线会把【别人那一档的未授权改动】一起洗成"合法"（这台机器上多个会话同时改 skills，
+        #    实测 product-video-pipeline 就带着别人的漂移）⇒ 支持只认点名的那几档，其余照旧红。
+        old = {}
+        try:
+            old = (json.load(open(BASE, encoding="utf-8")) or {}).get("lanes") or {}
+        except (OSError, ValueError):
+            old = {}
+        if only:
+            unknown = [x for x in only if x not in rows]
+            if unknown:
+                cprint("🔴 --bless 的档名对不上任何枚举到的档：%s ⇒ 一条都不认（打错名字不能顺手洗白）"
+                       % "、".join(unknown))
+                return 2
+            doc = {"note": "技能目录指纹基线。只有人/Qoder 侧改完才重新 --bless（可点名档，逗号分隔）。",
+                   "lanes": dict(old, **{k: rows[k] for k in only}),
+                   "blessed_by": "check-skill-write-lock --bless %s @%s" % (
+                       ",".join(only), time.strftime("%Y-%m-%d %H:%M"))}
+            still = [k for k, v in rows.items()
+                     if k not in only and k in old and v != old[k]]
+            os.makedirs(os.path.dirname(BASE), exist_ok=True)
+            with open(BASE, "w", encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False, indent=1)
+            cprint("已认基线（只这一批）：%s → %s" % ("、".join(only), BASE))
+            if still:
+                cprint("🔴 仍有别的档在漂、【没有】被顺手洗白：%s ⇒ 那些改动没被这一侧认过，要么查是谁改的，"
+                       "要么让改的人带提交号来" % "、".join(still))
+            return 0
         doc = {"note": "技能目录指纹基线。只有人/Qoder 侧改完才重新 --bless。",
                "lanes": rows, "blessed_by": "check-skill-write-lock --bless"}
         os.makedirs(os.path.dirname(BASE), exist_ok=True)

@@ -1,5 +1,5 @@
 {
- "note": "技能目录指纹基线。只有人/Qoder 侧改完才重新 --bless。",
+ "note": "技能目录指纹基线。只有人/Qoder 侧改完才重新 --bless（可点名档，逗号分隔）。",
  "lanes": {
   "ai-film-router": {
    "sha8": "cf37b4ea",
@@ -86,10 +86,10 @@
    "bytes": 12793
   },
   "motion-transfer": {
-   "sha8": "778530a0",
+   "sha8": "55a19cd4",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 13053
+   "bytes": 13438
   },
   "omni": {
    "sha8": "00a2c8f1",
@@ -206,10 +206,10 @@
    "bytes": 10888
   },
   "super-clone": {
-   "sha8": "a9d0e5d3",
+   "sha8": "018d6215",
    "form8": "4d460de4",
-   "contract8": "ece8689c",
-   "bytes": 27569
+   "contract8": "53b6c11a",
+   "bytes": 33028
   },
   "video-dewatermark": {
    "sha8": "67146804",
@@ -242,5 +242,5 @@
    "bytes": 2209
   }
  },
- "blessed_by": "check-skill-write-lock --bless"
+ "blessed_by": "check-skill-write-lock --bless super-clone @2026-10-12 08:23"
 }

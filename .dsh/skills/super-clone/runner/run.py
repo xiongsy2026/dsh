@@ -132,17 +132,96 @@ def read_form_gate(sid: str) -> dict:
         return json.loads(r.read().decode("utf-8", errors="replace"))
 
 
+# 🔴 这四样是"没有它就跑不动"的格。以前它们是 argparse 的 required=True ⇒ 只能靠人敲命令行给，
+#    于是 agent 变成"表单 → 命令行"的人肉转录层：读得出绝对路径还得再抄一遍（2026-10-11 现网
+#    21:04 抄对了、20:55 把 key 名抄成另一条线的叫法）。改成【表单能覆盖】⇒ 抄这个动作整个消失。
+REQUIRED_DESTS = ("task_id", "video", "product_images", "product_name", "output_dir")
+
+
+def multi_dests(parser) -> set:
+    """哪些参数收多个值 —— 从 parser 自己读，不在这里抄第二份字段表。"""
+    import argparse as _ap
+    out = set()
+    for act in parser._actions:
+        if isinstance(act, _ap._AppendAction) or act.nargs in ("+", "*"):
+            out.add(act.dest)
+    return out
+
+
+def apply_form_values(known: dict, gate: dict, multi: set) -> tuple:
+    """纯函数（闸直接跑值表）：把这条会话【已提交的表单】并进命令行值。
+
+    三条规则，每条都对应一种"本来要靠猜"的动作：
+      1) 命令行显式给了 ⇒ 赢（人当场改的，比表新；来源标 `命令行`）；
+      2) 表里有 ⇒ 用表的（媒体是服务端存好的绝对路径/数组，一个字都不经过 agent 的手）；
+      3) 两边都没有 ⇒ 原样留着，交给 missing_required 点名 —— 🔴 不许在这里编一个默认值，
+         编出来的东西会一路走到报价，而人以为那是客户选的。
+    返回 (最终值 dict, 来源行 list, 表里给了但这条入口不吃的 key list)。
+    """
+    vals = dict(known)
+    params = dict((gate or {}).get("params") or {})
+    provenance = []
+    unmapped = []
+    for key, raw in sorted(params.items()):
+        if key not in vals:
+            unmapped.append("%s=%s" % (key, str(raw)[:40]))
+            continue                       # 这条入口没有这个参数（voice_script 那类是给 agent 读的）
+        if vals[key] not in (None, "", []):
+            provenance.append("%-16s 命令行" % key)
+            continue
+        v = raw
+        if key in multi and isinstance(v, str):
+            v = [v]
+        if key not in multi and isinstance(v, list):
+            v = v[0] if v else None
+        if v in (None, "", []):
+            continue                       # 表上这格是空的 ⇒ 不算"表单给过"
+        vals[key] = v
+        provenance.append("%-16s 表单" % key)
+    # task-id / output-dir 不必让客户填：它们不是选择，是这条任务的家（登记时就建好了）
+    tdir = str((gate or {}).get("task_dir") or "").strip()
+    if tdir:
+        import os as _os
+        if not vals.get("output_dir"):
+            vals["output_dir"] = _os.path.join(tdir, "outputs")
+            provenance.append("%-16s 任务目录" % "output_dir")
+        if not vals.get("task_id"):
+            vals["task_id"] = _os.path.basename(_os.path.normpath(tdir))
+            provenance.append("%-16s 任务目录" % "task_id")
+    return vals, provenance, unmapped
+
+
+def missing_required(vals: dict) -> list:
+    """还缺哪几格（表单和命令行都没给）。返回 dest 名单。"""
+    return [d for d in REQUIRED_DESTS if vals.get(d) in (None, "", [])]
+
+
+def missing_message(missing: list, sid: str) -> str:
+    return (
+        "这几格既没在命令行给、这条会话的表里也没有：%s\n"
+        "⇒ 不要自己编一个值填进去。两条正路：\n"
+        "  A) 让客户在右栏那张表上选完点【提交这张表】，再跑同一条命令（推荐：值有出处）；\n"
+        "     会话 %s\n"
+        "  B) 明确知道值的时候直接在命令行给（会盖过表上的值，来源会印出来）。\n"
+        % ("、".join(missing), sid or "（读不到会话 id ⇒ 表在哪个会话都不知道）")
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="超级复刻 Wan3.0 出片（薄封装 run_pipeline）")
-    p.add_argument("--task-id", required=True)
-    p.add_argument("--video", required=True, help="原片（或该段裁剪后原片）路径")
-    p.add_argument("--product-images", nargs="+", required=True, help="产品图 1-10 张")
-    p.add_argument("--product-name", required=True, help="产品名（入口校验：不能为空）")
+    # 🔴 这些以前是 required=True：那等于强制"由人敲命令行"，把 agent 钉成转录层。
+    #    现在由 --from-form 从表单取，缺哪些格由 missing_required 在合并【之后】点名（照样不会静默跑）。
+    p.add_argument("--task-id", default=None,
+                   help="缺省用这条会话任务目录的目录名（登记时就建好了）")
+    p.add_argument("--video", default=None, help="原片（或该段裁剪后原片）路径；缺省读表单【原片】那一格")
+    p.add_argument("--product-images", nargs="+", default=None,
+                   help="产品图 1-10 张；缺省读表单【产品图】那一格（服务端存的是绝对路径数组）")
+    p.add_argument("--product-name", default=None, help="产品名（入口校验：不能为空）")
     p.add_argument("--customer-request", default=None, help="缺省用 --product-name")
     p.add_argument("--scene-text", default=None,
                    help="场景替换描述 = 背景的唯一输入口（只走文字）。会并进 customer_request 的「背景要求」段，"
                         "因为编译器只从那里读背景（references/compiler-contract.md 任务4）")
-    p.add_argument("--output-dir", required=True)
+    p.add_argument("--output-dir", default=None, help="缺省用 <任务目录>/outputs")
     p.add_argument("--product-facts", default=None, help="客户明确陈述的非视觉事实")
     p.add_argument("--model-image", default=None, help="该段唯一脸图（一段一张脸）")
     p.add_argument("--extra-model-images", nargs="*", default=None, help="多脸时其余脸图(不整段塞)")
@@ -162,9 +241,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--aspect-ratio", default=None)
     p.add_argument("--engine", default="wan3", choices=["wan3"],
                    help="只有一个合法值 wan3。引擎锁的唯一源在服务层 engine_lock_error()，这里只是让人敲命令时就撞墙，而不是跑到一半才拒")
-    p.add_argument("--extra-note", default=None, help="extra_compile_note")
+    p.add_argument("--extra-note", default=None,
+                   help="extra_compile_note：合同 storyboard-fact-check 那一步的【唯一授权手段】——"
+                        "MiMo 的分镜/动作标签与原片不符时，在这里按秒写死真实时间轴压过它（重编译 0 分）")
     p.add_argument("--split-by-shots", action="store_true")
     p.add_argument("--as-duration-chunk", action="store_true", help="按段调用时置 True（难单每段 True）")
+    p.add_argument("--from-form", action="store_true",
+                   help="🔴 值全部从这条会话【已提交】的右栏表单读（媒体是服务端存的绝对路径），"
+                        "命令行显式给的参数只作覆盖。没有它 agent 就得手抄参数 —— 抄就有猜错的那一天。")
+    p.add_argument("--stage", default="submit", choices=["compile", "submit"],
+                   help="compile=只走到「物证+回执+合同核验」就返回（不提交、不建预扣、0 分）；"
+                        "submit=照常出片。SKILL.md 要求「不符就补 extra-note 重编译（0 分）」，"
+                        "这一档就是那句散文的合法出口 —— 以前没有它，遵守它只能绕开入口。")
     p.add_argument("--session", default=None,
                    help="DSH 会话 id（默认读 $env:DSH_SESSION_ID）。用于查右栏那张表有没有出现过；"
                         "读不到就不判（常驻服务里没有会话 id，绝不猜一个填进去）。")
@@ -172,27 +260,58 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
-    a = build_parser().parse_args(argv)
-    if not (a.product_name or "").strip():
-        raise SystemExit("product-name 不能为空（入口校验）")
-    if a.voice_mode:                      # 没声明就不管（老写法照跑）；声明了就必须自洽
-        _v = voice_mode_problems(a.voice_mode, bool(a.voice_audio))
-        if _v:
-            raise SystemExit(_v)
-    # 背景只走文字：--scene-text 并进 customer_request 的「背景要求」段（编译器只认这一处）。
-    _req = fold_scene_text(a.customer_request, a.scene_text)
-    # 🔴 表单前置（在导入引擎之前，失败就 0 分）：见 form_gate_verdict 的现网事故形状。
+    p = build_parser()
+    a = p.parse_args(argv)
     sid = (a.session or os.environ.get("DSH_SESSION_ID") or "").strip()
-    if not sid:
-        print("[表单前置] 读不到会话 id ⇒ 这一道不判（不猜一个会话填进去）")
-    else:
+    vals = {d: v for d, v in vars(a).items() if d not in ("from_form", "stage", "session")}
+    _gate = None
+
+    # ① 入口自己读表：值来自"客户在右栏提交的那一份"，命令行显式给的只作覆盖（来源逐格印出来）。
+    if a.from_form:
+        if not sid:
+            raise SystemExit("--from-form 要会话 id（$env:DSH_SESSION_ID 或 --session <会话id>）——"
+                             "没有会话就找不到那张表，绝不猜一个填进去。")
         try:
             _gate = read_form_gate(sid)
         except Exception as e:  # noqa: BLE001
+            raise SystemExit("--from-form 读不到判定口(8100)：%s: %s ⇒ 不跑。"
+                             "闸门坏了不许当成「闸没拦」（先确认 8100 在跑）。"
+                             % (type(e).__name__, str(e)[:120]))
+        if not _gate.get("submitted"):
             raise SystemExit(
-                "[表单前置] 判定口(8100)没回话：%s: %s ⇒ 不跑。"
-                "闸门坏了不许当成「闸没拦」（先确认 8100 在跑，再重试同一条命令）。"
-                % (type(e).__name__, str(e)[:120]))
+                "这条会话的表【还没由客户提交】（reason=%s）⇒ --from-form 没有可信的值来源。\n"
+                "表本来就弹在右栏：让他填完点【提交这张表】，交完你会被叫醒接着跑 —— "
+                "不要替他填、更不要因为等不到就自己编一组值。"
+                % (_gate.get("reason") or "not-submitted"))
+        vals, _prov, _un = apply_form_values(vals, _gate, multi_dests(p))
+        print("[参数来源] %s" % (" | ".join(_prov) if _prov else "全部来自命令行（表单的值一个都没用上）"))
+        if _un:
+            print("[表单里还有] %s ⇒ 这几格不是引擎入参（是给 agent 读的口径），本入口不吃"
+                  % "、".join(_un))
+
+    _miss = missing_required(vals)
+    if _miss:
+        raise SystemExit(missing_message(_miss, sid))
+    if not (vals.get("product_name") or "").strip():
+        raise SystemExit("product-name 不能为空（入口校验）")
+    if vals.get("voice_mode"):                # 没声明就不管（老写法照跑）；声明了就必须自洽
+        _v = voice_mode_problems(vals["voice_mode"], bool(vals.get("voice_audio")))
+        if _v:
+            raise SystemExit(_v)
+    # 背景只走文字：--scene-text 并进 customer_request 的「背景要求」段（编译器只认这一处）。
+    _req = fold_scene_text(vals.get("customer_request"), vals.get("scene_text"))
+    # 🔴 表单前置（在导入引擎之前，失败就 0 分）：见 form_gate_verdict 的现网事故形状。
+    if not sid:
+        print("[表单前置] 读不到会话 id ⇒ 这一道不判（不猜一个会话填进去）")
+    else:
+        if _gate is None:
+            try:
+                _gate = read_form_gate(sid)
+            except Exception as e:  # noqa: BLE001
+                raise SystemExit(
+                    "[表单前置] 判定口(8100)没回话：%s: %s ⇒ 不跑。"
+                    "闸门坏了不许当成「闸没拦」（先确认 8100 在跑，再重试同一条命令）。"
+                    % (type(e).__name__, str(e)[:120]))
         _fg = form_gate_verdict(_gate)
         if _fg:
             raise SystemExit(_fg)
@@ -200,28 +319,36 @@ def main(argv=None) -> int:
     # 延迟导入：--help / 参数校验不需要重依赖（playwright 等）
     from backend.services.super_clone_wan3 import run_pipeline  # noqa
 
-    os.makedirs(a.output_dir, exist_ok=True)
+    os.makedirs(vals["output_dir"], exist_ok=True)
     result = asyncio.run(run_pipeline(
-        task_id=a.task_id,
-        video_path=a.video,
-        product_image_paths=list(a.product_images),
-        customer_request=_req or a.product_name,
-        output_dir=a.output_dir,
-        trim_start=a.trim_start,
-        trim_end=a.trim_end,
-        model_image_path=a.model_image,
-        product_name=a.product_name,
-        product_facts=a.product_facts,
-        resolution=a.resolution,
-        aspect_ratio=a.aspect_ratio,
-        engine=a.engine,
-        split_by_shots=a.split_by_shots,
-        extra_compile_note=a.extra_note,
-        extra_model_image_paths=list(a.extra_model_images) if a.extra_model_images else None,
-        voice_audio_paths=list(a.voice_audio) if a.voice_audio else None,
-        as_duration_chunk=a.as_duration_chunk,
+        task_id=vals["task_id"],
+        video_path=vals["video"],
+        product_image_paths=list(vals["product_images"]),
+        customer_request=_req or vals["product_name"],
+        output_dir=vals["output_dir"],
+        trim_start=vals.get("trim_start"),
+        trim_end=vals.get("trim_end"),
+        model_image_path=vals.get("model_image"),
+        product_name=vals["product_name"],
+        product_facts=vals.get("product_facts"),
+        resolution=vals.get("resolution"),
+        aspect_ratio=vals.get("aspect_ratio"),
+        engine=vals["engine"],
+        split_by_shots=vals.get("split_by_shots") or False,
+        extra_compile_note=vals.get("extra_note"),
+        extra_model_image_paths=list(vals["extra_model_images"]) if vals.get("extra_model_images") else None,
+        voice_audio_paths=list(vals["voice_audio"]) if vals.get("voice_audio") else None,
+        as_duration_chunk=vals.get("as_duration_chunk") or False,
+        stop_after=("compile" if a.stage == "compile" else None),
     ))
     print(json.dumps(result, ensure_ascii=False, default=str))
+    if isinstance(result, dict) and result.get("compiled_only"):
+        # ⑤ 只编译档位：物证与回执已经落盘，一条都没提交 ⇒ 明确出声，别让人以为在跑
+        print("[档位=只编译] 0 分、没建预扣、没提交。提示词/分镜/回执在：" +
+              "、".join(str(s.get("dir")) for s in (result.get("segments") or [])[:6]))
+        print("[下一步] 对着 frames/ 逐秒核动作与分镜；不符就补 --extra-note 重跑同一条 --stage compile"
+              "（还是 0 分）；认可后去掉 --stage（或 --stage submit）再走报价。")
+        return 0
     if isinstance(result, dict):
         if result.get("success") is False or result.get("error"):
             return 2

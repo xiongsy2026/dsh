@@ -33,6 +33,11 @@ INTENT_PY = os.path.join(HERE, "intent.py")
 SESSIONS = os.path.expandvars(r"%APPDATA%\dsh-desktop\harness\sessions")
 MAGIC = b"\x28\xb5\x2f\xfd"
 WINDOW = 1800.0          # 点单后 30 分钟内一件事实都没发生，才判"静默"
+# 🔴 登记意图是【点单之后第一条命令】：建目录 + 写一行 JSON，不调模型、不读素材 ⇒ 纯机械。
+#    超过 3 分钟只可能是它在动手之前先写了一篇分析（2026-10-11 现网：20:18 点单，
+#    20:36–20:53 抽帧/看图/写 BRIEF/写 ANALYSIS，表 21:02 才出现，客户全程对着空右栏）。
+#    而"表什么时候出现"现在等价于"意图什么时候登记"—— 登记 + 配了字段表就弹（2026-10-11 改判）。
+INTENT_SLOW = 180.0
 CELLS = ("意图", "素材", "回填", "交表", "回执")
 
 
@@ -166,8 +171,25 @@ def collect_facts(sid: str, clicked_ts: float, lane: str, ints: dict) -> dict:
             "payload": payload_ts, "receipt": receipt_ts, "task_dir": task_dir}
 
 
+def slow_steps(clicked_ts: float, facts: dict, limit: float = INTENT_SLOW) -> list:
+    """纯函数：点单 → 登记意图 的耗时超预算 = 它在动手之前先写了一篇分析。
+    没登记的情况不在这里报（那是 SILENT/HALF 的活），免得同一件事两个判据各红一次。"""
+    it = (facts or {}).get("intent")
+    if not (isinstance(it, float) and it and it >= clicked_ts):
+        return []
+    d = it - clicked_ts
+    return [] if d <= limit else ["点单→登记意图 %d 秒（预算 %d 秒）" % (int(d), int(limit))]
+
+
 def entry_verdict(clicked_ts: float, facts: dict, now: float, has_form: bool = True,
                   window: float = WINDOW) -> dict:
+    v = _entry_verdict_core(clicked_ts, facts, now, has_form, window)
+    v["slow"] = slow_steps(clicked_ts, facts)
+    return v
+
+
+def _entry_verdict_core(clicked_ts: float, facts: dict, now: float, has_form: bool = True,
+                        window: float = WINDOW) -> dict:
     """纯函数：点单之后，该出现的几件事实出现了没有。
     SILENT = 点单之后【一件都没发生】（今天那几条就是这个形状）
     HALF   = 登记了意图，但既没回填也没交表 —— 流程停在半路，右栏永远不出表【仅有表单的档才这么判】
@@ -255,9 +277,12 @@ def main() -> int:
         print(safe("  %-8s %s [%s] 点单 %s(%s) 「%s」 %s"
                    % (v["state"], r["lane"], marks, _fmt(r["clicked"]), r["how"], r["text"],
                       "" if v["state"] == "OK" else "→ " + v["why"]))[:230])
-        if v["state"] in ("SILENT", "HALF"):
+        if v.get("slow"):
+            print(safe("        ⏱ 超预算：%s ⇒ 客户这段时间对着空右栏（登记是第一条命令，纯机械）"
+                       % "、".join(v["slow"])))
+        if v["state"] in ("SILENT", "HALF") or v.get("slow"):
             bad += 1
-    print(safe("=== 静默/半路单：%d 条 ===" % bad))
+    print(safe("=== 静默/半路/超预算单：%d 条 ===" % bad))
     return 1 if bad else 0
 
 
@@ -308,6 +333,18 @@ def selftest() -> int:
                            encoding="utf-8", errors="replace")) or {}))
     ck("S11 两份登记簿合并读（只读工作区那份会把走网关簿的单误判成静默）",
        only_outer.issubset(set(merged)), True)
+    ck("S12 超预算判据：点单→登记 10 分钟 ⇒ 点名（登记是纯机械的第一条命令，慢=它在写分析）",
+       [bool(slow_steps(P, {"intent": P + 600.0})), slow_steps(P, {"intent": P + 600.0})[0].split("（")[0]],
+       [True, "点单→登记意图 600 秒"])
+    ck("S13 预算内不响（30 秒）；没登记也不在这里响（那是 SILENT/HALF 的活，一条事实一个判据）",
+       [slow_steps(P, {"intent": P + 30.0}), slow_steps(P, {}), slow_steps(P, {"intent": P - 9.0}),
+        slow_steps(P, {"intent": 0}), slow_steps(P, {"prefill": P + 900.0})],
+       [[], [], [], [], []])
+    ck("S14 包装层把 slow 挂到【所有状态】上（RUNNING 也要看得见，否则窗口内的慢单永远不出声）",
+       [bool(entry_verdict(P, {"intent": P + 600.0, "prefill": P + 610.0}, T, has_form=True)["slow"]),
+        bool(entry_verdict(P, {"intent": P + 600.0}, T - 60.0, has_form=True)["slow"]),
+        entry_verdict(P, {"intent": P + 5.0, "prefill": P + 6.0}, T, has_form=True)["slow"]],
+       [True, True, []])
     print("\n=== 点单审计自测：%d/%d 通过 ===" % (sum(out), len(out)))
     return 0 if all(out) else 1
 

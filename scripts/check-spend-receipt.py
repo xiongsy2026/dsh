@@ -125,11 +125,19 @@ try:
     with io.open(f_pm, "w", encoding="utf-8") as f:
         f.write(json.dumps({"source": "step1_5_gpt_compiler", "storyboard_sha8": sc.sha8(f_sb),
                             "model": "m", "provider": "p"}, ensure_ascii=False))
+    # 合同 @6 新增必需步 storyboard-fact-check 的物证（真产物由 _contract_evidence 写，这里照形状造一份）
+    f_sc = os.path.join(_out_dir, "storyboard_check.json")
+    with io.open(f_sc, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"source": "step1_mimo+runner-extra-note", "shot_count": 1, "duration": 5.1,
+                            "note_present": True, "note_chars": 12, "note_sha8": "d" * 8,
+                            "storyboard_sha8": sc.sha8(f_sb)}, ensure_ascii=False))
     sc.write_receipt("super-clone", _out_dir,
                      steps={"material-analysis": f_mat, "compile-prompt": f_pt, "storyboard": f_sb,
+                            "storyboard-fact-check": f_sc,
                             "compile-bound": f_pm, "negative-lock": f_pt},
                      inputs=[], impl={"negative-lock": "compiler-negative-lock",
-                                      "material-analysis": "gateway:video.analyze"},
+                                      "material-analysis": "gateway:video.analyze",
+                                      "storyboard-fact-check": "runner:--extra-note"},
                      models={"compile-prompt": "m@p · 账本外"})
     check("B4 真回执写出来 ⇒ 判据放行（正向对照：这条闸不是只会拒绝；造不出合格物证就说明我读错了判据）",
           prob(params=P), [])

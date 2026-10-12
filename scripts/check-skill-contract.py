@@ -139,8 +139,22 @@ def write_meta(bind_to=None, source="step1_5_gpt_compiler"):
         ensure_ascii=False))
 
 
+# storyboard-fact-check 的物证（合同 @6 起的必需步）：真产物由 _contract_evidence 写，
+# 这里照它的形状造一份 —— 关键是 source 与 storyboard_sha8，判据 json-nonempty 只断"有内容"。
+sbc = os.path.join(task, "storyboard_check.json")
+
+
+def write_sbc(bind_to=None, note="0-1s 正面口播微笑；约 1.0s 双手抬至胸前比框后放下"):
+    io.open(sbc, "w", encoding="utf-8").write(json.dumps(
+        {"source": "step1_mimo+runner-extra-note", "shot_count": 1, "duration": 5.1,
+         "note_present": bool(note), "note_chars": len(note or ""),
+         "note_sha8": sc.sha8(sb), "storyboard_sha8": sc.sha8(bind_to or sb)},
+        ensure_ascii=False))
+
+
 IMPL_OK = {"negative-lock": "compiler-negative-lock",
-           "material-analysis": "gateway:video.analyze"}
+           "material-analysis": "gateway:video.analyze",
+           "storyboard-fact-check": "runner:--extra-note"}
 
 
 def write_material():
@@ -153,10 +167,12 @@ def write_material():
     return mat
 
 
-def make_receipt(deviations=(), with_sb=True, impl=None):
+def make_receipt(deviations=(), with_sb=True, impl=None, with_factcheck=True):
     if with_sb:
         write_storyboard()
         write_meta()
+        if with_factcheck:
+            write_sbc()
     else:
         for f in (sb, meta):
             if os.path.exists(f):
@@ -164,6 +180,7 @@ def make_receipt(deviations=(), with_sb=True, impl=None):
     return sc.write_receipt("super-clone", task,
                             steps={"material-analysis": (write_material() if with_sb else None),
                                    "compile-prompt": prompt, "storyboard": sb,
+                                   "storyboard-fact-check": (sbc if with_factcheck else None),
                                    "compile-bound": meta, "negative-lock": prompt,
                                    "source-fit": vid,
                                    "reference-clean": None},
@@ -800,6 +817,54 @@ for _f in ("backend/services/wan3_client.py", "backend/services/super_clone_wan3
         check("T35c 提交链文件在盘上：" + _f, "missing", "present")
         continue
     check("T35c 提交链没有「用了却没绑定」：%s" % _f.split("/")[-1], _unbound_std_file(_p), [])
+
+# ---- T36 storyboard-fact-check（合同 @6：分镜失真要有【授权手段】+ 物证，别再逼 agent 绕道）----
+# 现网形状：MiMo 把 5.1s 单镜头解析成 2 镜，SKILL.md 要求"按秒写死时间轴压过它"，
+# 但那一步没登记手段 ⇒ agent 只能绕开入口手搓 driver 直调 run_pipeline（2026-10-11 21:23）。
+make_receipt()
+try:
+    sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
+    t36a = "放行"
+except sc.SkillContractError as e:
+    t36a = "误拒:" + str(e)[:60]
+check("T36a 正向对照：合法回执（含 storyboard_check.json + 手段 runner:--extra-note）⇒ 真放行", t36a, "放行")
+
+os.remove(sbc)
+make_receipt(with_factcheck=False)         # 回执里这一步的证据没了 ⇒ 必须点名缺这一步
+try:
+    sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
+    t36b = "没抛"
+except sc.SkillContractError as e:
+    t36b = "缺步" if "缺少步 storyboard-fact-check" in str(e) else str(e)[:60]
+check("T36b 分镜对账物证没落盘 ⇒ 拒（「改了分镜却查不到改了什么」就是原来那个洞）", t36b, "缺步")
+
+make_receipt(impl={"storyboard-fact-check": "hand-driver:run_pipeline"})
+try:
+    sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
+    t36c = "没抛"
+except sc.SkillContractError as e:
+    t36c = "手段不符" if "storyboard-fact-check" in str(e) else str(e)[:60]
+check("T36c 🔴 手段白名单只认 runner:--extra-note：拿「绕开入口手搓 driver」这条来申报 ⇒ 拒"
+      "（这才是把 21:23 那个形状钉死的地方，不靠散文）", t36c, "手段不符")
+
+make_receipt(impl={"storyboard-fact-check": None})
+try:
+    sc.verify_or_raise("super-clone", task, inputs=[vid, prod])
+    t36d = "没抛"
+except sc.SkillContractError as e:
+    t36d = "没申报" if "storyboard-fact-check" in str(e) else str(e)[:60]
+check("T36d 反向对照：这一步【根本没申报手段】也拒（白名单不许被「沉默」绕过）", t36d, "没申报")
+
+# 档位：--stage compile 必须【不进执行器】，且两条款都算合法出口
+_sfw = io.open(r"D:\video-skill\backend\services\super_clone_wan3.py", encoding="utf-8").read()
+_i_stop = _sfw.index('stop_after not in (None, "", "compile")')
+_i_exec = _sfw.index("step2 = await _run_executor(")
+check("T36e 只编译档位：参数校验在调任何模型之前（拼错的档位不许静默当成「照常提交」）；"
+      "两处提交腿各有一条 compile-only 早退（多段循环 + 单段），少一处会红",
+      [0 < _i_stop < _i_exec, _sfw.count('stop_after == "compile"') >= 3,
+       _sfw.count("compiled_only") >= 6], [True, True, True])
+check("T36f 覆盖对照：两条提交路径都调 _contract_evidence（少一处 = 那个运行形状没有物证，@4 那次事故）",
+      _sfw.count("_contract_evidence("), 3)   # 1 定义 + 2 调用
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(_safe("\n=== skill 执行合同闸：%d/%d 通过 ===" % (len(PASS), len(PASS) + len(FAIL))))

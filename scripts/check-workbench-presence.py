@@ -39,10 +39,21 @@ GATEWAY = "http://127.0.0.1:8100/api/workbench/presence"
 fails, total = [], [0]
 
 
+def _safe(s):
+    """GBK 控制台上「⇒」这类字符会把 print 打崩=闸看起来像没跑完。只按【输出流编码】replace，
+    绝不 sys.stdout.reconfigure（那会造"零输出 + exit 0"的静默假绿），也别裸 encode()（默认 utf-8 永不失败）。"""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        s.encode(enc)
+        return s
+    except (UnicodeEncodeError, LookupError):
+        return s.encode(enc, "replace").decode(enc, "replace")
+
+
 def check(name, got, want):
     total[0] += 1
     ok = got == want
-    print(("PASS " if ok else "FAIL ") + name, "=>", json.dumps(got, ensure_ascii=False)[:150])
+    print(_safe(("PASS " if ok else "FAIL ") + name + " => " + json.dumps(got, ensure_ascii=False)[:150]))
     if not ok:
         fails.append((name, got, want))
 
@@ -52,14 +63,19 @@ def mark():
 
 
 # ── 离线桩：A 段绝不碰真端口 ────────────────────────────────────────────────────
-ALIVE = {"studio": True, "omni": True}
+ALIVE = {"studio": True, "omni": True, "reverse": True}
 SERVED = {"path": "productions\\hypit-e2e\\assemble.svml"}
 hb._probe_studio = lambda port: dict(up=ALIVE["studio"], tasks=0, running=0, artifacts=0)
 hb._probe_omni = lambda: ALIVE["omni"]
+hb._probe_reverse = lambda: ALIVE["reverse"]      # 第 6 档（8090 反推台）也不撞真端口
 hb._studio_served_path = lambda port: SERVED["path"]
 
 # omni 的意图来自盘上的 run ⇒ 给一个临时 runs 目录
-for _p in (os.environ["HYPIT_INTENT_MARK"], os.environ["HYPIT_STUDIO_MARK"]):
+# 🔴 临时 scratch 是【固定路径】（studio_status 读腿数要它存在），上一轮如果半路崩了就会留下
+#    假 running 腿：轻则把 A9d 判成 "generating"（看着像代码坏，其实是残留），重则 insert 撞 UNIQUE
+#    直接崩在闸中间（2026-10-06 实测：上一次 GBK 崩在 A7，之后每次都在 jobs 插入那行崩）。
+#    所以开局就把这几样清干净——线上库不在这里，HYPIT_JOBS_DB 已经指到 scratch。
+for _p in (os.environ["HYPIT_INTENT_MARK"], os.environ["HYPIT_STUDIO_MARK"], os.environ["HYPIT_JOBS_DB"]):
     if os.path.exists(_p):
         os.remove(_p)                # 上一轮残留会让这一轮的排他判定莫名其妙
 FAKE_RUNS = os.path.join(SCRATCH, "fake_video_runs")
@@ -201,9 +217,137 @@ ALIVE["omni"] = True
 # ══ A16 判定口一次给两台 ══════════════════════════════════════════════════════════
 hb.studio_claim("session-OMNI-1", RUN, 5179)
 both = hb.workbench_presence("session-OMNI-1")
-# 2026-10-03：判定口现在还回答第三个台（film 看板，另一会话加的 film_status/KNOWN_SKILLS）
-# ⇒ 期望从两条改成三条。右栏 WORKBENCHES 里目前还没有 film 页签，这条差异已报用户待定。
-check("A16 一个口同时回答 omni+hypit+film", sorted(both), ["film", "hypit", "omni"])
+# 台键名单只有一个源 = hypit_bridge.PRESENCE_KEYS。这里过去一直自己抄一份（抄的那份每加一档就要人记着改，
+# 2026-10-06 实测 check-svc-8100.py 那份停在三档、一直假红），现在改成读权威源 + 钉死"表里每条都真有状态函数"。
+check("A16 一个口同时回答 PRESENCE_KEYS 里全部台（名字读权威源，不在闸里抄第二份）",
+      sorted(both), sorted(hb.PRESENCE_KEYS))
+check("A16k 名单与 presence 输出一一对应（不多不少；漏一条=右栏那一格永远不弹）",
+      sorted(both) == sorted(hb.PRESENCE_KEYS), True)
+# 2026-10-09 加了一档 "form"（输入表单台），它【不是可登记的意图档】：
+#   引擎档 = 先能登记意图、再决定挂不挂；form 档 = 登记的那条档【配了字段表】才挂（判据在 model_admin）。
+#   所以这里不再笼统要求 PRESENCE_KEYS ⊆ KNOWN_SKILLS，而是拆成两条更准的：
+_ENGINE = tuple(k for k in hb.PRESENCE_KEYS if k != "form")
+check("A16k2 引擎档必须都能登记意图（⊆ KNOWN_SKILLS）",
+      [k in hb.KNOWN_SKILLS for k in _ENGINE], [True] * len(_ENGINE))
+check("A16k2b form 档存在且【不可被登记】（它是字段表推出来的台，不是一条意图档）",
+      ("form" in hb.PRESENCE_KEYS) and ("form" not in hb.KNOWN_SKILLS), True)
+check("A16k2c 台名单里【除 form 之外】不许再来路不明的档（差集必须恰好等于 {form}）",
+      sorted(set(hb.PRESENCE_KEYS) - set(hb.KNOWN_SKILLS)), ["form"])
+
+# ══ A16-R 第 6 档：提示词反推台（intent-only 排他 + up 真探 8090）══════════════════
+# ⚠️ 这一段是在【FORM_VIEW 没注册】的形状下跑的（8100 没装配表单档时判定口的样子，也是单元隔离的形状）。
+#    线上 8100 一定注册了它 ⇒ 登记 prompt-reverse 后这一档会被表单台顶掉（intent=False）。
+#    所以"引擎台照旧弹"在这里成立、在生产不成立 —— 顶替规则单独用 A16-T 钉，别拿这段当"线上就这样"。
+hb.set_intent("session-REV-1", "prompt-reverse", "反推爆款01")
+rv = hb.workbench_presence("session-REV-1")
+check("A16r 登记 prompt-reverse ⇒ 只挂反推台（omni/hypit 一律不挂）",
+      [rv["prompt-reverse"]["intent"], rv["omni"]["intent"], rv["hypit"]["intent"]], [True, False, False])
+check("A16r2 判定口回的是 8090 引擎页地址 + 任务名带回来（只当信息给 agent；右栏已不摆这张页，见 0f/A16t）",
+      [rv["prompt-reverse"]["url"], rv["prompt-reverse"]["task"], rv["prompt-reverse"]["source"]],
+      ["http://127.0.0.1:8090/prompt-reverse", "反推爆款01", "explicit"])
+check("A16r3 别的会话没登记 ⇒ 零 UI（不看痕迹）",
+      [hb.prompt_reverse_status("session-NEVER-REV")["intent"],
+       hb.prompt_reverse_status("session-NEVER-REV")["reason"]], [False, "no-intent"])
+ALIVE["reverse"] = False
+r2 = hb.prompt_reverse_status("session-REV-1")
+check("A16r4 8090 没起：意图在、up 掉，且怎么起说得出",
+      [r2["intent"], r2["up"], bool(r2.get("how_to_start"))], [True, False, True])
+
+# ══ A16-T 表单台顶替（2026-10-09，排他规则的延伸）══════════════════════════════════
+# 规则一句话：这条会话登记的【这一条线】配了输入表 ⇒ 该线的引擎页不再弹——同一条线的输入口
+#   从引擎页换成了表单页，不是"关掉别人的台"。没配表的线（omni/hypit 已冻结）不受任何影响。
+# 🔴 这里只桩掉 FORM_VIEW 这一个【依赖】（真函数在 model_admin 里，它才读得到 SKILL.md 的 form: 段；
+#    "8100 到底注册没注册"由下面 B8 在真判定口上验）。被测对象是 workbench_presence 里的顶替规则本身，
+#    没有把整块换掉 —— 那才是"全绿漏网"的老坑。
+FORM_LANES = {"prompt-reverse", "product-video", "film"}
+SURFACED = set()          # 哪些自测会话"agent 已经回填过了"（弹出时机的第二个条件）
+
+
+def _fake_form_view(sid):
+    """桩的是【依赖】(model_admin 那份才读得到 SKILL.md 的 form: 段)，不是被测逻辑。
+    答复形状必须跟真函数一致：`intent`=该不该弹、`has_input`=这条线的输入口是不是表单。
+    🔴 2026-10-10 加 has_input：顶替规则改读它了，桩不跟着改就会"闸绿、线上引擎页复活"。"""
+    lane = str(((hb.intent_map() or {}).get(sid) or {}).get("skill") or "")
+    if lane not in FORM_LANES:
+        return {"intent": False, "has_input": False, "up": True, "alive": True,
+                "reason": "intent-has-no-form", "intent_skill": lane}
+    base = {"has_input": True, "up": True, "alive": True, "source": "explicit",
+            "skill": lane, "intent_skill": lane,
+            "url": "http://127.0.0.1:8100/ui/" + lane + "?session=" + sid}
+    # 2026-10-11 改判：弹表只看【意图 + 配了字段表】，回填不再是前置（prefilled 只是标出来给页面看）
+    return dict(base, intent=True, surfaced=True, prefilled=(sid in SURFACED))
+
+
+hb.register_form_view(_fake_form_view)
+hb.set_intent("session-REV-2", "prompt-reverse", "反推爆款02")
+SURFACED.add("session-REV-2")        # 这条=agent 已回填 ⇒ 该弹
+tv = hb.workbench_presence("session-REV-2")
+check("A16t 有表的线 + 已回填 ⇒ 表单台弹、该线引擎台被顶成 reason=form-is-input",
+      [tv["form"]["intent"], tv["prompt-reverse"]["intent"], tv["prompt-reverse"].get("reason"),
+       str(tv["prompt-reverse"].get("url") or "").endswith("/prompt-reverse")],
+      [True, False, "form-is-input", True])
+# 🔴 2026-10-11 用户改判（推翻 10-10 那条）：弹表条件 = 意图 + 配了字段表，两样够就弹。
+#    10-10 版拿"回填过"当弹表前置，现网实测【点完 skill 到看见表空窗 38 分钟】（20:18→20:56），
+#    客户中间什么都看不见也催不动。压力没取消，是挪到【报价那一刀】：没回填 ⇒ approve 建不出条子
+#    （gateway.form_prefill_blockers + check-quote-provenance 的 F 组钉着）。
+#    顶替引擎页照旧必须生效 —— 否则就成了两个输入口并存。
+hb.set_intent("session-REV-5", "prompt-reverse", "反推爆款05")     # 故意不放进 SURFACED
+tv5 = hb.workbench_presence("session-REV-5")
+check("A16t5 有表的线【还没回填】也照弹（改判），prefilled=False 要标出来，引擎页仍被顶住",
+      [tv5["form"]["intent"], tv5["form"].get("surfaced"), tv5["form"].get("prefilled"),
+       tv5["form"].get("has_input"),
+       tv5["prompt-reverse"]["intent"], tv5["prompt-reverse"].get("reason")],
+      [True, True, False, True, False, "form-is-input"])
+_gw = open("D:/video-skill/backend/gateway.py", encoding="utf-8", errors="replace").read()
+_ma = open("D:/video-skill/backend/model_admin.py", encoding="utf-8", errors="replace").read()
+_ai = _gw.find("本来就不需要批准（免批类")   # approve 分支里唯一的一行，拿它当锚点比猜分支写法稳
+_ab = _gw[_ai:_ai + 2000] if _ai >= 0 else ""
+check("A16t6 🔴 压力只是换位置、没消失：判定口不再拿回填当弹表前置，但 approve 仍必须问回填",
+      ["await-prefill" in _ma, "form_prefill_blockers(" in _ab, "surfaced = True" in _ma],
+      [False, True, True])
+# 反向对照①：omni 没配表 ⇒ 顶替【不许】发生，omni 台照旧弹。
+#   谁把规则写成"只要有表单档就压掉引擎台"，这条立刻红 —— 误伤冻结线是客户当场看得见的。
+hb.set_intent("session-OMNI-T", "omni", "鼻贴顶替对照")
+to = hb.workbench_presence("session-OMNI-T")
+check("A16t2 没配表的线（omni 已冻结）⇒ 表单档不弹、引擎台照常弹（顶替只认有表这一条）",
+      [to["form"]["intent"], to["form"]["reason"], to["omni"]["intent"]],
+      [False, "intent-has-no-form", True])
+# 反向对照②：有表但没有引擎台的那一档（product-video）⇒ 表单台弹，且不炸、不误伤别的台
+hb.set_intent("session-PV-T", "product-video", "一句话出片对照")
+SURFACED.add("session-PV-T")     # 这条断言验的就是"表单台弹"，所以要给到第二个条件（已回填）
+tp = hb.workbench_presence("session-PV-T")
+check("A16t3 有表、无引擎台的一档（product-video）⇒ 只弹表单台，其余一律不弹，不报错",
+      [tp["form"]["intent"], tp["omni"]["intent"], tp["hypit"]["intent"], tp["film"]["intent"]],
+      [True, False, False, False])
+hb.register_form_view(None)      # 摘掉桩：后面的组要按"没注册"的形状判
+check("A16t4 桩摘掉后这一档恒不弹（没注册 = 不多一个空台，不是崩）",
+      [hb.workbench_presence("session-REV-2")["form"]["intent"],
+       hb.workbench_presence("session-REV-2")["form"]["reason"]], [False, "form-view-not-registered"])
+
+# ══ A16-M 第 7 档：动作迁移 —— 【工作台已下线】（2026-10-08 引擎剥离进网关轨）══════════════
+# 台下线但 motion-transfer 的意图登记保留（排他作用）：登记了它 ⇒ 别的台一律不挂，
+# 而它自己也【永远不弹】——不许因为"登记过"就再长出一个台来。
+hb.set_intent("session-MT-1", "motion-transfer", "女装带货-连衣裙01")
+mt = hb.workbench_presence("session-MT-1")
+check("A16m 登记 motion-transfer ⇒ 台下线不弹，但排他照样生效（omni/hypit/反推一律不挂）",
+      [mt["motion-transfer"]["intent"], mt["omni"]["intent"], mt["hypit"]["intent"],
+       mt["prompt-reverse"]["intent"]], [False, False, False, False])
+check("A16m2 登记了也如实说『台已下线』（intent 恒 False + reason 可诊断，不骗人说正在生成）",
+      [mt["motion-transfer"]["intent"], mt["motion-transfer"]["reason"]], [False, "workbench-retired"])
+check("A16m3 别的会话没登记 ⇒ 零 UI（痕迹/旧任务永不触发页签）",
+      [hb.motion_transfer_status("session-NEVER-MT")["intent"],
+       hb.motion_transfer_status("session-NEVER-MT")["reason"]], [False, "no-intent"])
+hb.set_intent("session-MT-2", "omni", "鼻贴成片")
+mt2 = hb.motion_transfer_status("session-MT-2")
+check("A16m4 同一条会话登记的是别的技能 ⇒ 动作迁移不挂（reason 说清是谁的意图）",
+      [mt2["intent"], mt2["reason"]], [False, "intent-is-omni"])
+check("A16m5 presence 键集仍含 motion-transfer（键不动、只是恒不弹；PRESENCE_KEYS 已钉名单）",
+      "motion-transfer" in mt, True)
+ALIVE["reverse"] = True
+hb.set_intent("session-REV-1", "omni", "切回电商线")
+r3 = hb.prompt_reverse_status("session-REV-1")
+check("A16r5 改登记即让位（排他可逆，理由可诊断）",
+      [r3["intent"], r3["reason"]], [False, "intent-is-omni"])
 # 🔴 铁律三修推翻了旧断言（原来写"同会话跨两条流水线都弹=合法"）：显式登记是【排他】的，
 #    claim 顺手钉了 hypit 意图 ⇒ omni 必须不挂。要回 omni 就重新 intent omni。
 check("A16b 登记排他：说了 hypit 就不给 omni 台",
@@ -267,6 +411,16 @@ def http(url):
                 "hypit": {"reason": "gateway-unreachable"}}
 
 
+def port_open(port, timeout=1.2):
+    """只问一句"这个端口有没有人接着"——用来把【依赖外部进程活着】的断言和规则本身分开。"""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
 def real_runs():
     try:
         with open(REAL_MARK, encoding="utf-8") as f:
@@ -287,16 +441,47 @@ else:
 
     cli("studio-claim", ME, RUN, "5179")
     mine = http(GATEWAY + "?session=" + ME)["hypit"]
-    check("B3 主人拿到 up", mine.get("up"), True)
-    check("B4 交叉核对生效（studio 自报路径对上）", mine.get("run_verified"), True)
+    # 🔴 B3/B4 钉的是"主人能不能拿到 up"，而这半件事【依赖那台 studio 真的活着】—— 而 8100 一重启，
+    #    它自己养着的查看器子进程会被一起带走（2026-10-11 深夜实测：重启后这两条随机红）。
+    #    依赖外部进程活着的断言是假保险：红了查不出规则坏没坏。所以先探端口，
+    #    没人活着就【出声 SKIP】—— 不判红，也不算过。
+    if not port_open(5179):
+        print("\n!! B3/B4 SKIP：127.0.0.1:5179 上没有活着的 studio（多半是 8100 刚重启，"
+              "把它养的那份查看器一起带走了）⇒ 这两条本轮不判，也不算通过")
+    else:
+        check("B3 主人拿到 up", mine.get("up"), True)
+        check("B4 交叉核对生效（studio 自报路径对上）", mine.get("run_verified"), True)
     check("B5 端口由判定口给", mine.get("port"), 5179)
+
+    # B8 🔴 装配线，不是规则：A16-T 拿桩验了顶替逻辑，但"8100 到底把 form_presence_view 注册进去没有"
+    #     只有打真判定口才测得到 —— 漏了这条就是"盘上有码、线上没生效"（这一类我已经踩过两次）。
+    FSID = "session-PRESENCE-B8"
+    cli("intent", FSID, "prompt-reverse", "顶替装配对照")
+    f8 = http(GATEWAY + "?session=" + FSID)
+    check("B8 真 8100：登记有表的线【还没回填也弹】+ 引擎页仍被顶掉（这条验装配：新代码真在线上跑）",
+          [f8.get("form", {}).get("intent"), f8.get("form", {}).get("surfaced"),
+           f8.get("form", {}).get("prefilled"), f8.get("form", {}).get("has_input"),
+           f8.get("prompt-reverse", {}).get("intent"),
+           f8.get("prompt-reverse", {}).get("reason")],
+          [True, True, False, True, False, "form-is-input"])
+    cli("intent-clear", FSID)         # 自测登记不留在线上（B6/B7 会核对真的清掉了）
 
     cli("studio-release", ME)
     cli("intent-clear", ME)          # release 只撤 run 归属；意图要显式清，否则自测会话留在生产文件里
     after = real_runs()
     left = [k for k, v in after.items() if ME in ([str(x) for x in (v.get("sessions") or [])] + [str(v.get("session" or ""))])]
     check("B6 自测登记已清干净", left, [])
-    check("B7 没动到别人的登记", sorted(set(before) - set(after)), [])
+    # 🔴 B7 钉的是"别人的归属一条都不许少"，不是"键集合不许变"：本闸自己的 fixture（RUN=productions/hypit-e2e）
+    #    收尾时 release 掉、键整个消失，是【应该的】—— 上一轮跑留下的键被这一轮收掉，原判据会把它当成
+    #    "动了别人的登记"（2026-10-11 深夜实测：8100 重启后 studio 没了，B3/B4 转 SKIP，这条就冒出来了）。
+    #    所以按【键上还有没有别人的会话】判，而不是按"少了没少"判。
+    _gone = sorted(set(before) - set(after))
+    _foreign = [k for k in _gone
+                if [s for s in ([str(before[k].get("session") or "")] +
+                                [str(x) for x in (before[k].get("sessions") or [])]) if s and ME not in s]]
+    if _gone and not _foreign:
+        print("   （B7 说明：消失的键 %s 上只有本闸自测会话 ⇒ 是 fixture 收尾，不算动了别人的）" % _gone)
+    check("B7 没动到别人的登记（判据=键上还有别人的会话，不是键集合没变）", _foreign, [])
 
 shutil.rmtree(FAKE_RUNS, ignore_errors=True)
 if os.path.exists(hb.INTENT_MARK):
