@@ -1369,6 +1369,28 @@ chk("D28f", "档位就是合法出口：--stage 走 stop_after 传给管线；co
     ["stop_after=(" in SC_RUN, 'choices=["compile", "submit", "wait"]' in SC_RUN,
      "compiled_only" in SC_RUN, 'a.stage == "wait"' in SC_RUN], [True, True, True, True])
 
+# 🔴 D28g：档位必须【一路传到底】。现网 super-clone-20261012-1824（18:44）：`--stage compile`
+#    在"按长度切段"那条递归里没带 stop_after ⇒ 每一块都走到提交那一刀，
+#    只是当时没有批准条子才被网关拦回 approval_required —— 有条子就是真花 60 分/段。
+#    判据用 AST 找那次调用，不拿字符串数（文本里到处是 stop_after，数得再多次都可能对不上号）。
+import ast as _ast28                                                   # noqa: E402
+_W3 = open(r"D:\video-skill\backend\services\super_clone_wan3.py", encoding="utf-8").read()
+_tree28 = _ast28.parse(_W3)
+_chunk_fn = next((n for n in _ast28.walk(_tree28)
+                  if isinstance(n, _ast28.AsyncFunctionDef) and n.name == "_run_one_chunk"), None)
+_recursive = [n for n in _ast28.walk(_chunk_fn)
+              if isinstance(n, _ast28.Call) and getattr(n.func, "id", "") == "run_pipeline"] if _chunk_fn else []
+_kw28 = {k.arg for c in _recursive for k in c.keywords}
+chk("D28g", "按长度切段的递归里也带 stop_after（递归调 run_pipeline 的关键词名单必须包含它）",
+    [bool(_chunk_fn), len(_recursive), "stop_after" in _kw28], [True, 1, True])
+_un28 = _ast28.unparse(_chunk_fn) if _chunk_fn else ""
+chk("D28h", "递归回来是 compiled_only 时【先早退、再拼接】—— 顺序反了会把 0 分编译报成『生成失败，无法拼接』",
+    ["compiled_only" in _un28, "fit_clip_duration" in _un28,
+     bool(_un28) and _un28.index("compiled_only") < _un28.index("fit_clip_duration")],
+    [True, True, True])
+chk("D28i", "多段收口也认档位：stop_after=compile 时直接返回 compiled_only（不拼 fitted、不出号）",
+    ["if stop_after == \"compile\":" in _W3, _W3.count('"compiled_only": True') >= 3], [True, True])
+
 # ── D30 handoff.py（五刀之②）：一条命令交接，且【一个模型都不调】——这是"别拿分析当弹表前置"的落点 ──
 sys.path.insert(0, HERE)
 import handoff as HF                                                     # noqa: E402
