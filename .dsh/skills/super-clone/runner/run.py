@@ -431,6 +431,30 @@ def wait_only(a, sid: str) -> int:
     return 2 if bad else 0
 
 
+def submitted_but_unpaid(task_dir: str) -> list:
+    """这条任务里【已经提交过、成片还没落盘】的段 ⇒ 返回 [(号, 落点)]。
+
+    🔴 为什么提交前要问这个（2026-10-12 现网 session-5282eabf 13:25）：agent 拿
+       `_wan3_request.json`（那是**物证转储**，不是输入口）去敲一个不存在的
+       `gateway.py submit-existing` 想重投 —— 上游一次没建上时它猜"再投一次"，
+       而真建上时那就是双花。判据不看它用什么姿势提交，只看盘上有没有号：
+       有号没片 ⇒ 只许 `--stage wait`。
+    """
+    import glob
+    out = []
+    for p in glob.glob(os.path.join(task_dir, "outputs", "**", "wan3_job.json"), recursive=True):
+        try:
+            with open(p, encoding="utf-8") as f:
+                j = json.load(f)
+        except (OSError, ValueError):
+            continue
+        tid = str(j.get("task_id") or "").strip()
+        dest = str(j.get("output_path") or "").strip()
+        if tid and dest and not os.path.isfile(dest):
+            out.append((tid, dest))
+    return out
+
+
 def main(argv=None) -> int:
     _hide_console_window()          # 别在客户桌面上留一个能误杀编译的黑框
     p = build_parser()
@@ -476,6 +500,19 @@ def main(argv=None) -> int:
             "  看进度：type 「%s」（8100 点火那条把输出写在这里），跑完会自动叫醒你。\n"
             "  要重跑：等那台结束（它跑完会摘牌），或在右栏改参数重新提交那张表。"
             % (_cpid, _cfile, os.path.join(os.path.dirname(_cfile), "compile.log")))
+
+    # ⓪c 已有任务号、成片未落 ⇒ 这一档只许 wait，不许再提交（双花的唯一屏障：看盘，不看它怎么拼参数）
+    if a.stage == "submit":
+        _tdir = str((_gate or {}).get("task_dir") or "").strip() or (
+            os.path.dirname(os.path.abspath(vals.get("output_dir") or "")) if vals.get("output_dir") else "")
+        _owed = submitted_but_unpaid(_tdir) if _tdir else []
+        if _owed:
+            raise SystemExit(
+                "[已提交过] 这条任务盘上有 %d 个任务号、成片还没落盘：%s\n"
+                "  ⇒ 本入口不再提交（再提交=双花，平台按次计费）。只许跑：\n"
+                "     python .dsh/skills/super-clone/runner/run.py --stage wait\n"
+                "  🔴 也不许拿 outputs/…/_wan3_request.json 当输入口重投 —— 那份是【物证转储】，不是提交入口。"
+                % (len(_owed), "；".join("%s→%s" % (t, os.path.basename(d)) for t, d in _owed[:3])))
 
     _miss = missing_required(vals)
     if _miss:

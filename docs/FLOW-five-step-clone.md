@@ -10,7 +10,7 @@
 | 2 | 交表即点火进管线 | 8100 `kickoff_compile`（**服务端起**，`--stage compile` 常量写死、DETACHED 无窗口） | 任务目录 `.compile.pid` + `compile.log` | 同任务已有活的不许起第二台；**入口自己也拒**（`compile_collision`，闸 D31–D31d） |
 | 3 | 编译完成 → 报价 | runner 跑完回调 `POST /api/skills/form/compiled` ⇒ 第三份唤醒来源 `kind=compiled` ⇒ 宿主插件 `Agent.followup` | 每段目录 `.skill_receipt.json`（**打钩单**：必需 6/6、每格带现读模型名）+ `material_analysis.json` 的 `auto_spent` | 回执缺格 ⇒ `verify_or_raise` 在花钱前拒；叫醒没领 ⇒ `check-form-wake` Z1（部署一致）红 |
 | 4 | 报价 + 人点批准 | `gateway.py approve` 建 pending（段数/分数只许 `--count-from` 从盘上算）⇒ 置顶批准窗一次点击 | `.gateway_spend_approvals.json` 的 `attest=dsh-card-click` | 没回填过表 ⇒ approve 不建条子（`form_prefill_blockers`）；**免批只能登记这条腿自己的 purpose**，借别的线的 purpose 算绕开流程 |
-| 5 | 提交 → 拿到视频 | `run.py --stage submit`；**提交成功那一刻任务号落盘**（`wan3_job.json`，网关 `_yz_prime_note_job`）；被打断就 `--stage wait` 只捞不投 | `wan3_job.json` + 成片 mp4 | 号丢了才要重投 ⇒ 现在丢不了；agent 收工前会被 `agent/turn-stopping` 问一次 `obligation_view`，有活没完就 `steer` 回去继续盯 |
+| 5 | 提交 → 拿到视频 | `run.py --stage submit`；**提交成功那一刻任务号落盘**（`wan3_job.json`，网关 `_yz_prime_note_job`）；被打断就 `--stage wait` 只捞不投 | `wan3_job.json` + 成片 mp4 | 🔴 **有号没片 ⇒ `--stage submit` 直接拒**（`submitted_but_unpaid`，闸 D33）：判据只看盘上有没有号，不看它用什么姿势拼参数 ⇒ 拿 `_wan3_request.json`（**物证转储，不是输入口**）或自造子命令重投这条路物理封死；agent 收工前会被 `agent/turn-stopping` 问 `obligation_view`，有活没完就 `steer` 回去继续盯 |
 
 ## 这条流程的三个"物理约束"（写下来免得又被当成偷懒借口）
 

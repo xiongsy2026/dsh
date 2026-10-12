@@ -1538,6 +1538,43 @@ chk("D32d", "顺序钉死：wait 分支走在 missing_required 之前 —— 它
     0 < _m31.index('a.stage == "wait"') < _m31.index("missing_required(vals)"), True)
 shutil.rmtree(_WT, ignore_errors=True)
 
+# ---- D33 已有任务号就不许再提交（双花的唯一屏障：看盘，不看它用什么姿势拼参数）----------
+# 现网 13:25:22：agent 拿 outputs/…/_wan3_request.json（物证转储）去敲一个【不存在的】
+# `gateway.py submit-existing` 想重投。它为什么编？因为当时流程里没有"只捞不投"的出口。
+# 出口现在有了（--stage wait），这一组钉的是另一半：有号没片 ⇒ 提交这一档必须物理关上。
+_OT = tempfile.mkdtemp(prefix="dsh-owed-")
+_OS = os.path.join(_OT, "outputs", "step2_wan3")
+os.makedirs(_OS, exist_ok=True)
+_OJ, _OMP = os.path.join(_OS, "wan3_job.json"), os.path.join(_OS, "seg01-prime.mp4")
+_a33 = [_sc_ns["submitted_but_unpaid"](_OT) == []]           # ① 没号 ⇒ 不拦
+with open(_OJ, "w", encoding="utf-8") as _f33:
+    _f33.write(json.dumps({"kind": "wan3_job", "task_id": "prime_OWED", "output_path": _OMP}))
+_a33.append(_sc_ns["submitted_but_unpaid"](_OT) == [("prime_OWED", _OMP)])   # ② 有号没片 ⇒ 拦
+with open(_OMP, "wb") as _f33b:
+    _f33b.write(b"v")
+_a33.append(_sc_ns["submitted_but_unpaid"](_OT) == [])       # ③ 已落盘 ⇒ 放开
+_a33.append(_sc_ns["submitted_but_unpaid"]("") == [])        # ④ 没有目录 ⇒ 空，不抛
+chk("D33", "判据值表：没号⇒不拦 / 有号没片⇒拦（返回号与落点）/ 成片已落盘⇒放开（补跑别的段不许被永久锁死）"
+    " / 空目录⇒空表不抛", _a33, [True, True, True, True])
+os.remove(_OMP)
+_o1 = subprocess.run([sys.executable, os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py"),
+                      "--video", os.path.join(_OT, "x.mp4"), "--product-images", os.path.join(_OT, "p.png"),
+                      "--product-name", "闸里的假任务", "--output-dir", os.path.join(_OT, "outputs"),
+                      "--stage", "submit"],
+                     capture_output=True, text=True, timeout=240, encoding="utf-8", errors="replace",
+                     env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+_ot1 = _o1.stdout + _o1.stderr
+chk("D33b", "真跑 --stage submit（有号没片）⇒ 退非 0、点名 --stage wait、并写明转储不是输入口；"
+    "且拒在 import 引擎之前（0 分、0 上游调用）",
+    [_o1.returncode != 0, "--stage wait" in _ot1, "_wan3_request.json" in _ot1,
+     "run_pipeline" not in _ot1 and "MiMo" not in _ot1], [True, True, True, True])
+_m33 = SC_RUN[SC_RUN.index("def main("):]
+chk("D33c", "顺序 + 反向对照：这道检查排在 import 引擎之前；把整段删掉 ⇒ 判据必须红（不是恒绿的摆设）",
+    [0 < _m33.index("submitted_but_unpaid(_tdir)") < _m33.index("_ensure_video_skill_on_path()"),
+     "submitted_but_unpaid(_tdir)" in _m33.replace("submitted_but_unpaid(_tdir)", "", 1)],
+    [True, False])
+shutil.rmtree(_OT, ignore_errors=True)
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:
