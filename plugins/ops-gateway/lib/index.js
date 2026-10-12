@@ -1,3 +1,195 @@
-/** Host half：纯 UI 插件，宿主侧无工具。 */
+/**
+ * Host half of ops-gateway —— 表单提交 → 叫醒那条会话的 agent（docs/PRD-input-form-single-port.md T13）。
+ *
+ * 为什么必须在【宿主侧】：客户点【提交这张表】就等于授权开工（2026-10-09 定的口径），但 agent 只在
+ * 轮到自己说话时才动 ⇒ 表交了没人看见，链路断在这一格（用户原话"我提交了表单，但是没有往下走啊"）。
+ * 开新一轮的钥匙是 `Agent.followup(message)`（内核 dsh-agent-loop/lib/index.js:789 → send(msg,"next-turn",true)），
+ * 它只在 host 侧拿得到：客户端插件那侧的 ctx.remote 只暴露 commands/goals/session 之类，没有 agents。
+ * 官方先例：dsh-schedule（提醒到点叫同一会话）、dsh-webhook（外部事件叫新会话）、dsh-goal-round-driver。
+ *
+ * 🔴 三条不许越过的线：
+ *   1) 只【叫醒】，不【代发】：followup 送的是固定文案，不碰 composer、不 setDraft、不挂附件（AGENTS.md 铁律）；
+ *   2) 唤醒 ≠ 批准：文案里明写花钱那一下仍要人在 /approval 点一次，绝不因为"表交了"就自己开工；
+ *   3) apply() 一个字都不许抛出去 —— 插件树里任何 apply 抛错 = Cordis 判整棵失败 = 桌面端崩溃重启循环
+ *      （2026-10-08 桌宠那次就是这么把主程序弄瘫 10 分钟的）。所以全部包在 try 里，失败只 warn。
+ */
 export const name = "ops-gateway";
-export function apply() {}
+
+// 🔴 只 inject【宿主侧真的存在】的服务：2026-10-09 我多写了 "logger"（和 "timer"），
+//    Cordis 判 "ops-gateway: pending (waiting for service: logger)" ⇒ 条目不激活
+//    ⇒ 整棵插件树失败 ⇒ harness exit 1 ⇒ 桌面端崩溃重启循环。宿主侧官方先例（dsh-schedule/
+//    dsh-webhook/dsh-goal-round-driver）都只 inject agents 这类，没有 logger；定时器它们直接用裸 setTimeout。
+export const inject = ["agents"];
+
+const WAKE_URL = "http://127.0.0.1:8100/api/skills/form/wake";
+const ACK_URL = "http://127.0.0.1:8100/api/skills/form/wake/ack";
+const TICK_MS = 5000;                       // 与右栏 presence 同周期：客户交完表最多等 5 秒
+const WAKE_REV = "wake-20261012a";          // 排查"跑的是哪版"用（宿主侧没有 rev 就查不到；改这份文件必须一起改这里）
+const MAX_PER_TICK = 3;                     // 一轮最多叫 3 条：多会话同时交表时不许把驱动堵死
+// 🔴 一次 HTTP 最多等多久。8002/8100 这类本机服务"TCP 收下但不回话"是真的发生过的
+//    （2026-10-11 现网：8100 keep-alive 攒到积压打满，端口 LISTENING 却一律拒新连接）。
+//    没有这个超时会要命：`run()` 里 `if (running) return` 是"一轮只跑一个"的守卫，
+//    一次挂住 = `running` 永远是 true = **这条唤醒线静默停摆到进程重启**，而且不打一行日志。
+//    2026-10-12 现网形状：人 09:28:21 点了批准，队列里那条到 09:36 还没人领，
+//    而 ops-gateway 最后一行日志停在昨晚 23:53:17 的 `form-wake: fetch failed`。
+const FETCH_TIMEOUT_MS = 4000;
+const ROUND_WATCHDOG_MS = 30000;            // 兜底：整轮超过 30 秒还没 settle 就强制复位（fetch 之外的 await 也可能挂）
+const HEARTBEAT_EVERY = 12;                 // 12 × 5s = 一分钟一条心跳：让"停摆"变成看得见的东西，而不是等客户来问
+
+// 本进程已叫过的 (session|at)。ack 失败/进程重启时它兜住"同一次提交只叫一次"。
+const woken = new Set();
+const waitNoted = new Set();                // "等着没叫"每个 key 只报一次，别每 5 秒刷屏
+
+/** 叫醒消息。🔴 导出只为让闸能真跑它（同 wakeDecision 的理由：判据抽出来才测得动，别在闸里重写一遍）。 */
+export function wakeText(item) {
+  const kind = String((item && item.kind) || "form");
+  if (kind === "approval") {
+    const lane = String(item.capability || "?") + (item.purpose ? "/" + item.purpose : "");
+    return "【批准已生效 · 接着往下跑，不要再问“点了没有”】\n"
+      + "客户刚在批准窗/批准页点了【批准，开始跑】：" + lane
+      + " · " + item.count + " 段 · 上限 " + item.credits + " 分 · 条子 " + item.grant_id + "。\n"
+      + "1) 直接继续跑那条已批的方案 —— 不要再等一句确认，也不要重新报价（这一刀已经批了）。\n"
+      + "2) 提交前照旧核验 skill 合同回执；自己盯到终态，出片后 present → deliver_pack → 原样贴 markdown。\n"
+      + "3) 🔴 这张条子只覆盖上面写明的范围：换路由、加段数、超分数、扩片型 ⇒ 仍要重新报价并等下一次点击。\n"
+      + "（本条由 8100 的批准核销事件触发，不是客户手打的。）";
+  }
+  const skill = String((item && item.skill) || "该技能");
+  return "【表单已提交 · 请接着往下做】\n"
+    + "客户刚在右栏「填参数」提交了这条会话的参数（技能：" + skill + "）。\n"
+    + "1) 先读参数：python scripts/intent.py payload   （键名就是引擎入参，不用再问客户）\n"
+    + "2) 按该技能 SKILL.md 的流程继续跑，不要再等客户回一句\u201c开始\u201d。\n"
+    + "3) 🔴 要花钱的那一下仍然先报价，并等人在 http://127.0.0.1:8100/approval 点一次批准 —— 提交表单不等于批准。\n"
+    + "（本条由 8100 的表单提交事件触发，不是客户手打的。）";
+}
+
+async function fetchJson(url, body) {
+  // 🔴 必须带超时：挂住的 fetch 会让"一轮只跑一个"的守卫永久锁死整条唤醒线（见上面 FETCH_TIMEOUT_MS 的注释）。
+  // AbortSignal.timeout 在 Node 17.3+ 有；宿主跑不了的话退化成"没有超时"，所以闸 W 组钉它存在。
+  const opt = body
+    ? { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: JSON.stringify(body) }
+    : { method: "GET" };
+  try {
+    opt.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  } catch (e) { /* 老运行时没这个 API：宁可没超时也别让取数抛在 signal 赋值上 */ }
+  const r = await fetch(url, opt);
+  if (!r.ok) return null;
+  return await r.json().catch(() => null);
+}
+
+/** 纯判据：这一条该不该叫、叫完要不要销账。抽成函数是为了能被闸整块抠出去跑值表。 */
+export function wakeDecision(item, agent, alreadyWoken) {
+  if (!item || !item.session) return { act: "skip", why: "no-session" };
+  if (alreadyWoken) return { act: "skip", why: "woken-in-process" };   // 同一次提交不叫第二遍
+  if (!agent) return { act: "wait", why: "agent-not-live" };           // 会话没开着 ⇒ 不叫、也不销账
+  if (agent.status !== "idle") return { act: "wait", why: "agent-busy" };  // 正在跑就别插话
+  return { act: "wake", why: "" };
+}
+
+/** 留痕一律走 console：宿主日志桥会把它写进 harness.log（实测 [stderr] [ops-gateway] … 就是这么来的）。
+ *  🔴 不去读日志服务 —— 那同样是"没 inject 一读就抛"的守卫属性，记日志不许变成故障点。 */
+function note(level, msg) {
+  try {
+    (level === "info" ? console.log : console.warn).call(console, "[ops-gateway] " + msg);
+  } catch (e) { /* 日志失败不许影响唤醒 */ }
+}
+
+async function tick(ctx) {
+  const q = await fetchJson(WAKE_URL);
+  const pending = (q && Array.isArray(q.pending)) ? q.pending : [];
+  if (!pending.length) return 0;
+  let done = 0;
+  for (const item of pending.slice(0, MAX_PER_TICK)) {
+    // 去重键与【服务端那格的键】同构：表单按会话、批准按条子。
+    // 🔴 只用 session|at 的话，同一会话连着批两条（先批 1 段、补跑再批 1 段）会被当成同一次提交，第二条不叫。
+    const key = (item.kind || "form") + "|" + (item.grant_id || item.session) + "|" + item.at;
+    let agent = null;
+    try {
+      agent = ctx.agents && ctx.agents.get ? ctx.agents.get(item.session) : null;
+    } catch (e) {
+      agent = null;   // 读不到就当没活着：宁可这一轮不叫，也不许把异常抛出去
+    }
+    const d = wakeDecision(item, agent, woken.has(key));
+    if (d.act !== "wake") {
+      // 🔴 wait 必须出声：会话没开着/回合正忙时既不叫也不销账，过去这里一片安静，排查只能靠猜（2026-10-10 花了 40 分钟）
+      if (d.act === "wait" && !waitNoted.has(key)) {
+        waitNoted.add(key);
+        note("warn", "form-wake 等着没叫: kind=" + (item.kind || "form")
+          + " who=" + (item.grant_id || item.session) + " 原因=" + d.why);
+      }
+      continue;
+    }
+    woken.add(key);
+    try {
+      // 官方同款形状：createUserMessage({content:[{type:"text",text}], source:{kind:"plugin",plugin}})
+      const { createUserMessage } = await import("@deepseek-ai/dsh-llm");
+      agent.followup(createUserMessage({
+        content: [{ type: "text", text: wakeText(item) }],
+        source: { kind: "plugin", plugin: "weeksir-form-wake" },
+      }));
+    } catch (e) {
+      woken.delete(key);   // 没叫成功 ⇒ 摘掉标记，下一轮重试（不销账）
+      note("warn", "form-wake: followup 失败 " + e.message);
+      continue;
+    }
+    try {
+      // 销账按【来源】分流：表单那格按会话+at 配，批准那格按条子 id+at 配。
+      // 🔴 不许拿 session 当唯一键：同一会话可以连着批两条（先批 1 段、补跑再批 1 段），
+      //    按会话清会把后批那条一起抹掉 = 人明明点了，agent 却永远不被叫。
+      const ackBody = item.kind === "approval"
+        ? { kind: "approval", grant_id: item.grant_id, at: item.at }
+        : { kind: "form", session: item.session, at: item.at };
+      await fetchJson(ACK_URL, ackBody);
+      done++;
+    } catch (e) {
+      // 销账失败也没关系：woken 里已经记着，本进程不会重复叫；重启后顶多再叫一次
+      note("warn", "form-wake: ack 失败 " + e.message);
+    }
+  }
+  return done;
+}
+
+export function apply(ctx) {
+  try {
+    note("info", "ops-gateway host " + WAKE_REV);
+    let running = false;
+    let ticks = 0, hung = 0, lastRound = "never";
+    const run = () => {
+      if (running) {
+        // 上一轮还压着：这本来就是"停摆"的样子，所以要说出来（静默跳过 = 八小时没人知道它死了）
+        hung++;
+        if (hung === 1 || hung % 60 === 0) {
+          note("warn", "form-wake: 上一轮还没回来，跳过本轮（连续 " + hung + " 次，rev " + WAKE_REV + "）");
+        }
+        return;
+      }
+      running = true;
+      hung = 0;
+      ticks++;
+      // 🔴 兜底看门狗：fetch 已经带超时，但 tick 里还有 await（followup / ack）—— 任何一处挂住
+      //    都会让 `running` 永远为 true。30 秒后强制复位，宁可重复跑一轮，不可永久停摆。
+      const watchdog = setTimeout(() => {
+        note("warn", "form-wake: 一轮超过 " + ROUND_WATCHDOG_MS + "ms 没回来 ⇒ 强制复位（rev " + WAKE_REV + "）");
+        running = false;
+      }, ROUND_WATCHDOG_MS);
+      Promise.resolve()
+        .then(() => tick(ctx))
+        .then(n => { lastRound = "ok(叫了 " + n + " 条)"; })
+        .catch(e => { lastRound = "err:" + (e && e.message); note("warn", "form-wake: " + e.message); })
+        .finally(() => {
+          clearTimeout(watchdog);
+          running = false;
+          if (ticks % HEARTBEAT_EVERY === 0) {
+            // 心跳：让"这条线还在跑"成为日志里能查到的事，而不是靠客户来问"我点了没反应"
+            note("info", "ops-gateway 心跳 " + WAKE_REV + " 第" + ticks + "轮 · 上轮=" + lastRound);
+          }
+        });
+    };
+    // 🔴 不许读 ctx.timer：Cordis 的 ctx 是守卫代理，没 inject 的属性【一读就抛】
+    //    （实测报错 "cannot get property \"timer\" without inject"）。宿主侧官方先例是裸定时器
+    //    （dsh-schedule 用 setTimeout，全文件 ctx.timer 出现 0 次），所以这里直接用 setInterval。
+    setInterval(run, TICK_MS);
+  } catch (e) {
+    // 🔴 到这里必须咽下去：apply 抛出去 = 整棵插件树失败 = 桌面端起不来
+    try { console.warn("[ops-gateway] host apply 失败（表单唤醒不生效，聊天与出片照常）:", e && e.message); } catch (e2) {}
+  }
+}

@@ -129,6 +129,14 @@ python scripts/intent.py <skill> [任务名]
   所以：**客户交完表 / 点完批准之后 agent 必须自己接着做**，别再等一句"开始"；反过来，被叫醒也**只是开始干活**，
   🔴 **唤醒 ≠ 批准** —— 要花钱那一下仍然报价 + 等人点批准窗（表单叫醒时条子还没有；批准叫醒时条子已生效、只覆盖那一条写明的范围）。
   回归 `scripts/check-form-wake.py`（B 组=表单、E 组=批准，两组的队列规则逐条同构）。
+  🔴 **轮询自己不许静默停摆**（2026-10-12 补，闸 W 组）：`fetchJson` 必须带 `AbortSignal.timeout`，
+  因为 `run()` 是"一轮只跑一个"的守卫 —— 一次挂住（本机服务"TCP 收下但不回话"那种，10-11 的 8100 就是这样）
+  会让 `running` 永远是 true ⇒ **整条唤醒线静默死到进程重启**；所以另有 30 秒看门狗强制复位、
+  "跳过本轮"必须出声、每 60 秒一条心跳（`rev` 带上）。
+  ⚠️ 但别把"没叫醒"都归给它：现网那次真因是**会话没在前台开着** ⇒ 判据 `agent-not-live` ⇒ 设计上
+  【不叫、也不销账】，日志会打 `form-wake 等着没叫: … 原因=agent-not-live`（这条 10-10 就要求出声）。
+  ⚠️ 改这份宿主插件要**完整重启 DSH** 才生效（`patchReload:live` 只 watch patch 文件）；
+  没重启期间 `check-form-wake.py` 的 **Z1 恒红是有意的**（已加载 rev ≠ 源码 rev = 部署待办，不是故障）。
 - agent 读/查参数只有三条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）、
   `python scripts/intent.py fields`（只读：这张表到底要哪些 key / 类型 / 必填 / 条件显隐，并给一份可抄的 `--set` 模板）、
   与 `python scripts/intent.py prefill --set '<json>'`（把分析结果【预填】进右栏表：只写 defaults、
