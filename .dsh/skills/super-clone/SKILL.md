@@ -407,8 +407,16 @@ P1 只写文件，不调用 Wan。
 `prompt_meta.json` 现在另带 `model` / `provider` / `ledger` 三键（编译器自己写下它用的那一个模型），
 执行表因此多出「模型/路由」一列；`ledger=off` 是**如实**标——这条编译腿直连厂商、不在网关账本上。
 
+🔴 **回执的写法 = 打钩单**（2026-10-12 用户定："这个回执还是要，回执的写法是每一次进行打钩，有模型名"）：
+开工先 `open_receipt()` 落一张**全 ⬜** 的表（合同里每一步都先在表上占一行，含输入指纹），
+之后**每落一件物证当场 `tick()` 一个钩**——不是跑到提交前一次性补一份总结。
+每一格**必须带模型名**，且只许现读：网关腿读 `ROUTES`（`_lane_cell`）、Step1 分镜腿读真函数签名的默认值
+（`_mimo_cell`）、编译腿用 `_llm_stamp`，确实不经模型的本地步写 `不用模型`。
+🔴 **没给模型名 ⇒ 那一格打不上钩**（`tick` 直接拒），必需步没打钩 ⇒ `verify_or_raise` 在花钱那一刀之前拒、0 分。
+所以中途崩了或被打断，盘上留下的就是"跑到第几格、哪一格卡住"，而不是一片空白或上一次那份旧的。
+
 contract:
-  version: super-clone-wan3@7
+  version: super-clone-wan3@8
   entry: python .dsh/skills/super-clone/runner/run.py --from-form   # 值全部从这条会话【已提交】的右栏表单读，参数只作覆盖；老写法逐格给照样能跑
   # 花钱口三方唯一源：表单 engine_lock(yz-prime) == 本行 == 网关 ROUTES/价目；clone-r2v 是已断开的 RunningHub 腿的批准词，不再是这条线的花钱口
   spend: video.generate/wan3-prime

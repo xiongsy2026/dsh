@@ -138,6 +138,12 @@ MA.FORM_UPLOAD_DIR = os.path.join(SCRATCH, "uploads")
 MA.APPROVAL_WAKE_PATH = os.path.join(SCRATCH, "approval_wake.json")
 if os.path.exists(MA.APPROVAL_WAKE_PATH):
     os.remove(MA.APPROVAL_WAKE_PATH)
+# 🔴 第三份源【同样要换】（2026-10-12 现网就是这条红的：另一条会话 11:13/11:21 真跑了一次点火编译，
+#    B5b/E8/E9 三条当场变成 2 条、3 条 —— 红的是别人的活，不是判据坏了。K 组自己换了，但它在文件末尾，
+#    前面那几条读到的是生产队列。）
+MA.COMPILE_WAKE_PATH = os.path.join(SCRATCH, "compile_wake.json")
+if os.path.exists(MA.COMPILE_WAKE_PATH):
+    os.remove(MA.COMPILE_WAKE_PATH)
 INTENT = {}
 MA.hypit_bridge.intent_map = lambda: dict(INTENT)
 

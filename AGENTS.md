@@ -374,8 +374,8 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    `run_pipeline` 的**第一条真语句**就是 `engine_lock_error()`（唯一源 = `super_clone_wan3.LANE_ENGINES`），8090 的
    `/api/super-clone-wan3/submit` 在**建任务记录之前**问一次 ⇒ `engine=h3` 从任何入口都进不来（此前它一路能走到 RunningHub 导演台，
    只被 `rh_video_guard` 挡着，合同/表单/上面那四方全都看不见）。回归 `check-engine-single-source.py` 的 **I 组**。
-   ④ 🔴 **素材必须"真看过"才有资格提交，而"看"这一步的执行人是【管线】不是 agent**（合同 `super-clone-wan3@7`；
-   @5 起有这个必需步，@7 换了执行人）：判据**不认 agent 自述**、只认网关的**素材分析台账** —— 每条
+   ④ 🔴 **素材必须"真看过"才有资格提交，而"看"这一步的执行人是【管线】不是 agent**（合同 `super-clone-wan3@8`；
+   @5 起有这个必需步，@7 换了执行人，@8 把回执改成逐格打钩 + 每格模型名）：判据**不认 agent 自述**、只认网关的**素材分析台账** —— 每条
    `video.analyze` 跑完由网关记 sha8，`_contract_evidence` 在写任何物证之前按内容对账。
    🔴 **为什么必须换人**（2026-10-12 现网 session-1e7a5162）：@5 那版只在报错文案里教 agent"先跑 `gateway.py call video.analyze`"
    ⇒ 它就真的自己干：PowerShell 吃引号 → 猜参数键名 → 写 `_analyze_run.py` 手搓 → 走了 `analyze` 那条**不记账**的近路
@@ -417,6 +417,22 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    回归 `scripts/check-approval-count-from.py` 的 K7–K10b（真跑 approve、临时账本 + 批准窗抑制）。
    ⚠️ 表的强度到哪：它保证【事后查得着、当着人亮得着】，不保证 agent 不走合同外那一步（见上条强度边界）。
    常驻服务（8090）里没有 `DSH_SESSION_ID` ⇒ 那一列会明写"未知"，**不许猜一个会话 id 填进去**。
+   🔴 ③ **回执的形状是【打钩单】，不是跑完补一份总结**（2026-10-12 用户定："这个回执还是要，
+   回执的写法是每一次进行打钩，有模型名"；合同 `super-clone-wan3@8`）：
+   开工先 `skill_contract.open_receipt()` 落一张**全 ⬜** 的表（合同每步占一行 + 输入指纹），
+   之后**每落一件物证当场 `tick()` 一格**；表头印「打钩 必需 x/y」、每行末列 `✅ 已打钩 / ⬜ 没打钩`，
+   ⬜ 那一格还带**为什么没打上**（tick 的原因原样留在行里）。⇒ 中途崩了看得见跑到第几步，
+   而不是像以前那样：跑完才写 ⇒ 崩了盘上要么没文件、要么是上一次那份旧的。
+   🔴 **每一格必须有模型名，且只许现读**（三个出处：网关腿 `gateway.resolve()` 取 model/provider 两键、
+   Step1 分镜腿从真函数签名读默认模型名、编译腿用调用当场带回的 `_llm_stamp`；
+   确实不经模型的本地步写 `不用模型`）。**没给模型名 ⇒ 那一格打不上钩**（不是"少填一列"），
+   而必需步没打钩 ⇒ `verify_or_raise` 在花钱那一刀之前拒、0 分 —— 用户要的"哪个模型跑的"从此不是追问出来的。
+   🔴 两条配套禁令：① **打不上钩必须把那一格抹成 ⬜**（连旧物证/指纹一起清）—— 留着上一次的 `ok=True`
+   就是假钩；② **`write_receipt` 不再是第二条打钩路**（它现在只是 `open_receipt + 逐格 tick` 的批量壳，
+   `_contract_evidence` 里一次都不许出现）。`check_receipt` 另外钉"打了钩却没模型名"= 不合格 ——
+   回执是个 JSON 文件，只守打钩那一刻挡不住手写（2026-10-12 现网 agent 手写台账行伪造过一次）。
+   回归 `scripts/check-skill-contract.py` 的 **T34e–T34e9**（含"编译器没给模型名 ⇒ 三格打不上 ⇒ 拒"、
+   `tick` 两向、手改 JSON 对照、结构锚点）+ M5/M7c（拒的时候盘上只剩那张全 ⬜ 的表、没有一件半成品）。
 - 🔴 **报价五格必须有出处、批准入口必须有条子**（2026-10-11 现网 session-241ea3f7 08:23 复盘，两条都落码在 `gateway.py`）：
    `单价 / 段数 / 预计总扣分 / 余额 / 实扣` 五格各自的**出处不是同一份**，逐格现读：
    单价→`gateway.py prices`（或 `unit_price(路由)`）、余额→账本 `accounts`、**段数与预计总扣分→这条会话的 pending**

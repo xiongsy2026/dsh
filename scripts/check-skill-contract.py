@@ -185,6 +185,15 @@ def make_receipt(deviations=(), with_sb=True, impl=None, with_factcheck=True):
                                    "source-fit": vid,
                                    "reference-clean": None},
                             inputs=[vid, prod], deviations=list(deviations),
+                            # 🔴 每一格都得有模型名才打得上钩（2026-10-12 用户口径）⇒ 夹具照真产物的口径给：
+                            #    网关腿/账本外腿给真模型串，本地步写 NO_MODEL。
+                            models={"material-analysis": "mimo-v2.6-flash@网关 · 网关账本内",
+                                    "storyboard": "mimo-v2.5@token-plan-cn.xiaomimimo.com · 账本外·直连厂商",
+                                    "storyboard-fact-check": sc.NO_MODEL,
+                                    "compile-prompt": "gpt-5.6-sol@hub.nocannobb.com · 账本外·直连厂商",
+                                    "compile-bound": "gpt-5.6-sol@hub.nocannobb.com · 账本外·直连厂商",
+                                    "negative-lock": "gpt-5.6-sol@hub.nocannobb.com · 账本外·直连厂商",
+                                    "source-fit": sc.NO_MODEL},
                             impl=dict(IMPL_OK, **(impl or {})))
 
 
@@ -283,7 +292,8 @@ src = io.open(r"D:\video-skill\backend\services\super_clone_wan3.py", encoding="
 i_verify, i_exec = src.find("_skc.verify_or_raise("), src.find("last_result = await _run_executor(")
 check("T12a 提交前调了 verify_or_raise", i_verify > 0, True)
 check("T12b 顺序：verify 在 _run_executor 之前", 0 < i_verify < i_exec, True)
-check("T12c 回执由管线写（不是让人手抄）", "write_receipt(" in src[:i_verify], True)
+check("T12c 回执由管线逐格打钩（开工就落骨架 + 每步 tick，不是让人手抄、也不是跑完一次性补）",
+      all(x in src[:i_verify] for x in ("open_receipt(", "_tk(", "_skc.tick(")), True)
 check("T12d 反向对照：verify 写在提交之后要能被抓到", i_exec < i_verify, False)
 # 只断提交不断捞回：查询/下载腿里不许出现 verify
 for fn in ("query_task", "poll_until_done", "download_result"):
@@ -473,17 +483,27 @@ _c["version"] = "ghost@9"
 os.environ["DSH_SESSION_ID"] = "sess-C"
 rec_c = sc.write_receipt("super-clone", task, steps={"storyboard": sb, "compile-prompt": prompt,
                                                      "compile-bound": meta, "negative-lock": prompt},
-                         inputs=[vid, prod], impl=dict(IMPL_OK), contract=_c)
-check("T26b \u5408\u540c\u7248\u672c\u4e00\u53d8 \u21d2 \u65e7\u7f72\u540d\u4e0d\u7ee7\u627f\uff08\u6b63\u5411\u5bf9\u7167\uff0c\u9632\u201c\u6c38\u8fdc\u7ee7\u627f\u201d\u5f0f\u5047\u8d26\uff09",
-      sorted({s["session"] for s in rec_c["steps"]}), ["sess-C"])
+                         inputs=[vid, prod], impl=dict(IMPL_OK), contract=_c,
+                         models={"storyboard": "mimo-v2.5@x · 账本外", "compile-prompt": "gpt@x",
+                                 "compile-bound": "gpt@x", "negative-lock": "gpt@x"})
+check("T26b \u5408\u540c\u7248\u672c\u4e00\u53d8 \u21d2 \u65e7\u7f72\u540d\u4e0d\u7ee7\u627f\uff1a\u8fd9\u4e00\u8f6e\u6253\u4e0a\u7684\u683c\u5b50\u5168\u7b7e sess-C\uff0c\u6ca1\u6253\u4e0a\u7684\u683c\u5b50\u3010\u4e0d\u6302\u4efb\u4f55\u4eba\u7684\u540d\u5b57\u3011"
+      "\uff08\u65e7\u5199\u6cd5\u4f1a\u628a A/B \u7684\u7f72\u540d\u7559\u5728\u6ca1\u505a\u7684\u884c\u4e0a = \u53f0\u8d26\u91cc\u51fa\u73b0\u4e86\u6ca1\u4eba\u505a\u8fc7\u7684\u6b65\uff09",
+      [sorted({s["session"] for s in rec_c["steps"] if s.get("ok")}),
+       sorted({s["session"] for s in rec_c["steps"] if not s.get("ok")}),
+       any(s.get("session") in ("sess-A", "sess-B") for s in rec_c["steps"])],
+      [["sess-C"], [""], False])
 wt_b = sc.who_table(rec_b)
-check("T27 \u6ca1\u505a\u7684\u6b65\u4e0d\u8bb8\u6302\u7740\u67d0\u4e2a\u4f1a\u8bdd\u7684\u540d\u5b57\uff08\u274c \u884c\u8d23\u4efb\u5217\u5199\u201c\u8fd9\u6b65\u6ca1\u505a\u201d\uff09",
+check("T27 \u6ca1\u505a\u7684\u6b65\u4e0d\u8bb8\u6302\u7740\u67d0\u4e2a\u4f1a\u8bdd\u7684\u540d\u5b57\uff08\u2b1c \u884c\u8d23\u4efb\u5217\u5199\u201c\u8fd9\u6b65\u6ca1\u505a\u201d\uff09",
       ("\u2014\uff08\u8fd9\u6b65\u6ca1\u505a\uff09" in wt_b) and ("sess-C" not in wt_b), True)
 os.environ.pop("DSH_SESSION_ID", None)
 os.environ.pop(sc.CTX_ENV, None)
 sc.set_ctx("super-clone", task, session="sess-D")                            # \u5e38\u9a7b\u8fdb\u7a0b\u6ca1\u6709 DSH_SESSION_ID
+os.remove(os.path.join(task, sc.RECEIPT_NAME))   # \u4ece\u7a7a\u767d\u6253\u94a9\u5355\u5f00\u59cb\uff1a\u8fd9\u6761\u9a8c\u7684\u662f"\u8fd9\u4e00\u683c\u7b7e\u8c01"\uff0c\u4e0d\u662f\u7ee7\u627f
+rec_d = make_receipt()
 check("T28 \u5165\u53e3\u6ca1 DSH_SESSION_ID \u4f46 set_ctx \u663e\u5f0f\u5e26\u4f1a\u8bdd \u21d2 \u7167\u90a3\u4e2a\u7b7e\uff08\u4e5f\u5141\u8bb8\u670d\u52a1\u7aef\u63a5\u529b\uff09",
-      sorted({s["session"] for s in make_receipt()["steps"]}), ["sess-D"])
+      [sorted({s["session"] for s in rec_d["steps"] if s.get("ok")}),
+       sorted({s["session"] for s in rec_d["steps"] if not s.get("ok")})],
+      [["sess-D"], [""]])
 os.remove(os.path.join(task, sc.RECEIPT_NAME))   # 清掉上一份，否则逐行署名会继承 sess-D
 check("T28b 两者都没（也没上一份回执）⇒ 签名留空，但表里明写未知，不许猜会话 id",
       (os.environ.pop(sc.CTX_ENV, None),
@@ -666,17 +686,65 @@ except (OSError, ValueError):
 check("T34d 回执行的 model 键齐全（交付时那一列有出处，不是渲染器现编）",
       all("model" in s for s in _rec34.get("steps", [])), True)
 if _check_receipt34:
+    # 🔴 2026-10-12 用户口径："这个回执还是要，回执的写法是每一次进行打钩，有模型名" ⇒
+    #    没模型名不再是"那一格少填一列"，而是【这一格打不上钩】：必需步没打 ⇒ 花钱之前拒（0 分）。
     _noStamp = dict(_stamp)
     _noStamp.pop("model")
     _SEG2 = os.path.join(_t34_dir, "step2_nomodel")
-    _svc._contract_evidence(_SEG2, seg_board=REAL_SHOTS,
-                            seg_prompt="…不得出现字幕、花字、水印…", compiled_seg=_noStamp,
-                            seg_duration=10.0, ref_video=_ref, seg_product_paths=[_pro],
-                            source_fit=_ref, log=None)
-    _t2 = str((_check_receipt34.who_table(json.load(open(
-        os.path.join(_SEG2, ".skill_receipt.json"), encoding="utf-8"))) or ""))
-    check("T34e 反向对照：编译器没给模型名 ⇒ 那一格必须写「没记」，不许拿 source 函数标签冒充模型",
-          [("没记" in _t2), ("step1_5_gpt_compiler@" in _t2)], [True, False])
+    _e34 = ""
+    try:
+        _svc._contract_evidence(_SEG2, seg_board=REAL_SHOTS,
+                                seg_prompt="…不得出现字幕、花字、水印…", compiled_seg=_noStamp,
+                                seg_duration=10.0, ref_video=_ref, seg_product_paths=[_pro],
+                                source_fit=_ref, log=None)
+    except sc.SkillContractError as _x34:
+        _e34 = str(_x34)
+    check("T34e 反向对照：编译器没给模型名 ⇒ 编译那三格打不上钩 ⇒ 花钱那一刀之前拒（不是少填一列）",
+          [("缺少步 compile-prompt" in _e34), ("缺少步 compile-bound" in _e34),
+           ("缺少步 negative-lock" in _e34)], [True, True, True])
+    _t2 = {}
+    try:
+        _t2 = json.load(open(os.path.join(_SEG2, ".skill_receipt.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        _t2 = {}
+    _rows2 = {s.get("id"): s for s in _t2.get("steps", []) if isinstance(s, dict)}
+    check("T34e2 拒的时候盘上留的是【打钩单】：做过的格子照样打上了，只有没模型名的那三格是空的",
+          [bool(_rows2.get("material-analysis", {}).get("ok")),
+           bool(_rows2.get("storyboard", {}).get("ok")),
+           bool(_rows2.get("storyboard-fact-check", {}).get("ok")),
+           bool(_rows2.get("source-fit", {}).get("ok")),
+           bool(_rows2.get("compile-prompt", {}).get("ok"))],
+          [True, True, True, True, False])
+    _t2txt = str(sc.who_table(_t2) or "")
+    check("T34e3 反向对照：没打钩那一格不许拿 source 函数标签冒充模型名（表上写的是「还没做」）",
+          [("step1_5_gpt_compiler@" in _t2txt), ("还没做" in _t2txt)], [False, True])
+    _tk_dir = os.path.join(_t34_dir, "t34_tick")
+    sc.open_receipt("super-clone", _tk_dir, inputs=[])
+    _bad_tk = sc.tick("super-clone", _tk_dir, "compile-prompt",
+                      evidence=os.path.join(_SEG, "prompt.txt"), model="")
+    _ok_tk = sc.tick("super-clone", _tk_dir, "source-fit",
+                     evidence=os.path.join(_SEG, "prompt.txt"), model=sc.NO_MODEL)
+    _ghost_tk = sc.tick("super-clone", _tk_dir, " invented-step", evidence=True, model=sc.NO_MODEL)
+    check("T34e4 tick 自己那两条：空模型 ⇒ 不打钩且点名要模型名；『不用模型』⇒ 打得钩（别把本地步逼成编一个型号）",
+          [_bad_tk.get("ok"), ("模型名" in str(_bad_tk.get("error"))), bool(_ok_tk.get("ok"))],
+          [False, True, True])
+    check("T34e5 合同外的步打不上钩（打了就是替这条流程伪造一格合格状态）",
+          [_ghost_tk.get("ok"), ("不在合同" in str(_ghost_tk.get("error")))], [False, True])
+    _hand = json.loads(io.open(os.path.join(_SEG, ".skill_receipt.json"), encoding="utf-8").read())
+    for _r5 in _hand.get("steps", []):
+        _r5["model"] = ""
+    _p5 = sc.check_receipt("super-clone", _hand, inputs=[_ref, _pro])
+    check("T34e6 手改出来的「打了钩却没模型名」必须被 check_receipt 拒 —— 回执是个 JSON 文件，"
+          "只守打钩那一刻挡不住手写（2026-10-12 现网 agent 就是手写台账行伪造过）",
+          [any("打了钩却没记模型名" in x for x in _p5), any("缺少步" in x for x in _p5)], [True, False])
+    check("T34e7 执行表头行带【打钩 必需 x/y】进度（交付时人一眼看出跑到第几格，不是只看终态）",
+          ("打钩 必需" in _t2txt), True)
+    _seg_src34 = _svc_src[_svc_src.index("def _contract_evidence("):_svc_src.index("async def run_pipeline(")]
+    check("T34e8 🔴 唯一打钩入口：_contract_evidence 里只剩 tick()，write_receipt 一次都不许出现"
+          "（两套打钩规则 = 第二套必然被绕过）",
+          [("write_receipt(" in _seg_src34), _seg_src34.count("_tk(") >= 6], [False, True])
+    check("T34e9 open_receipt 必须排在任何物证落盘之前（骨架先落 ⇒ 中途崩了看得见打到第几格）",
+          _seg_src34.index("open_receipt(") < _seg_src34.index("_ma.write_text("), True)
 # 覆盖对照：只修一条路 = 假修。两条提交路径都必须经过同一个写者。
 _run_src34 = _svc_src[_svc_src.index("async def run_pipeline("):] if "async def run_pipeline(" in _svc_src else ""
 check("T34f 🔴 覆盖对照：run_pipeline 里【多段循环】与【单段 else 分支】各调一次写者（少一处=又只剩一条路有回执）",

@@ -138,7 +138,14 @@ try:
                      inputs=[], impl={"negative-lock": "compiler-negative-lock",
                                       "material-analysis": "pipeline:invoke:video.analyze",
                                       "storyboard-fact-check": "runner:--extra-note"},
-                     models={"compile-prompt": "m@p · 账本外"})
+                     # 🔴 打钩必须有模型名（2026-10-12）：少给一格 = 那一格打不上 = B4 红，
+                     #    这正是这条闸要钉的性质（回执说了做了却答不出哪个模型跑的 ⇒ 不算数）。
+                     models={"material-analysis": "mimo-v2.6-flash@网关 · 网关账本内",
+                             "storyboard": "mimo-v2.5@token-plan-cn.xiaomimimo.com · 账本外·直连厂商",
+                             "storyboard-fact-check": sc.NO_MODEL,
+                             "compile-prompt": "m@p · 账本外",
+                             "compile-bound": "m@p · 账本外",
+                             "negative-lock": "m@p · 账本外"})
     check("B4 真回执写出来 ⇒ 判据放行（正向对照：这条闸不是只会拒绝；造不出合格物证就说明我读错了判据）",
           prob(params=P), [])
     env2 = gw.invoke("video.generate", "wan3-prime", account="t", params=P)

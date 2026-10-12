@@ -84,7 +84,7 @@ check("8b 平铺在临时目录 ⇒ 该条校验为 False",
 src = open(PACK, encoding="utf-8").read()
 
 # 14 present 硬校验（2026-10-09 用户指令"必须强制预览，客户体验感好"）：
-#     没有那张「打开 / 下载视频 / 默认播放器」的卡，客户看到的就是裸链接 ⇒ 不算交付完。
+#     没有那张「打开」带菜单（用默认应用打开 / 在文件资源管理器中显示 / 下载图片·下载视频）的卡，客户看到的就是裸链接 ⇒ 不算交付完。
 #     判据是内核的附件复制件（attachments/v1/files/<原名>），且必须比内容哈希 —— 名字会撞。
 import hashlib as _hl
 import shutil as _sh
@@ -231,7 +231,10 @@ def _fake_receipt(dst, prompt_text, model_cell):
                              "compile-bound": os.path.join(dst, "prompt_meta.json"),
                              "negative-lock": os.path.join(dst, "prompt.txt")},
                       inputs=[_PRO],
-                      models={"compile-prompt": model_cell})
+                      # 🔴 2026-10-12 起"没模型名 ⇒ 那一格打不上钩"，夹具每一格都得给（本地步给 NO_MODEL）
+                      models={"compile-prompt": model_cell,
+                              "storyboard": "mimo-v2.5@token-plan-cn.xiaomimimo.com · 账本外·直连厂商",
+                              "compile-bound": model_cell, "negative-lock": model_cell})
 
 
 _fake_receipt(_s1, "SEG1 的提示词 不得出现字幕 水印", "gpt-5.6-sol@hub.nocannobb.com")
@@ -252,6 +255,66 @@ check("21 执行表有「模型/路由」列且印的是这份产物记下的模
 check("22 直链 rel 指向 seg1（成片与提示词同格，交付时点得开）",
       "outputs/seg1/final.mp4" in _j19.get("link", "").replace("%2F", "/"), True)
 _sh.rmtree(os.path.join(HERE, "_dp_prod2"), ignore_errors=True)
+
+# ---- 23-30 图片那一形（2026-10-10 用户定"强制要求：图片在回复里不点就能看见画面"）----
+# 自造沙盒 + 自造图，理由同 19-22：拿现网某张帧图当 fixture = 钉现场，别人一删就随机红。
+import re as _re                                        # noqa: E402
+_P3 = os.path.join(HERE, "_dp_prod3", "productions", "probe3", "frames")
+_sh.rmtree(os.path.join(HERE, "_dp_prod3"), ignore_errors=True)
+os.makedirs(_P3, exist_ok=True)
+_IMG = os.path.join(_P3, "seg1_k4.jpg")
+open(_IMG, "wb").write(b"\xff\xd8\xff" + b"0" * 11000)   # 够大的 JPEG（闸不跑 ffmpeg、不解码）
+_SRC = open(PACK, encoding="utf-8").read()
+
+
+def _run_img(script, no_present=True, extra=("--no-net",)):
+    env = dict(os.environ)
+    if no_present:
+        env["DELIVER_PACK_NO_PRESENT"] = "1"             # present 单独由 25 严格测，别把无关用例带红
+    r = subprocess.run([sys.executable, script, _IMG, "--json"] + list(extra),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=120, env=env)
+    return r, json.loads(r.stdout or "{}")
+
+
+r23, j23 = _run_img(PACK)
+check("23 图片 ⇒ 退出 0、kind=image、不抽帧（画面就是它自己，一帧）",
+      [r23.returncode, j23.get("kind"), len(j23.get("frames") or [])], [0, "image", 1])
+check("24 markdown 出的是内联图，alt 用文件名（加载失败时看得见是哪张）",
+      "![seg1_k4](http" in j23.get("markdown", ""), True)
+r25, j25 = _run_img(PACK, no_present=False)
+check("25 🔴 图片【不要求】present：摘掉 NO_PRESENT 兜底也照样退出 0（不是靠 env 蒙过去的）",
+      [r25.returncode, (j25.get("presented") or {}).get("status")], [0, "not-required"])
+check("26 帧图落在 frames/ 也合法（视频那条 outputs/ 判据不许顺手盖到图片上）",
+      j23.get("checks", {}).get("图片在 productions/<task>/ 内（不要求 outputs/）"), True)
+check("27 --no-net 是【跳过】不是【验过】：跳了哪几条必须写在 json 里（否则一片 True 分不清）",
+      j23.get("net_skipped"), ["直链可达(200/206)", "直链回的是图片(image/*)"])
+sys.path.insert(0, HERE)
+import deliver_pack as _dp                               # noqa: E402
+_adm = open(r"D:\video-skill\backend\model_admin.py", encoding="utf-8", errors="replace").read()
+_m = _re.search(r"^FILM_INLINE_TYPES\s*=\s*\{(.*?)\}", _adm, _re.M | _re.S)
+_inline = set(x.lower() for x in _re.findall(r'"([a-z0-9]+)"\s*:', _m.group(1))) if _m else set()
+check("28 覆盖对照：交付脚本认的类型 ⊆ 服务端 FILM_INLINE_TYPES（服务端不发=直链404，贴图一起废）",
+      bool(_inline) and (_dp.IMAGE_EXT | _dp.VIDEO_EXT) <= _inline, True)
+_TXT = os.path.join(_P3, "note.txt")
+open(_TXT, "w").write("x" * 20000)
+_r29 = subprocess.run([sys.executable, PACK, _TXT, "--json", "--no-net"],
+                      capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+check("29 不认的类型（.txt）⇒ 非 0，且 error 明写不认（不许悄悄退到视频那一形）",
+      [_r29.returncode != 0, "不认的交付物类型" in (json.loads(_r29.stdout or "{}").get("error") or "")],
+      [True, True])
+# 变异对照选"给图片加上 present 门槛"这一刀（AGENTS.md 明令不许的那道闸）：
+# 同一张图、同一个 env，只改这一行 ⇒ 结论必须从"可以交付"翻成"不算交付"，否则 25 那条绿灯是虚的。
+_mut = _SRC.replace('        pstat, pmsg = "not-required", "图片走内联图，present 不是收工条件"',
+                    "        pstat, pmsg = presented_copy(video)", 1)
+check("30a 变异锚点命中（没替换成功 = 这条控制是空跑）", _mut != _SRC, True)
+_MP = os.path.join(HERE, "_dp_pack_mutated.py")
+open(_MP, "w", encoding="utf-8").write(_mut)
+_r30, _unused30 = _run_img(_MP, no_present=False)   # 只吃退出码
+os.remove(_MP)
+check("30b 变异对照 给图片加上 present 门槛 ⇒ 同图同 env 立刻不通过（25 那条绿灯是判据挣来的）",
+      [_r30.returncode != 0, (j25.get("presented") or {}).get("status") == "not-required"], [True, True])
+_sh.rmtree(os.path.join(HERE, "_dp_prod3"), ignore_errors=True)
 
 
 print("\n=== V6 交付三件套闸：%d 条，失败 %d ===" % (len(out), sum(1 for ok, _ in out if not ok)))

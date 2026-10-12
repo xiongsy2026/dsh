@@ -98,38 +98,48 @@ src = io.open(SVC, encoding="utf-8", errors="replace").read()
 
 
 def throat_problems(text):
-    """咽喉形状判据：① 有对账调用 ② 对账后立刻拒 ③ 拒在写任何物证之前。"""
+    """咽喉形状判据：① 有对账调用 ② 对账后立刻拒 ③ 拒在写任何【物证】之前。
+
+    🔴 锚点必须带换行 + 四个空格：原来锚 `seg_dir.mkdir(parents=True` 会被 run_pipeline 里那段
+       12 空格的同名行命中 ⇒ _block 一路吞到几千行外，变异改的是不相干的远处 = 假对照。
+    🔴 锚点找不到 ⇒ 直接报问题，不许返回空表（空表 = 这条判据在空跑，比红更坏）。"""
     p = []
     i_cover = text.find("analysis_coverage_problems(")
     i_raise = text.find("素材没看过", i_cover) if i_cover > 0 else -1
-    i_write = text.find('(seg_dir / "prompt.txt").write_text')
+    _marks = [text.find(x) for x in ('\n    _ma.write_text(', '\n    _pt.write_text(', '\n    sb.write_text(')]
+    _hits = [i for i in _marks if i >= 0]
+    i_write = min(_hits) if _hits else -1
     if i_cover < 0:
         p.append("咽喉里没有台账对账")
     if i_cover >= 0 and i_raise < 0:
         p.append("对账结果没人判 ⇒ 报了也没人拦")
-    if i_raise >= 0 and i_write >= 0 and i_write < i_raise:
+    if i_write < 0:
+        p.append("找不到物证写点的锚点 ⇒ 这条顺序判据在空跑（锚点漂了要改锚点，不是让它绿）")
+    elif i_raise >= 0 and i_write < i_raise:
         p.append("先写物证后对账 ⇒ 拒的时候盘上已经留了半成品（0 消耗承诺就假了）")
     return p
 
 
 check("M5 咽喉形状无问题（对账→拒→才写物证）", throat_problems(src), [])
-_check_src = src.replace('    if _missing:', '    if False:', 1)
 # 变异要真的把"拒"整块搬走/删掉，而不是改个条件（改条件判据看不见 ⇒ 控制是假的）
 _b0 = src.find("    if _missing:")
-# 🔴 锚点用【结构】不用文案：这段的结尾就是"开始写物证"那一行，所以边界天然存在；
-#    以前锚在报错文案的最后一句（"要花的分先算进报价。"），2026-10-12 补跑搬进管线后文案换了 ⇒ 空跑。
-_b1 = src.find("    seg_dir.mkdir(parents=True", _b0) if _b0 > 0 else -1
-check("M5d 前提：拒的那一段能定位（找不到=下面两个变异都是空跑）", [_b0 > 0, _b1 > _b0], [True, True])
+# 🔴 锚点用【结构】不用文案，且必须"换行 + 四个空格"（12 空格的同名行会把块吞到几千行外 = 假对照）：
+#    这段的结尾就是"开始写第一件物证"那一行，边界天然存在；以前锚报错文案，2026-10-12 文案一换就空跑。
+#    ⚠️ open_receipt 落的【全 ⬜ 骨架】不算物证 —— 它是台账本身，写在拒之前正是设计（看得见打到第几格）。
+_b1 = src.find("\n    _ma.write_text(", _b0) if _b0 > 0 else -1
+check("M5d 前提：拒的那一段和第一件物证写点都能定位（找不到=下面两个变异都是空跑）",
+      [_b0 > 0, _b1 > _b0], [True, True])
 _block = src[_b0:_b1]
 check("M5b 变异：整块删掉【拒】⇒ 报『对账结果没人判』",
       any("没人判" in x for x in throat_problems(src.replace(_block, "", 1))), True)
-_w = src.find('(seg_dir / "prompt.txt").write_text')
-_end_w = src.find(chr(10), _w) + 1
+_w = src.find("\n    _pt.write_text(")
 _moved = src.replace(_block, "", 1)
-_k = _moved.find(chr(10), src.find('(seg_dir / "prompt.txt").write_text') - len(_block))
-_moved = _moved[:_k + 1] + _block + _moved[_k + 1:]
+_k = _moved.find("\n    _pt.write_text(")
+_end_w = _moved.find(chr(10), _k) + 1
+_moved = _moved[:_end_w] + _block + _moved[_end_w:]
 check("M5c 变异：把【拒】挪到写完 prompt.txt 之后 ⇒ 报『先写物证后对账』",
-      any("先写物证" in x for x in throat_problems(_moved)), True)
+      [_w > 0, any("先写物证" in x for x in throat_problems(_moved))], [True, True])
+check("M5c2 反向对照：变异确实改了原文（锚点漂了会把变异做成空跑）", _moved != src, True)
 check("M5e 变异对照没顺手把正解也判红（原文仍 0 问题）", throat_problems(src), [])
 
 # ── M6 合同里这一步存在且形状合法 ────────────────────────────────────────────
@@ -187,8 +197,17 @@ try:
            all(c["params"].get("question") for c in _CALLS),
            all(int(c["params"].get("max_tokens") or 0) >= 600 for c in _CALLS)],
           [2, True, True, True, True])
-    check("M7c 拒的时候盘上什么都没写（0 半成品；花钱在前物证在后 = 老 bug 形状）",
-          os.path.isdir(seg), False)
+    # 🔴 2026-10-12 起这条的形状变了，而且变得更好：拒的时候盘上【有】一张全 ⬜ 的打钩单
+    #    （open_receipt 开工就落的骨架），但没有一件半成品物证、也没有一个假钩。
+    #    验的是这两件事 —— 原来只问"目录在不在"，那会把有用的台账一起当成违规产物。
+    _files7c = sorted(os.listdir(seg)) if os.path.isdir(seg) else []
+    _rec7c = sc.load_receipt(seg)
+    check("M7c 拒的时候盘上只有一张全 ⬜ 的打钩单：没物证、没假钩（0 消耗承诺仍成立，且看得见卡在哪一格）",
+          [os.path.isfile(os.path.join(seg, ".skill_receipt.json")),
+           [f for f in _files7c if f != ".skill_receipt.json"],
+           sum(1 for s in (_rec7c.get("steps") or []) if s.get("ok")),
+           len(_rec7c.get("steps") or [])],
+          [True, [], 0, len((sc.contract_for("super-clone") or {}).get("steps") or [])])
 
     gw.invoke = _stub_invoke
     _CALLS.clear()
