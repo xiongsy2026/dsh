@@ -197,7 +197,8 @@ check("W4b 🔴 restart 的成功判据是【换人】不是【答话】：旧�
       "（2026-10-13 实测：19:11 起的孤儿 model_admin 占着端口，/end 碰不到它，"
       "改完代码 restart 报成功而新代码一行都没上去）",
       [_tr.count("listener_pid()") >= 2, "SAME-PID" in _tr, "kill_wedged(int(old))" in _tr,
-       'not how.startswith("schtasks-SAME-PID")' in _gsrc], [True, True, True, True])
+       'not how.startswith("schtasks-SAME-PID")' in _gsrc,
+       "no-listener-pid" in _tr], [True, True, True, True, True])
 check("W4c 反向对照·喂【出事那一版的重启形状】（答话就算成、不比 pid）⇒ 同一组探针必须全不成立"
       "（证明 W4b 咬的是判据，不是恰好存在的字）",
       [(lambda s: (s.count("listener_pid()") >= 2, "SAME-PID" in s,
