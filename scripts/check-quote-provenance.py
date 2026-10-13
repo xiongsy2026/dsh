@@ -146,6 +146,16 @@ env = dict(os.environ, GATEWAY_SPEND_APPROVALS=APPR, GATEWAY_LEDGER=LEDG,
 env.pop("PYTHONUTF8", None)
 TASK = r"C:" + BS + "dsh" + BS + "productions" + BS + "ef1ba285"
 SID = "session-quoteprov"
+# 先把账户种进【临时账本】：真账本里 default/local 早就有行，而 `Ledger.balance()` 对没行的账户
+# 会**自动插一行 100000**（这就是"凭空余额"的来源）。2026-10-12 余额改成 known_balance 之后，
+# 没行的账户报价正文会印"当前余额：?" —— 那是诚实，但 fixture 必须演的是现网形状，所以这里显式种行。
+_seed = ("import sys;sys.path.insert(0,r'D:" + BS + "video-skill');"
+         "from backend import gateway as g;"
+         "print('seeded', g.Ledger(g._LEDGER_PATH).balance('default'))")
+_ps = subprocess.run([sys.executable, "-c", _seed], capture_output=True, text=True,
+                     encoding="utf-8", errors="replace", env=env, timeout=90)
+check("B0 临时账本里种好 default 账户（不种=报价正文只能印 '?'，那是另一条断言 B8 要管的形状）",
+      (_ps.stdout or "").strip().startswith("seeded"), True)
 r = subprocess.run([sys.executable, GW_PY, "approve", "video.generate", "wan3-prime",
                     "--count-from", TASK, "--account", "default", "--session", SID,
                     "--scope", "出处闸自测：单段 15s 整片"],
@@ -167,16 +177,30 @@ check("B3 approve 建的那张 pending 现读得到（pending_id / count / credi
 CANON = facts_b["quote_text"]
 check("B4 把 approve 打出的报价正文原样贴进消息 ⇒ 五格全绿（照抄的人不该被拦）",
       gw.quote_problems(CANON, facts_b, unit=gw.unit_price("video.generate", "wan3-prime")), [])
-check("B5 变异：只把余额改成别的数 ⇒ 余额红（且改过的行不再等于原文，「原文未贴」同红=一条数改两处喊）",
-      set(fields_of(gw.quote_problems(
-          CANON.replace("当前余额：%s" % facts_b["balance"], "当前余额：1"), facts_b,
-          unit=gw.unit_price("video.generate", "wan3-prime")))), {"余额", "原文未贴"})
+_tampered_b5 = CANON.replace("当前余额：%s" % facts_b["balance"], "当前余额：1")
+check("B5 变异：只把余额改成别的数 ⇒ 余额红（且改过的行不再等于原文，「原文未贴」同红=一条数改两处喊）\n"
+      "     🔴 第一格先钉『这一刀真的改动了吗』：改动没生效（facts 里的余额根本没出现在正文里）时，\n"
+      "     后面那格会拿一个空集合上期望之外的值假绿 —— 2026-10-12 加 known_balance 之后就是 this。",
+      [_tampered_b5 != CANON,
+       set(fields_of(gw.quote_problems(_tampered_b5, facts_b,
+                                       unit=gw.unit_price("video.generate", "wan3-prime")))),
+       "当前余额：" in CANON, str(facts_b.get("balance"))[:12]],
+      [True, {"余额", "原文未贴"}, True, str(facts_b.get("balance"))[:12]])
 check("B6 变异：段数与总扣分各改一分 ⇒ 恰好这两格红（不牵连单价/余额）",
       set(fields_of(gw.quote_problems(
           CANON.replace("段数：1", "段数：3").replace("预计扣分：60", "预计扣分：180"), facts_b,
           unit=gw.unit_price("video.generate", "wan3-prime")))), {"段数", "预计总扣分", "原文未贴"})
 check("B7 approve 的 stdout 里那条批准地址带 ?session=（裸链接从此不是默认形状）",
       ("approval?session=" + SID) in out, True)
+check("B8 🔴 余额那格写的不是数（'?' / 读不到）⇒ 必须红：数字解析器会跳过它，"
+    "于是『五格全绿』其实是五格全空 —— 2026-10-12 换成 known_balance 后就是这个形状"
+    "（正文印 当前余额：? 而判据读到自动补的 100000，B5 因改不动文本静默拿空集合）",
+    [set(fields_of(gw.quote_problems(
+        CANON.replace("当前余额：%s" % facts_b["balance"], "当前余额：?"), facts_b,
+        unit=gw.unit_price("video.generate", "wan3-prime")))),
+     gw.quote_problems("单价：60\n段数：1\n预计总扣分：60\n当前余额：?\n实扣：0",
+                       dict(facts_b, pending_id="ok_x"), unit=60) != []],
+    [{"余额", "原文未贴"}, True])
 
 # ── F 组 报价前置：没回填过表 ⇒ 不给建批准条子（2026-10-11 16:30 现网那条形状）──────────
 def blockers(payload):

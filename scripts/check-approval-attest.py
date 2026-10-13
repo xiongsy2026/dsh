@@ -295,6 +295,36 @@ chk("P15", "变异对照：把 geometry 改回【只给位置】那种写法 ⇒
 chk("P9", "顺序：先建 pending 再弹窗（没有待批可弹=窗只会显示空）",
     0 < _gw.index("p = create_spend_pending(") < _gw.index('pop = pop_approval_window(p["id"])'), True)
 
+# ---- P16~P20 批准卡上的「点下去之后」（2026-10-12 用户："说明批准后发起任务没法撤回"）----
+#     钉两件事：① 四格后果齐（只写"不能撤回"不写"失败不扣"= 拿恐惧换点头，也算红）；
+#     ② 文案只有一份 —— 置顶窗与批准页各自写一遍，迟早漂（这两处今天就是各写一遍漂掉的）。
+_N16 = gw.approval_notice({"capability": "video.generate", "purpose": "wan3-prime", "account": "local",
+                           "count": 3, "credits": 180, "scope": "闸里的假方案", "session": "session-x"})
+# 批准页那张卡的 HTML：从 model_admin 源码里切出 card() 那一段（整份扫会被别的字符串喂绿）
+_MA_SRC = _io.open(r"D:\video-skill\backend\model_admin.py", encoding="utf-8", errors="replace").read()
+_html0 = _MA_SRC.index("function card(p){")
+_pp_html = _MA_SRC[_html0:_MA_SRC.index("async function act(", _html0)]
+chk("P16", "approval_notice 真跑：四格齐（随即发起 / 不能撤回 / 不扣的情况 / 范围锁死），"
+    "段数与分数是条子上带的（不另算一份）；不读线上余额（余额读不到就不印『最低 X』见 P19）",
+    [len(_N16["bullets"]), any("不能撤回" in b for b in _N16["bullets"]),
+     any("不计次" in b for b in _N16["bullets"]), any("重新报价" in b for b in _N16["bullets"]),
+     "3 段" in _N16["bullets"][0], "180" in _N16["bullets"][0]],
+    [4, True, True, True, True, True])
+chk("P17", "按钮文案由服务端那一份给：页面那颗 .ok 必须是 notice.button，不许留字面量",
+    [_N16["button"] == gw.APPROVE_BUTTON,
+     "class=ok>${E((p.notice||{}).button" in _pp_html,
+     "批准，开始跑</button>" in _pp_html],
+    [True, True, False])
+chk("P18", "后果文案只有一份：批准页 HTML 与置顶窗代码里都不许出现『不能撤回/不可撤回』的字面",
+    ["不能撤回" not in _pp_html, "不能撤回" not in _pp, "不可撤回" not in _pp], [True, True, True])
+chk("P19", "余额读不到就不编一个：账户不存在 ⇒ 正文里不许出现『最低』那个凭空数",
+    [any("最低" in b for b in gw.approval_notice({"capability": "video.generate",
+                                                  "purpose": "wan3-prime", "account": "__no_such__",
+                                                  "count": 1, "credits": 60})["bullets"])],
+    [False])
+chk("P20", "反向对照：P16 的四格是数出来的，把 bullets 砍到三条就必须红（不是恒真断言）",
+    [len([b for b in _N16["bullets"] if "不能撤回" in b]), len(_N16["bullets"][:3])], [1, 3])
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 人证闸（pending+核销版）汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:
