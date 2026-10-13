@@ -192,6 +192,23 @@ check("W4 🔴 ensure 里绝不【调用】schtasks —— .cmd 就是任务动�
       ['subprocess.run(["schtasks"' in _ens,
        'subprocess.run(["schtasks"' in _gsrc[_gsrc.index("def task_restart("):_gsrc.index("def kill_wedged")]],
       [False, True])
+_tr = _gsrc[_gsrc.index("def task_restart("):_gsrc.index("def kill_wedged")]
+check("W4b 🔴 restart 的成功判据是【换人】不是【答话】：旧进程还在答话时，报 RESTARTED-OK 就是骗人"
+      "（2026-10-13 实测：19:11 起的孤儿 model_admin 占着端口，/end 碰不到它，"
+      "改完代码 restart 报成功而新代码一行都没上去）",
+      [_tr.count("listener_pid()") >= 2, "SAME-PID" in _tr, "kill_wedged(int(old))" in _tr,
+       'not how.startswith("schtasks-SAME-PID")' in _gsrc], [True, True, True, True])
+check("W4c 反向对照·喂【出事那一版的重启形状】（答话就算成、不比 pid）⇒ 同一组探针必须全不成立"
+      "（证明 W4b 咬的是判据，不是恰好存在的字）",
+      [(lambda s: (s.count("listener_pid()") >= 2, "SAME-PID" in s,
+                   "kill_wedged(int(old))" in s))(
+          'def task_restart(wait):\n'
+          '    subprocess.run(["schtasks", "/end", "/tn", TASK])\n'
+          '    for _ in range(8):\n'
+          '        left = wrapper_pids()\n'
+          '        subprocess.run(["schtasks", "/run", "/tn", TASK])\n'
+          '    return "schtasks" if _wait_healthy(wait) else "schtasks-no-answer"\n')],
+      [(False, False, False)])
 _cmd = io.open(CMD, encoding="utf-8", errors="replace").read()
 check("W5 启动脚本只负责叫守卫（判据不留在 .cmd 里，也不留第二条 starter）",
       ["svc_8100_guard.py" in _cmd, "curl.exe" in _cmd, "model_admin.py" in _cmd], [True, False, False])
