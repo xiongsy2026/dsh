@@ -46,13 +46,19 @@ def family_of(path, media_fields):
     return [f["key"] for f in media_fields if ext in (f.get("accept") or [])]
 
 
+def _mb(n):
+    return "%.1fMB" % (int(n) / 1048576.0)
+
+
 def slot_plan(media_fields, loose):
     """纯函数（闸直接跑值表）：哪些素材可以【无歧义】归位，哪些必须留给人选。
 
-    规则三条，宁可留空也不猜：
+    规则四条，宁可留空也不猜：
       ① 一个文件只对一个槽 ⇒ 候选；对两个槽（图片既像产品图又像脸图）⇒ 留空；
       ② 单值槽（max=1）收到 2 个以上候选 ⇒ 整槽留空（挑哪一张是人的决定）；
-      ③ 多值槽按 max 截断，超出的留空并点名。
+      ③ 多值槽按 max 截断，超出的留空并点名；
+      ④ 体积超过这一槽上限（`max_bytes`，服务端下发）⇒ 不挂进槽并点名
+         （挂上去 = 客户点提交被服务端整单拒，而他不知道是哪一张）。
     返回 (可回填的 files=[{field,src}], 留空说明={槽或族: 原因})。
     """
     by_key = {f["key"]: f for f in media_fields}
@@ -68,6 +74,31 @@ def slot_plan(media_fields, loose):
             skipped[os.path.basename(str(p))] = "同时可能是 %s 的素材 ⇒ 这一格留给客户选" % "/".join(hits)
     files = []
     for field, paths in sorted(cand.items()):
+        # 🔴 第④条：体积超过这一槽上限的【不挂进槽】。现网 2026-10-13 23:09：归位时把一张
+        #    12.91MB 的产品图挂进了槽（图片槽上限 8MB，那是"浏览器→8100 这一跳"的传输上限，
+        #    不是引擎上限）⇒ 客户点【提交】被服务端整单拒，页面只闪一行小字、按钮还亮着，
+        #    他连点 6 次以为"没反应"。留空 + 点名才是对的：这张图该不该换，是人的决定。
+        cap = by_key[field].get("max_bytes") or 0
+        try:
+            cap = int(cap)
+        except (TypeError, ValueError):
+            cap = 0
+        if cap:
+            keep = []
+            for p in paths:
+                try:
+                    sz = os.path.getsize(p)
+                except OSError:
+                    sz = -1                     # 量不到就放行，不许把"我们没量到"算成客户的错
+                if sz > cap:
+                    skipped["%s/%s" % (field, os.path.basename(str(p)))] = (
+                        "这张 %s 超过这一槽的体积上限 %s ⇒ 不挂进槽（挂上去，客户点提交就被整单拒）"
+                        % (_mb(sz), _mb(cap)))
+                else:
+                    keep.append(p)
+            paths = keep
+            if not paths:
+                continue
         mx = by_key[field].get("max")
         try:
             mx = int(mx) if mx not in (None, "", " ") else 0

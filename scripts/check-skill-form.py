@@ -221,6 +221,24 @@ function GS(){ return {skill:"x", fields:FS}; }
 out.push(formIsComplete(GS(), {vm:"preserve_original 原声保留"}, {}, {}).map(f => f.label));
 out.push(formIsComplete(GS(), {vm:"timbre_swap 只换音色"}, {}, {}).map(f => f.label));
 out.push(formIsComplete(GS(), {vm:"timbre_swap 只换音色"}, {aud:[{name:"a.mp3"}]}, {}).map(f => f.label));
+// 17~21 🔴 体积：超限必须【在点提交之前】就把按钮压灰并点名那一张
+//        （现网 2026-10-13 23:09：12.91MB 的产品图被 agent 预填进槽，客户点提交被服务端整单拒、
+//         页面只闪一行小字、按钮还亮着 ⇒ 连点 6 次以为"点了没反应"）
+const MB_ = 1048576;
+const FM = [{key:"imgs", type:"images", label:"产品图", required:true, param:"product_images",
+             max:10, max_bytes:8 * MB_}];
+function GM(extra){ return Object.assign({skill:"x", fields:FM}, extra || {}); }
+const _sz = (a2, b2) => ({default_files:{product_images:["a.jpg", "b.jpg"]},
+                          default_file_sizes:{product_images:[a2, b2]}});
+out.push(formIsComplete(GM(_sz(7 * MB_, Math.round(12.91 * MB_))), {}, {}, {})
+         .map(f => f.label + "|" + (f.over || []).length + "|" + mb((f.over || [{}])[0].size)));
+out.push(formIsComplete(GM(), {}, {imgs:[{name:"x.jpg", blob:{size:9 * MB_}}]}, {})
+         .map(f => f.label + "|" + (f.over || []).length));
+out.push(formIsComplete(GM(_sz(-1, 7 * MB_)), {}, {}, {}).map(f => f.label));   // 量不到 ⇒ 不误伤
+out.push(missText(formIsComplete(GM(_sz(7 * MB_, 13 * MB_)), {}, {}, {})[0]));
+out.push(formIsComplete(Object.assign({skill:"x", fields:[{key:"imgs", type:"images",
+             label:"产品图", required:true, param:"product_images", max:10}]},
+             _sz(7 * MB_, 13 * MB_)), {}, {}, {}).map(f => f.label));           // 没下发上限 ⇒ 不自己写死
 console.log(JSON.stringify(out));
 """
 JSF = os.path.join(SCRATCH, "_draft.cjs")
@@ -274,6 +292,17 @@ if data:
         data[14], ["必填文本", "参考音频"])
     chk("C17", "露出来且给了文件 ⇒ 不卡（证明 C16 报的是「没给」，不是「这一档永远填不满」）",
         data[15], ["必填文本"])
+    # 🔴 体积那一档（现网"点了没反应"的真死因）：超限必须在【点之前】把按钮压灰并点名是哪一张、多大
+    chk("C18", "AI 预填的产品图里有一张 12.9MB > 8MB ⇒ 灰，且点名「产品图|1|12.9MB」"
+        "（不是等提交被服务端整单拒、客户只看到一行小字）",
+        data[16], ["产品图|1|12.9MB"])
+    chk("C19", "客户自己选的图超限（blob.size）⇒ 同样当场压灰并点名", data[17], ["产品图|1"])
+    chk("C20", "服务端量不到体积（-1）⇒ 不判超限：不许把「我们没量到」算成客户的错",
+        data[18], [])
+    chk("C21", "缺项文案说得出「哪一格、多大、怎么办」：含上限数字与 × 移除指引",
+        [s in data[19] for s in ("产品图", "13MB", "8MB", "×")], [True, True, True, True])
+    chk("C22", "反向对照：这一槽【没下发 max_bytes】⇒ 一律不判超限（判据读服务端那一份数，"
+        "前端不许自己写死 8MB —— 写死就会漂成「页面拦的和服务端不一样」", data[20], [])
 else:
     for cid in ("C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"):
         RESULTS.append((cid, False))
@@ -385,8 +414,9 @@ SC_FIELDS = MA.parse_skill_form(SC_MD)
 SC_RUN = open(os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py"),
               encoding="utf-8").read()
 RUN_ARGS = {m.replace("-", "_") for m in re.findall(r'add_argument\("--([a-z-]+)"', SC_RUN)}
-# 只有这一个字段是【agent 读的】，不是引擎入参：它属于"换流程"那条线，写进正文第 2 条口径。
-SC_AGENT_ONLY = {"voice_script"}
+# 2026-10-13：voice_script 不再是"只有 agent 读"的字段 —— 它是改口播后处理腿（run_narration_swap）的输入，
+# 入口必须真收（--voice-script）。豁免名单清空 ⇒ D3 从此要求它出现在 runner 的真参数名里。
+SC_AGENT_ONLY = set()
 chk("D3", "🔴 super-clone 每个【可填】param 都是 runner 的真参数名（或显式声明的 agent-only 字段）",
     sorted({f["param"] for f in SC_FIELDS if f["type"] != "locked"} - RUN_ARGS - SC_AGENT_ONLY), [])
 chk("D3b", "反向对照：真参数名集合不是空的（空集会让 D3 因为【减完还剩空】而假绿）",
@@ -1327,20 +1357,22 @@ _G28 = {"submitted": True, "task_dir": r"C:\dsh\productions\t1",
         "params": {"video": r"C:\dsh\productions\t1\inputs\video\01-aabb.mp4",
                    "product_images": [r"C:\dsh\productions\t1\inputs\product_images\01-cc.jpg"],
                    "product_name": "假发", "customer_request": "换整头", "voice_mode": "preserve_original",
-                   "aspect_ratio": "adaptive", "scene_text": "", "voice_script": "客户要的口播全文"}}
+                   "aspect_ratio": "adaptive", "scene_text": "", "voice_script": "客户要的口播全文",
+                   "not_a_runner_param": "表上有这格但入口不吃"}}
 _v28, _pr28, _un28 = _ap(dict(_K28, product_name="命令行给的"), _G28, _md28)
 # 来源行是 "key␣␣来源" 的形状 ⇒ 按 key 查，不拿"第几条"当判据（顺序会变，按位置断言必假红）
 _src28 = {x.split()[0]: x.split()[-1] for x in _pr28}
 chk("D28", "🔴 合并规则值表：命令行显式给的赢、其余从表单取、空串不算给过、媒体按槽形归一、"
-    "task_id/output_dir 从任务目录落、表里多出来的格【点名不静默】",
+    "task_id/output_dir 从任务目录落、表里多出来的格【点名不静默】、新口播文案【落到入口】（后处理腿读它）",
     [_v28["product_name"], _src28.get("product_name"), _src28.get("video"), _src28.get("task_id"),
      _v28["video"], _v28["product_images"], _v28["scene_text"], _v28["output_dir"],
-     _un28, _am(_v28)],
+     _v28["voice_script"], _src28.get("voice_script"), _un28, _am(_v28)],
     ["命令行给的", "命令行", "表单", "任务目录",
      r"C:\dsh\productions\t1\inputs\video\01-aabb.mp4",
      [r"C:\dsh\productions\t1\inputs\product_images\01-cc.jpg"], None,
      os.path.join(r"C:\dsh\productions\t1", "outputs"),
-     ["voice_script=客户要的口播全文"], []])
+     "客户要的口播全文", "表单",
+     ["not_a_runner_param=表上有这格但入口不吃"], []])
 _v28b, _pr28b, _ = _ap(dict(_K28), dict(_G28, params={"product_name": "假发"}), _md28)
 chk("D28b", "缺格必须点名（不许静默补一个默认值 —— 那等于替客户做决定，还一路走到报价）；"
     "task_id/output_dir 从任务目录推出来 ⇒ 不该出现在缺的名单里",
@@ -1368,6 +1400,40 @@ chk("D28f", "档位就是合法出口：--stage 走 stop_after 传给管线；co
     "wait 是第 5 步「拿到视频」的出口（只捞不投）—— 少一档，遵守规则的人就只能绕开入口手搓",
     ["stop_after=(" in SC_RUN, 'choices=["compile", "submit", "wait"]' in SC_RUN,
      "compiled_only" in SC_RUN, 'a.stage == "wait"' in SC_RUN], [True, True, True, True])
+
+# 🔴 D34：声音档的自洽判据必须【真跑值表】。runner 里 voice_mode_problems 的 docstring 一直写着
+#    "闸直接跑值表"，但 2026-10-13 之前全仓没有任何一处调它 ⇒ 一条判据都没被验过（空口判据=没有判据）。
+#    四档 × 有没有参考音频 × 有没有新文案，每格点名，并做一次变异对照证明那条判断真在拒东西。
+_vm = _sc_ns["voice_mode_problems"]
+_V34 = {("preserve_original", 0, 0): "",   ("preserve_original", 1, 0): "REJ",
+        ("timbre_swap", 0, 0): "REJ",      ("timbre_swap", 1, 0): "",
+        ("rewrite_text", 0, 0): "REJ",     ("rewrite_text", 0, 1): "",
+        ("rewrite_text", 1, 1): "REJ",     ("rewrite_voice", 1, 1): "REJ",
+        ("bogus_mode", 0, 0): "REJ"}
+chk("D34", "🔴 声音档值表（%d 格）：原声保留禁给参考音频、只换音色必给、改口播必须有新文案且禁给参考音频、"
+    "换人声这一档今天没实现路径必须拒、认不出的档拒" % len(_V34),
+    [(bool(_vm(m, bool(a), bool(s))) == (want == "REJ"))
+     for (m, a, s), want in sorted(_V34.items())], [True] * len(_V34))
+chk("D34b", "拒因必须点名可执行的下一步（只说「不行」= agent 回头自己发明出路）：换人声指回另两档、"
+    "缺文案指表单那一格、给了参考音频指出它和这一档矛盾在哪",
+    [("rewrite_text" in _vm("rewrite_voice", True, True) and "timbre_swap" in _vm("rewrite_voice", True, True)),
+     ("口播文案" in _vm("rewrite_text", False, False)),
+     ("voice-audio" in _vm("rewrite_text", True, True))], [True, True, True])
+_vm_src = SC_RUN[SC_RUN.index("def voice_mode_problems"):SC_RUN.index("FORM_GATE_URL")]
+_ns34 = {"VOICE_MODES": _sc_ns["VOICE_MODES"], "SWAP_MODES": _sc_ns["SWAP_MODES"],
+         "MODE_NOT_WIRED": _sc_ns["MODE_NOT_WIRED"]}
+exec(compile(_vm_src.replace("if mode in SWAP_MODES and not has_script:", "if False:"),
+             "mutated", "exec"), _ns34)
+chk("D34c", "变异对照：摘掉「改口播必须有新文案」那句 ⇒ rewrite_text 没文案也放行"
+    "（证明上面那条拒是来路真实的判断，不是抄来的期望）",
+    [bool(_ns34["voice_mode_problems"]("rewrite_text", False, False)),
+     bool(_vm("rewrite_text", False, False))], [False, True])
+chk("D34d", "后处理腿挂在两个出口上：submit 拿到片子就换轨、wait 捞回来也换轨"
+    "（少一处 = 从 wait 交付的那条永远不改口播，而客户以为改了）",
+    ["apply_narration_swap" in SC_RUN,
+     SC_RUN.count("apply_narration_swap(") >= 3,          # 定义 1 + submit 1 + wait 1
+     'SWAP_MODES = ("rewrite_text",)' in SC_RUN,
+     "narration_swapped_path" in SC_RUN], [True, True, True, True])
 
 # 🔴 D28g：档位必须【一路传到底】。现网 super-clone-20261012-1824（18:44）：`--stage compile`
 #    在"按长度切段"那条递归里没带 stop_after ⇒ 每一块都走到提交那一刀，
@@ -1408,6 +1474,25 @@ chk("D30", "🔴 归位只填【无歧义】的：一个文件只对一个槽才
     [[x["field"] for x in _f29a], sorted(_s29a), [x["field"] for x in _f29b], bool(_s29b),
      [x["field"] for x in _f29c], sorted(_s29c), sorted(x["field"] for x in _f29d), sorted(_s29e)],
     [["video"], [], [], True, [], ["video"], ["voice_audio", "voice_audio"], ["note.txt"]])
+# 🔴 第条（现网 2026-10-13 23:09 那条"点了没反应"的根因侧）：超限素材【不该进槽】。
+#    进了槽 = 客户点提交被服务端整单拒，而那两张大图是他没选过的（agent 归位的），他不知道该删哪张。
+_TD30B = os.path.join(SCRATCH, "size30")
+os.makedirs(_TD30B, exist_ok=True)
+_OK30 = os.path.join(_TD30B, "small.jpg")
+_BIG30 = os.path.join(_TD30B, "big.jpg")
+open(_OK30, "wb").write(b"x" * 500)
+open(_BIG30, "wb").write(b"x" * 1500)
+_MF30B = [{"key": "product_images", "accept": ["jpg"], "max": 10, "max_bytes": 1000}]
+_f30b, _s30b = HF.slot_plan(_MF30B, [_OK30, _BIG30])
+chk("D30b", "体积超过这一槽上限（服务端下发的 max_bytes）⇒ 不挂进槽，并把那一张点名留给客户决定",
+    [[x["src"] for x in _f30b], sorted(_s30b)],
+    [[_OK30], ["product_images/big.jpg"]])
+chk("D30c", "留空说明里带着「多大 / 上限多少 / 为什么」：客户与 agent 都不用再猜死因",
+    [_s30b["product_images/big.jpg"].count("MB") >= 2, "不挂进槽" in _s30b["product_images/big.jpg"]],
+    [True, True])
+_f30d, _s30d = HF.slot_plan([{"key": "product_images", "accept": ["jpg"], "max": 10}], [_BIG30])
+chk("D30d", "反向对照：这一槽【没下发 max_bytes】⇒ 照旧挂（判据读那一份数，前端/脚本都不许自己写死 8MB）",
+    [[x["src"] for x in _f30d], sorted(_s30d)], [[_BIG30], []])
 _HS = open(os.path.join(HERE, "handoff.py"), encoding="utf-8", errors="replace").read()
 _HS_CODE = "\n".join(l for l in _HS.splitlines() if not l.strip().startswith("#"))
 chk("D30b", "handoff 真的【一个模型都不调】：不 import 网关、不打 video.analyze、不 POST 8100 —— "
