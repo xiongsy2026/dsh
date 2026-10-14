@@ -296,7 +296,11 @@ python scripts/deliver_pack.py <成片绝对路径> --task <任务名> --json
 "报未知但平台已建任务" ⇒ 去捞那个号（今天 20:15/20:16 就是 502 带着任务号回来、旧代码没挖，号丢了只能重投）；
 "任务失败且计费 0" ⇒ 同参数重投（免费）；**对账口没回话 ⇒ 一律停**（"读不到"不等于"没建上"，这条是防自己造双花的唯一屏障）。
 ⇒ **上层不许再 call 一次来"重试"**：每 call 吃一段批准额度，会把 23% 的成功率变成"用户点四次批准"。
-配额见底（`remainingCalls=0`）时适配器直接拒、0 消耗，并写明"先去 prime.youzan666.vip 续次数"——**不许拿"闸拦住了"当失败隐瞒**。
+配额见底（`remainingCalls=0`）时适配器直接拒、0 消耗，并写明"先去 wan3.youzan666.vip 续次数"——**不许拿"闸拦住了"当失败隐瞒**。
+🔴 **2026-10-12 这条 lane 整条搬到 `wan3.youzan666.vip`**：域名与 Key 是**一起换**的一对（旧域那把 `pr-*` 在新域回 401 `KEY_NOT_FOUND`，反之亦然 —— 两家号池各自独立），唯一源 = `config.py` 的 `PRIME_YZ_BASE_URL` + `.env` 的 `PRIME_YZ_API_KEY`。
+新域的 `GET /v1/balance` 把一个 Key 拆成**两个桶**：`balance`/`tasks` = 按【秒】的标准版 `wan3.0-video`，`primeBalance`/`primeTasks` = 按【次】的 `wan3.0-video-prime`，而 `recent` 是**两桶合在一起**的列表 ⇒ 按次的数只从 prime 桶读、`recent` 必须按 `model` 筛（读错桶会把"还在排队的 prime 任务"判成"没建上 ⇒ 重投"= 双花，或把一条标准版片子当 wan3-prime 交付出去）。回归 `check-prime-retry.py` R26–R30。
+🔴 **只接 `wan3.0-video-prime` 这一条**（2026-10-12 用户定）：按秒的标准版 `wan3.0-video` 不建路由、不进价目、不许拿它当"探测便宜的腿"。
+🔴 **素材只走【全能参考】一种模式**（2026-10-12 用户定"只要全能参考，别的模式别接"；现网实测：首尾帧与参考素材一起给 ⇒ `400 REFERENCE_MODE_CONFLICT 首尾帧不能与参考素材混用`）：这条 lane 的入参名单 = `reference_image / reference_video / reference_audio / file` 四类（唯一源 `gateway._PRIME_YZ_MEDIA`），`first_frame`/`last_frame` 在**本地**就拒（0 分、一个请求都不发，判据 `check-prime-retry.py` R31–R33b）。⇒ 想做镜头衔接连续性**不要**用首尾帧喂这条腿：写进 prompt 的文字连续性、或 reference_image 喂角色/产品图，才是这条 lane 的用法。
 落盘侧另有一条：同名成片不许静默覆盖，旧的会留成 `.prev-<sha8>`（v3 曾把已交付给人看过的那条原地盖掉）。
 
 🔴 **判"失败"之前先看盘**（2026-10-06 实测）：8090 的结构性复刻有 Phase1 已跑完（分镜 JSON + 故事板海报都在 `outputs/sr_<ts>/`、`phase_state.json=after_step3`）却被标成 `failed` 的情况——父进程回显子进程日志时 GBK 崩了。
@@ -505,8 +509,15 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
     ⚠️ 免批 ≠ 免账：这些腿仍走同一条 `precheck→preauth→settle→失败回滚`，扣分与留痕照旧；代价要认——**它们现在可以被任何一条会话直接花掉，出事只能事后从账本查，不是事前拦**。
   - **条子怎么来**：拿到用户明确同意后，agent 跑 `python D:\video-skill\backend\gateway.py approve <cap> [purpose] --count-from <任务目录> --account <成员> --session <这条方案的会话id> --scope "<用户批准的那条方案一句话>"` 建**待批**，然后**批准窗自己弹到桌面上**（人点【批准，开始跑】；页面 `http://127.0.0.1:8100/approval`
     🔴 **段数与分数只许从盘上算**（`--count-from`，2026-10-10 用户裁定"审批一次就行"）：唯一源 = `gateway.py plan_segment_count()`，优先级
-    `TIMELINE.md 的「段」表` > `outputs/seg* 段目录` > 单段（并如实说"按单段建的"）。手填 `--count/--credits` 与盘上不一致 ⇒ **拒建条子**，
-    因为填少了会在第 2 段被自己的闸拦停、填多了等于替客户多批。回归 `scripts/check-approval-count-from.py`。 是同一条动作口的备选，见下一条"人证"）；查/撤：`gateway.py approvals` / `revoke <id>`。条子写死 能力+purpose+账户+段数+分数上限+24h 过期+**所属会话**，**换路由、加段数、超额度、过期、换了会话一律再拒**。
+    `outputs/_submit_plan.json（管线 Step 0 写的提交计划）` > `TIMELINE.md 的「段」表` > `outputs 下的 seg*/chunk* 段目录（允许嵌两层）` > 单段（并如实说"按单段建的"）。手填 `--count/--credits` 与盘上不一致 ⇒ **拒建条子**，
+    因为填少了会在第 2 段被自己的闸拦停、填多了等于替客户多批。
+    🔴 **计划两份打架 = count 0（不许挑一份）**：`_submit_plan.json` 与 `TIMELINE.md` 段数不同 ⇒ 直接读不出来 ⇒ 拒建；坏 JSON 同理，并指回 `--stage compile`。
+    写侧唯一源 = `super_clone_wan3.write_submit_plan()`（2026-10-13 补：现网那条把 3 段算成 1 段，就是因为老判据只数 `outputs/seg*`，而段目录住在 `outputs/step2_wan3/chunk_01…03` ⇒ 人批 1 段、机器花 3 段的钱）。
+    🔴 **条子还签"哪一份计划"**（2026-10-13）：`approve --count-from` 顺手算出计划指纹 `plan_id`（只含段数/窗口/trim/参考片 sha8，不含时间戳）写进条子；
+    `invoke()` 在**消费批准之前**比对落点附近那份计划的指纹 —— 改了窗口或段数 ⇒ 这张条子花不出去，要回来重新报价。
+    治的是现网那一刀：scope 写着「段1 0-15s」、实提交的是 `chunk_03`（6.3s 尾段），因为"批的是哪一段"过去只存在于一句自然语言里。
+    ⚠️ 强度边界：落点附近没有计划文件 / 免批能力 / **没有指纹的老条子**（2026-10-13 之前建的）一律放行，不假装管得住。
+    回归 `scripts/check-approval-count-from.py`（K2e–K2q 段数主人 + M 组指纹，含真写侧↔真读侧 round-trip、临时账本真核销、变异对照）。 是同一条动作口的备选，见下一条"人证"）；查/撤：`gateway.py approvals` / `revoke <id>`。条子写死 能力+purpose+账户+段数+分数上限+24h 过期+**所属会话**+**提交计划指纹**，**换路由、加段数、超额度、过期、换了会话、改了窗口一律再拒**。
     🔴 `--session` 必须带（2026-10-06 事故补的）：不带 = 通用条子，任何会话都能消费别人的批准额度——我当时拿一次不相干的端点探测，就把另一会话签给 video-enhance 封面的 1 段/4 分吃掉了（闸判得"对"，但额度是共享的 ⇒ 谁都能花别人的同意）。已退回额度，规矩写进 `approval_allows` 与回归 G11b-G11e。
     🔴 **人证 = 一次点击，不要口令、不要【系统】弹窗**（2026-10-08 两易其稿；2026-10-09 弹窗改回来自研窗，回归 `scripts/check-approval-attest.py` P 组）：
        `approve` 现在**只建一张【待批 pending】并给出报价，此时 0 额度**；额度只能由"人看到报价之后"的一次核销拿到。

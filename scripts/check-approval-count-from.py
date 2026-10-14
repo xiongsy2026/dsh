@@ -7,6 +7,10 @@ K3 真跑 CLI 三条拒分支，并证明【没建条子、没弹窗】
 K4 会弹窗那条分支不许跑 ⇒ 改成读源码断言提示语在
 K5 变异对照（摘掉 --count-from / 把派生改成常量）
 K6 覆盖对照：count 的赋值只许有一处来自派生
+K2e…K2q（2026-10-13）段数要有主人：管线落的 _submit_plan.json 优先，打架/坏文件一律 count=0，
+        兜底认【嵌套】chunk_*，并用真写侧↔真读侧 round-trip 证两边对得上。
+M 组（2026-10-13）批准的范围认指纹：条子签的是【那一份】切段计划，改窗口/改段数 ⇒ 提交那一刀拒
+        （现网形状：批「段1 0-15s」、实提交 chunk_03 的 6.3s 尾段）。全程临时账本 + 临时 ledger。
 全离线、0 消耗：绝不真建待批（建了就会往人桌面上弹批准窗）。
 """
 import io
@@ -21,6 +25,7 @@ sys.path.insert(0, r"D:\video-skill")
 from backend import gateway as gw            # noqa: E402
 
 GW_PY = r"D:\video-skill\backend\gateway.py"
+SVC_PY = r"D:\video-skill\backend\services\super_clone_wan3.py"
 APPR = r"D:\video-skill\.gateway_spend_approvals.json"
 PROD = "C:" + BS + "dsh" + BS + "productions"
 PASS, FAIL = [], []
@@ -97,6 +102,86 @@ check("K2c 没有 TIMELINE ⇒ 数 outputs/seg* 目录",
 _solo = gw.plan_segment_count(mk("solo"))
 check("K2d 两个都没有 ⇒ 如实按单段（count=1 且 source 说清来源）",
       [_solo.get("count"), _solo.get("source")], [1, "single-default"])
+
+# ── K2e…K2k 段数要有主人（2026-10-13 现网：批 1 段、机器跑 3 段）────────────────
+PLAN = gw.SUBMIT_PLAN_NAME
+
+
+def mk2(name, timeline=None, segs=(), plan=None, deep=()):
+    """segs 落在 outputs/ 下；deep 落在 outputs/step2_wan3/ 下（这条线真实的嵌套形状）。"""
+    d = mk(name, timeline=timeline, segs=segs)
+    for s in deep:
+        os.makedirs(os.path.join(d, "outputs", "step2_wan3", s), exist_ok=True)
+    if plan is not None:
+        io.open(os.path.join(d, "outputs", PLAN), "w", encoding="utf-8", newline=NL).write(plan)
+    return d
+
+
+PLAN3 = json.dumps({"count": 3, "windows": [{"start": 0.0, "end": 15.0},
+                                            {"start": 15.0, "end": 30.0},
+                                            {"start": 30.0, "end": 36.4}],
+                    "target_duration": 36.4, "trim": None, "source_sha8": "abcd1234"})
+_r = gw.plan_segment_count(mk2("p3", segs=("seg1",), plan=PLAN3))
+check("K2e 管线落的提交计划优先（盘上只有 1 个段目录也按计划的 3 段）",
+      [_r.get("count"), _r.get("source")], [3, PLAN])
+check("K2e2 计划里的窗口要出现在 detail 里（段数不能是个没有来历的数）",
+      "0.00-15.00s" in (_r.get("detail") or "") and "30.00-36.40s" in (_r.get("detail") or ""), True)
+_r0 = gw.plan_segment_count(mk2("p0", timeline=TL3, plan=json.dumps({"count": 2, "windows": []})))
+check("K2f 计划与 TIMELINE 打架 ⇒ count=0（两份事实不许挑一份）", [_r0.get("count"), _r0.get("source")],
+      [0, "plan-vs-timeline"])
+_rb = gw.plan_segment_count(mk2("pb", plan="{count: 3"))
+check("K2g 计划是坏 JSON ⇒ count=0 并指回去重编译（读不出来不等于没段）",
+      [_rb.get("count"), "compile" in (_rb.get("detail") or "")], [0, True])
+_re_ = gw.plan_segment_count(mk2("pe", plan=json.dumps({"count": 0, "windows": []})))
+check("K2h 计划里 count=0 ⇒ 同样拒（不许回落成 1 段偷偷批）", _re_.get("count"), 0)
+_rd = gw.plan_segment_count(mk2("deep", deep=("chunk_01", "chunk_02", "chunk_03")))
+check("K2i 没有计划时兜底认【嵌套】chunk_*（现网那条就数漏在这）",
+      [_rd.get("count"), _rd.get("source")], [3, "outputs/段目录"])
+check("K2j 兜底那条要自己承认是猜的（detail 里得有「猜的兜底」，让人看得出该重编译）",
+      "猜的兜底" in (_rd.get("detail") or ""), True)
+_deeper = mk2("deep4", deep=("chunk_01",))
+os.makedirs(os.path.join(_deeper, "outputs", "step2_wan3", "chunk_01", "x", "chunk_09"), exist_ok=True)
+check("K2k 反向对照：段目录嵌到第 4 层就不数了（证明 max_depth 真在生效，不是碰巧走全树）",
+      gw._seg_dirs_under(os.path.join(_deeper, "outputs")), ["chunk_01"])
+_real_new = gw.plan_segment_count(os.path.join(PROD, "super-clone-20261013-2050"))
+check("K2l 真产物：那条把 3 段算成 1 段的任务目录，现在算出 3", _real_new.get("count"), 3)
+
+import ast as _ast                                                   
+_wsrc = io.open(SVC_PY, encoding="utf-8", errors="replace").read()
+check("K2m 文件名常量两边同一个（写侧改了名，读侧会静默数不到）",
+      gw.SUBMIT_PLAN_NAME,
+      _ast.literal_eval(next(n.value for n in _ast.parse(_wsrc).body
+                             if isinstance(n, _ast.Assign)
+                             and getattr(n.targets[0], "id", "") == "SUBMIT_PLAN_NAME")))
+_calls = [n.lineno for n in _ast.walk(_ast.parse(_wsrc))
+          if isinstance(n, _ast.Call) and getattr(n.func, "id", "") == "write_submit_plan"]
+_segdir_line = next((i for i, l in enumerate(_wsrc.split(chr(10)), 1) if 'f"chunk_{i:02d}"' in l), 0)
+check("K2n 管线真的调 write_submit_plan，且排在切段之前（先有计划再有段目录）",
+      [len(_calls) >= 1, bool(_segdir_line) and _calls[0] < _segdir_line], [True, True])
+RT = os.path.join(tmp, "roundtrip")
+os.makedirs(RT, exist_ok=True)
+from backend.services import super_clone_wan3 as _svc    # noqa: E402
+_w = _svc.write_submit_plan(RT, task_id="t", windows=_svc.plan_15s_windows(36.4),
+                            target_duration=36.4, trim_range=None,
+                            source_video=os.path.join(RT, "src.mp4"), as_duration_chunk=False)
+_rr = gw.plan_segment_count(RT)
+check("K2p 真写侧 ↔ 真读侧对得上（管线算 3 段 ⇒ 网关读出 3 段，两模块各解一遍必漂）",
+      [_w["count"], _rr["count"], _rr["source"], bool(gw.submit_plan_id(RT))],
+      [3, 3, PLAN, True])
+_w1 = _svc.write_submit_plan(RT, task_id="t", windows=[], target_duration=15.0,
+                             trim_range={"start": 0.0, "end": 15.0},
+                             source_video=os.path.join(RT, "src.mp4"), as_duration_chunk=True)
+check("K2q 只做一段（难单 / --as-duration-chunk）⇒ 计划里就是 1 段，不再走「猜的兜底」那条路",
+      [_w1["count"], gw.plan_segment_count(RT)["count"], gw.plan_segment_count(RT)["source"]],
+      [1, 1, PLAN])
+_keep_reader = gw._submit_plan_read
+gw._submit_plan_read = lambda d: None                    # 变异：把"读计划"这一刀摘掉
+_m = gw.plan_segment_count(mk2("pmut", segs=("seg1",), plan=PLAN3))
+gw._submit_plan_read = _keep_reader
+check("K2o 变异对照：摘掉读计划 ⇒ K2e 那个断言必须换个理由红（证明它不是靠段目录蒙对的）",
+      [_m.get("count"), _m.get("source") != PLAN], [1, True])
+check("K2o2 变异只改了内存里那份，读回来还是好的（闸自己不许污染被测码）",
+      gw.plan_segment_count(mk2("pmut", segs=("seg1",), plan=PLAN3)).get("source"), PLAN)
 
 # ── K3 真跑 CLI 三条拒分支，并证明没建条子 ──────────────────────────────────
 def pend_ids():
@@ -259,9 +344,75 @@ check("K10 接线覆盖对照：表是在【建完待批、给出报价】之后
 check("K10b 变异：把打印计划表那两句删掉 ⇒ K10 的定位就失配（证明 K10 钉的是真接线，不是注释）",
       [src.replace("skill_for_spend(cap, kv", "_removed(cap, kv").find("skill_for_spend(cap, kv")], [-1])
 
+M_TMP = tempfile.mkdtemp(prefix="plan-drift-")
+M_APPR = os.path.join(M_TMP, "approvals.json")
+io.open(M_APPR, "w", encoding="utf-8").write("{}")
+_m_task = os.path.join(M_TMP, "task")
+os.makedirs(os.path.join(_m_task, "outputs", "step2_wan3", "chunk_01", "step2_wan3"), exist_ok=True)
+io.open(os.path.join(_m_task, "outputs", PLAN), "w", encoding="utf-8").write(PLAN3)
+MPID = gw.submit_plan_id(_m_task)
+_out = os.path.join(_m_task, "outputs", "step2_wan3", "chunk_01", "step2_wan3", "seg01-prime.mp4")
+PARAMS = {"output_path": _out, "job_id": ""}
+
+_sa, _sl, _sp2 = gw.SPEND_APPROVALS_PATH, gw._ledger, gw.ALLOW_GRANT_WITHOUT_ATTEST
+gw.SPEND_APPROVALS_PATH = M_APPR
+gw._ledger = gw.Ledger(path=os.path.join(M_TMP, "ledger.sqlite"))
+
+
+def _sign(plan_id, count=3):
+    """建待批 → 拿服务端自己那份码核销 ⇒ 得到一张【带指纹】的活条子（走的就是现网那条路）。"""
+    p = gw.create_spend_pending("video.generate", "wan3-prime", "probe", count=count,
+                                credits=count * 60, scope="闸自测", session="probe-s", plan_id=plan_id)
+    code = next(x["code"] for x in json.loads(io.open(M_APPR, encoding="utf-8").read())["pending"]
+                if x["id"] == p["id"])
+    r = gw.consume_spend_approval(p["id"], code, "probe-s")
+    return (r.get("grant") or {}).get("plan_id", "（没带上）")
+
+
+check("M1 计划指纹算得出来，且只由 count/windows/trim/参考片决定（换个时间戳不该换指纹）",
+      [bool(MPID), gw.submit_plan_id(_m_task) == MPID,
+       io.open(os.path.join(_m_task, "outputs", PLAN), encoding="utf-8").read().count("written_at")],
+      [True, True, 0])
+check("M2 核销把指纹从待批带到条子上（漏这一步，M3 之后全是空判据）", _sign(MPID), MPID)
+check("M3 同指纹 ⇒ 放行（0 个问题）",
+      gw.plan_drift_problems("video.generate", "wan3-prime", PARAMS, "probe", "probe-s"), [])
+io.open(os.path.join(_m_task, "outputs", PLAN), "w", encoding="utf-8").write(
+    json.dumps({"count": 1, "windows": [{"start": 30.1, "end": 36.4}], "trim": None,
+                "source_sha8": "abcd1234"}))
+_p = gw.plan_drift_problems("video.generate", "wan3-prime", PARAMS, "probe", "probe-s")
+check("M4 现网那一刀：条子批的是 3 段，提交改成【只有尾段 30-36s】⇒ 拒",
+      [len(_p) == 1, "30.10-36.40s" in _p[0], "重新报价" in _p[0]], [True, True, True])
+io.open(os.path.join(_m_task, "outputs", PLAN), "w", encoding="utf-8").write(PLAN3)
+check("M5 计划改回来 ⇒ 又放行（判据盯的是【是不是同一份】，不是一次性黑名单）",
+      gw.plan_drift_problems("video.generate", "wan3-prime", PARAMS, "probe", "probe-s"), [])
+_old = _sign("")
+check("M6 迁移期：没有指纹的老条子一律放行（不许把在途单子炸掉），但字段确实空着",
+      [_old, gw.plan_drift_problems("video.generate", "wan3-prime", PARAMS, "probe", "probe-s")],
+      ["", []])
+os.makedirs(os.path.join(M_TMP, "no-plan", "outputs"), exist_ok=True)
+check("M7 不在射程要如实放行：落点附近没有提交计划（别的线）",
+      gw.plan_drift_problems("video.generate", "wan3-prime",
+                             {"output_path": os.path.join(M_TMP, "no-plan", "outputs", "a.mp4")},
+                             "probe", "probe-s"), [])
+check("M8 不在射程：免批能力（看图/文本）不参与比对",
+      gw.plan_drift_problems("video.analyze", "mimo", PARAMS, "probe", "probe-s"), [])
+gw.SPEND_APPROVALS_PATH, gw._ledger, gw.ALLOW_GRANT_WITHOUT_ATTEST = _sa, _sl, _sp2
+
+src = io.open(GW_PY, encoding="utf-8", errors="replace").read()      # 重读一次（上面 K4 那份是加指纹前切的）
+check("M9 接线：invoke 里真的调了 plan_drift_problems，且判在【消费批准之前】（顺序错了先吃掉别人的额度）",
+      [src.count("_dp = plan_drift_problems("),
+       src.find("_dp = plan_drift_problems(") < src.find("gate = check_spend_approval(capability, r[")],
+      [1, True])
+check("M9b 接线：核销那条路把 plan_id 传给了条子（不传 ⇒ M2 之外全是空判据）",
+      [src.count("plan_id=p.get(\"plan_id\", \"\")"), src.count('kv["plan_id"] = submit_plan_id(')], [1, 1])
+check("M10 变异：把【批的就是这一份计划】这一刀摘掉 ⇒ M9 的定位立刻失配（证明它钉的是真接线，不是注释）",
+      src.replace("_dp = plan_drift_problems(", "_dp = [] or plan_drift_problems(", 1)
+         .count("_dp = plan_drift_problems("), 0)
+
 shutil_ok = True
 try:
     import shutil
+    shutil.rmtree(M_TMP, ignore_errors=True)
     shutil.rmtree(tmp, ignore_errors=True)
 except Exception:
     shutil_ok = False
