@@ -325,6 +325,91 @@ chk("P19", "余额读不到就不编一个：账户不存在 ⇒ 正文里不许
 chk("P20", "反向对照：P16 的四格是数出来的，把 bullets 砍到三条就必须红（不是恒真断言）",
     [len([b for b in _N16["bullets"] if "不能撤回" in b]), len(_N16["bullets"][:3])], [1, 3])
 
+# ── P21：批准窗的每一个 widget 选项名必须是 Tk 真认识的（2026-10-14 现网）────────────
+# 事故形状：我加"点下去之后"那段时写了 Label(align="top") ⇒ Label 没有 -align（只有 -anchor/-justify），
+#   Tk 在【构造那一句】就抛 TclError ⇒ 弹窗一创建就死，人桌面上从来没有任何卡可点。
+#   而当时 P 组全绿：那些断言测的是文案与居中算法，一条都没碰到 widget 构造 ⇒
+#   "闸全绿却藏着一条必然崩溃的分支"。这里补的判据不弹任何窗（Tcl() 不注册 widget 命令，问不到选项表），
+#   用【按类的合法选项白名单】静态判，配一条变异证明它真咬人。
+_TK_OPTIONS = {
+    "Label": {"anchor", "background", "bitmap", "borderwidth", "compound", "cursor", "font",
+              "foreground", "height", "highlightbackground", "highlightcolor", "highlightthickness",
+              "image", "justify", "name", "padx", "pady", "relief", "takefocus", "text",
+              "textvariable", "width", "wraplength", "class"},
+    "Button": {"anchor", "background", "bitmap", "borderwidth", "compound", "cursor", "default",
+               "disabledforeground", "font", "foreground", "height", "highlightbackground",
+               "highlightcolor", "highlightthickness", "image", "justify", "command", "name",
+               "padx", "pady", "relief", "state", "takefocus", "text", "textvariable", "underline",
+               "width", "wraplength", "class", "activebackground", "activeforeground",
+               "activeborderwidth", "relief"},
+    "Frame": {"borderwidth", "class", "colspan", "container", "cursor", "height",
+              "highlightbackground", "highlightcolor", "highlightthickness", "name", "padx", "pady",
+              "relief", "takefocus", "width", "background"},
+    "Toplevel": {"class", "container", "height", "menu", "takefocus", "visual", "width",
+                 "background", "name"},
+}
+
+
+_TK_ALIASES = {"fg", "bg", "bd"}   # Tk 单独注册的短别名（-fg 不是 -foreground 的前缀，前缀规则盖不到）
+
+
+def _tk_option_ok(kw, table):
+    """Tk 认【唯一前缀】：-fg 是 -foreground 的合法缩写 ⇒ 只比对全名会把合格对象判红
+       （我第一版就红在这里）。规则：完全相等，或作为唯一前缀命中一项。"""
+    if kw in table or kw in _TK_ALIASES:
+        return True
+    return len([o for o in table if o.startswith(kw)]) == 1
+
+
+_PACK_OPTIONS = {"after", "anchor", "before", "expand", "fill", "in", "ipadx", "ipady",
+                 "padx", "pady", "side"}
+_GRID_OPTIONS = _PACK_OPTIONS | {"column", "columnspan", "row", "rowspan", "sticky"}
+
+
+def widget_option_problems(text):
+    """返回【问题清单】。判据：Label/Button/… 构造的 kwargs 名必须在 Tk 的合法选项里；
+       pack/grid 的关键字同理。未知选项 = Tk 当场 TclError = 窗起不来。"""
+    import ast as _A
+    p = []
+    try:
+        tree = _A.parse(text)
+    except SyntaxError as e:
+        return ["文件语法错：%s" % e]
+    for n in _A.walk(tree):
+        if not isinstance(n, _A.Call):
+            continue
+        f = n.func
+        name = getattr(f, "attr", None) or getattr(f, "id", None)
+        if name in _TK_OPTIONS:
+            for kw in n.keywords:
+                if kw.arg is None:
+                    continue
+                if not _tk_option_ok(kw.arg, _TK_OPTIONS[name]):
+                    p.append("%s:%s 不认识的选项 -%s（Tk 会在构造那一句抛 TclError ⇒ 弹窗直接死）"
+                             % (getattr(n, "lineno", "?"), name, kw.arg))
+        elif name in ("pack", "grid", "place"):
+            table = {"pack": _PACK_OPTIONS, "grid": _GRID_OPTIONS}.get(name)
+            if not table:
+                continue
+            for kw in n.keywords:
+                if kw.arg and not _tk_option_ok(kw.arg, table):
+                    p.append("%s:%s 不认识的选项 -%s" % (getattr(n, "lineno", "?"), name, kw.arg))
+    return p
+
+
+_pp_src = _io.open(r"D:\video-skill\backend\approval_popup.py", encoding="utf-8",
+                   errors="replace").read()
+chk("P21", "批准窗的 widget 选项名全部合法（-align 那种一构造就 TclError）",
+      widget_option_problems(_pp_src), [])
+chk("P21b", "反向对照：把 align 那行插回去 ⇒ 必须红（现网那个 bug 的形状）",
+      any("-align" in x for x in widget_option_problems(
+          _pp_src.replace('wraplength=430, justify="left")',
+                          'wraplength=430, justify="left", align="top")', 1))), True)
+chk("P21c", "变异只改动一处（锚点在文件里唯一，否则这条自测是在比空气）",
+      _pp_src.count('wraplength=430, justify="left")'), 1)
+chk("P21d", "pack/grid 那一侧同样在射程内（pack(align=...) 也是当场死）",
+      any("pack" in x for x in widget_option_problems("x.pack(padx=18, align=\"w\")")), True)
+
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 人证闸（pending+核销版）汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))
 for cid, ok in RESULTS:
