@@ -944,6 +944,119 @@ check("T36f 覆盖对照：两条提交路径都调 _contract_evidence（少一�
       _sfw.count("_contract_evidence("), 3)   # 1 定义 + 2 调用
 
 shutil.rmtree(TMP, ignore_errors=True)
+# ── N 组：改口播【直出】那一格（2026-10-14 @11）───────────────────────────────
+# 钉的是"客户的改稿真的走到了 prompt 的台词位"，不是"参数收到了"。全程本地字符串对账，0 消耗。
+if _svc:
+    _nd = tempfile.mkdtemp(prefix="nd-")
+
+    def _sb():
+        return [{"shot": 1, "时间区间": {"开始时间": 0, "结束时间": 3}, "口播": "原片第一句很长的一段话"},
+                {"shot": 2, "时间区间": {"开始时间": 3, "结束时间": 7}, "口播": "原片第二句也很长一段话"}]
+
+    _NEW = "新稿第一句要换掉它\n新稿第二句也要换掉它"
+    _r1 = _svc.apply_customer_narration(_sb(), _NEW, _nd)
+    check("N1 真函数：新稿灌进各镜口播位，覆盖率与残留双向都是 1",
+          [_r1["coverage"], _r1["stale"], _r1["problems"],
+           os.path.isfile(os.path.join(_nd, "voice_script_binding.json"))],
+          [1.0, 1.0, [], True])
+    check("N2 空稿 = 什么都不做（返回 None，不许把「没给稿」写成「已按新稿改好」）",
+          _svc.apply_customer_narration(_sb(), "   ", _nd) is None, True)
+    try:
+        _svc.apply_customer_narration([{"shot": 1, "时间区间": {"开始时间": 0, "结束时间": 3},
+                                        "口播": "无"}], "有稿", _nd)
+        _n3 = "没拒"
+    except RuntimeError as _e:
+        _n3 = "拒" if "全空" in str(_e) else ("拒因不对:" + str(_e)[:40])
+    check("N3 口播位全空 ⇒ 拒（没有原句就没有对齐底子，硬塞第一镜是蒙）", _n3, "拒")
+    _r4 = _svc.apply_customer_narration(_sb(), "新稿第一句要换掉它新稿第二句也要换掉它再加一段更长的", _nd)
+    check("N4 新稿比原稿长也必须全覆盖（漏字就是漏词，不是差不多）",
+          [_r4["coverage"], _r4["stale"]], [1.0, 1.0])
+    check("N5 纯判据值表：空格与换行不算差异、缺字要掉比例",
+          [_svc.narration_coverage("甲 乙\n丙", "甲乙丙"), _svc.narration_coverage("甲乙丙", "甲乙"),
+           _svc.narration_coverage("", "随便")], [1.0, 0.6667, 1.0])
+    # 🔴 变异（真变异，不是自我比对）：把干活的那一步换成空转 ⇒ 判据必须当场拒
+    _real_avs = _svc.apply_voiceover_script
+    _svc.apply_voiceover_script = lambda sb, t: sb
+    try:
+        _svc.apply_customer_narration(_sb(), _NEW, _nd)
+        _n6 = "空转也能过（判据没咬）"
+    except RuntimeError as _e:
+        _n6 = "拒" if "只落位" in str(_e) else ("拒因不对:" + str(_e)[:40])
+    finally:
+        _svc.apply_voiceover_script = _real_avs
+    check("N6 变异：摘掉对齐那一步 ⇒ 覆盖率判据必须拒（证明它不是白写的）", _n6, "拒")
+
+    _l_call = next((i for i, l in enumerate(_svc_src.split(chr(10)), 1)
+                    if "apply_customer_narration(storyboard" in l), 0)
+    _l_asr = next((i for i, l in enumerate(_svc_src.split(chr(10)), 1)
+                   if "FunASR 口播已覆盖 storyboard" in l), 0)
+    _l_cmp = next((i for i, l in enumerate(_svc_src.split(chr(10)), 1)
+                   if "Step 1.5/4: Grok 编译器" in l), 0)
+    check("N7 顺序：ASR 写回【之后】、编译之前（放在前面会被原片词盖掉 = 静默冒充）",
+          [bool(_l_call) and _l_asr < _l_call < _l_cmp, _l_asr > 0, _l_cmp > 0], [True, True, True])
+    check("N8 一段一条稿：整条自动切多段时带着整稿 ⇒ 点名拒（每段各灌一遍=每段都念整稿）",
+          ("if voice_script and len(windows) > 1" in _svc_src and "逐段跑" in _svc_src), True)
+    check("N9 覆盖对照：两条提交路径都带 narration_binding（少一处=那种运行形状没这一格）",
+          _svc_src.count("narration_binding=str(Path(output_dir)"), 2)
+    check("N9b 入口把那格接到 run_pipeline 的 voice_script（不接=这根线在入口就断）",
+          'voice_script=str(vals.get("voice_script")' in _run_src, True)
+    _st_nd = next((s for s in (c.get("steps") or []) if s.get("id") == "narration-direct"), {})
+    check("N10 合同里有 narration-direct 那一格：手段/物证/非必需",
+          [_st_nd.get("impl"), _st_nd.get("proof", "")[:20], _st_nd.get("required")],
+          ["pipeline:apply_customer_narration", "voice_script_binding", False])
+    # 真调物证写者：带物证 ⇒ 当场打钩且模型名=不用模型；不带 ⇒ 那一格必须还是 ⬜
+    os.makedirs(_SEG, exist_ok=True)          # T34 那一组可能已经清掉了，这一组自己建
+    os.makedirs(_t34_dir, exist_ok=True)
+    # 🔴 夹具要自己重建：T34 收尾把 ref/产品图与台账都清过，素材读不到时 _contract_evidence
+    #    会在【对账那一刀】就抛 ⇒ 这里拿到的错和"直出这一格"无关，会把好判据演成假红。
+    open(_ref, "wb").write(b"fake-video")
+    open(_pro, "wb").write(b"fake-product")
+    os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(_t34_dir, "ledger.json")
+    _g34.record_media_analysis(_pro, "video.analyze", "default", session="", hold_id="h-N")
+    _bind = os.path.join(_SEG, "voice_script_binding.json")
+    io.open(_bind, "w", encoding="utf-8").write(json.dumps(
+        {"coverage": 1.0, "stale": 1.0, "problems": [], "shots": []}, ensure_ascii=False))
+    _g34.invoke = lambda *a, **k: {"ok": False, "credits": {"estimated": 0, "charged": 0},
+                                   "error": "闸里不许真调上游（N 组桩）"}
+
+    def _row(b):
+        try:
+            _svc._contract_evidence(_SEG, seg_board=REAL_SHOTS,
+                                    seg_prompt="…不得出现字幕、花字、水印…", compiled_seg=_stamp,
+                                    seg_duration=10.0, ref_video=_ref, seg_product_paths=[_pro],
+                                    source_fit=_ref, narration_binding=b, log=None)
+            _rc = json.load(io.open(os.path.join(_SEG, ".skill_receipt.json"), encoding="utf-8"))
+            return next((x for x in _rc.get("steps") or []
+                         if x.get("id") == "narration-direct"), {})
+        except Exception as _e:                                # noqa: BLE001
+            _row_err.append("%s: %s" % (type(_e).__name__, str(_e)[:150]))
+            return {"_err": str(_e)[:150]}
+    _row_err = []
+    _with = _row(_bind)
+    check("N11 带了物证 ⇒ 那一格打上钩、模型名写「不用模型」（本地对账步不许留空冒充）｜%s"
+          % ("；".join(_row_err) or "no-err"),
+          [_with.get("ok"), _with.get("model")], [True, sc.NO_MODEL])
+    _without = _row(os.path.join(_nd, "nope.json"))
+    check("N12 没带物证 ⇒ 那一格必须还是未钩（不许拿上一次的钩冒充这次做过）",
+          [_without.get("ok"), _without.get("id", "narration-direct")], [False, "narration-direct"])
+    _g34.invoke = _real34                                       # 🔴 桩必须还原：留着会让后面的组全部走空
+    check("N12b 桩还原了（invoke 又变回真函数 = 闸自己不带着假腿跑完）",
+          _g34.invoke is _real34, True)
+    shutil.rmtree(_nd, ignore_errors=True)
+    check("N13 收尾：这一组的临时目录真的没了（闸自己不许留残留）",
+          os.path.isdir(_nd), False)
+    check("N14 直出与换轨互斥：物证在 ⇒ apply_narration_swap 早退（再换一次=一条片子两条声+重复花克隆钱）",
+          ["_nd = direct_narration_done(video_path)" in _run_src,
+           "不再走换轨" in _run_src,
+           _run_src.count('if os.path.isfile(cand)')], [True, True, 1])
+    check("N14b 半截的物证不算数：coverage<0.999 或有 problems ⇒ 还会走换轨（不许拿旧文件冒充做过）",
+          'float(rec.get("coverage") or 0) >= 0.999 and not (rec.get("problems") or [])' in _run_src, True)
+    check("N15 口型那一刀与【有没有换轨】无关：两个交付口都拿 换轨片或直出片 去对齐（少一处=那种形状没口型）",
+          [_run_src.count("_lip = apply_lip_sync(_sw or _film"), _run_src.count("_tgt = _sw or path"),
+           _run_src.count("_lip = apply_lip_sync(_tgt")], [1, 1, 1])
+else:
+    check("N0 super_clone_wan3 没导进来（整组没跑 = 假绿，直接红）: %s" % _imp_err, False, True)
+
 print(_safe("\n=== skill 执行合同闸：%d/%d 通过 ===" % (len(PASS), len(PASS) + len(FAIL))))
 for f in FAIL:
     print(_safe("  FAIL: " + str(f)))

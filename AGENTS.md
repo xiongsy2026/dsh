@@ -496,6 +496,31 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    回归 `scripts/check-spend-receipt.py`（A 真值表 / B 真跑 invoke + 适配器打桩：无回执拒且 0 消耗、
    有回执走到批准闸、回执+条子齐真放行、失败退段 / C 顺序用 AST 行号钉 / D 变异 / E 覆盖对照）。
 - **唯一例外形态 = hypit**：它的 Provider 协议只认 HTTP，所以生成腿经自写 provider `@weeksir/provider-gateway` POST `http://localhost:8100/api/hypit`（`/uploads`、`/videos`、`/videos/{id}`、`/rates`），服务端 `hypit_bridge.py` 仍转 `gateway.invoke` ⇒ **同一套预扣/结算/审计**。不算第二条轨，只是同一轨换了入口；鉴权用 `.env` 的 `MODEL_GATEWAY_TOKEN`（Bearer）。详见 `.dsh/skills/hypit-pipeline/references/monitor-contract.md` §1.5。
+- 🔴 **改口播是 wan3.0 能【直出】的——台词位就是 prompt 里那句引号**（2026-10-14 用户问"给我一个准话"）：
+   证据四条 —— ① `force_verbatim_speech()` 在 4 个调用点（`super_clone_wan3.py:4106/4121/4162/4271` 一带）把每一镜「口播」**逐字**钉回 prompt；
+   ② 盘上那条真出片（`chunk_03/step2_wan3/seg01-prime.mp4`）ffprobe 出 `aac` 音轨 ⇒ 这条 lane 自己出声；
+   ③ 请求体只有 `prompt/duration/resolution/ratio/media`（`gateway._yz_prime_payload`），**没有专门的台词字段**，词只能待在 prompt 里；
+   ④ 而 `apply_voiceover_script()`（把改稿按 diff 对齐回各镜）**全仓零调用点** ⇒ 进 prompt 的永远是 FunASR 抄下来的原片旧词。
+   ⇒ 补的就是这一根线：`apply_customer_narration()` 在 **ASR 写回之后、编译之前**灌新稿（放前面会被原片词盖掉），
+   物证 `voice_script_binding.json`（coverage 与 stale **双向 ≥0.999**，不满 ⇒ 0 分拒提交），合同 `super-clone-wan3@11` 的 `narration-direct` 那一格。
+   ⚠️ **一段一条稿**：整条自动切多段却带着整稿 ⇒ 入口点名拒（每段各灌一遍 = 每段都念整稿），要么逐段各给各的稿，要么退后处理换轨。
+   ⚠️ **直出与换轨互斥**：有直出物证 ⇒ runner 跳过 `narration-swap`（再换一次 = 一条片子里两条声 + 重复花克隆的钱）。
+   ⚠️ **audio 是丢掉的那个参数**：这条 lane 没有"原声/静音"开关，`audio=True` 上送不进去（声音由模型按台词生成）⇒
+   现在 `_wan3_request.json` 里同时写 `audio` 与 `audio_param_sent_to_lane: False` + `audio_note`，**不许让"传了"看起来像"生效了"**（wan3-limits 第 14 条）。
+   回归：`check-skill-contract.py` 的 **N 组**（真函数值表 + 摘掉对齐那一步的变异 + N12"没物证必须抹回 ⬜" + 两个交付口的覆盖对照）、
+   `check-engine-single-source.py` 的 **J12**。
+- 🔴 **口型对齐是一条【后处理腿】，不是 wan3 的参数**（2026-10-14 用户裁定"这个对话的目标就是改口型，wan3.0 没法直出了，得加口型对齐工作流"）：
+   wan3-prime 的入参名单 `gateway._PRIME_YZ_MEDIA` 只有 `reference_image/reference_video/reference_audio/file`，payload 里**零个** lip/mouth/sync 字段；
+   而上一步 `voiceover_replace.run_narration_swap` 自己的文档串就写着"不做口型同步：嘴形与新词对不上是这一档的已知代价"。
+   ⇒ 想"顺手让模型把嘴对上"是幻想，只能：`gateway.py call lipsync default`（RunningHub LatentSync 工作流，`video_translate_pipeline.run_lip_sync` /
+   给 `segments` 就走 `run_selective_lip_sync` —— 只重画**有人脸的说话段**，产品特写段不动画面）。
+   **目标音频 = 换轨成片自己的音轨**（runner 本地 ffmpeg 抽，0 分、不发请求）⇒ 这一条不许再引一次 TTS/声音克隆（那是重复花钱，且贴上去的就不是刚改好的那句）。
+   ⚠️ 单价 **20 分/次是价目登记值，账本里 lipsync 的调用数 = 0 ⇒ 未实测**（耗时与成功率都没有），报价必须带上"未实测"。
+   ⚠️ 这条腿以前挂在 ROUTES/价目上却**没有适配器**（`call()` 一路落到 `NotImplementedError`）⇒ 物理上调不动；现在接上了，且它是【默认要批】的能力：
+   没有条子 ⇒ 0 分未扣、任务不发起，runner 把拒因原样念出来并**照常交没对齐的那条**（🔴 不许"顺手提交"，也不许把没对齐的当已对齐交付）。
+   合同 `super-clone-wan3@10` 的 `lip-sync` 那一格（`手段=gateway:invoke:lipsync`、物证 `lip_sync.json`：单价/estimated/charged/mode/说话段数）；
+   接线由 `scripts/check-engine-single-source.py` 的 **J 组**钉（含入参值表、"文件不在盘"和"缺参数"要分开报、
+   两个交付口 `--stage wait`/`submit` 都得接上这条腿，少一处就红），并钉它落的仍是 `check-rh-video-ban.py` R10 登记过的那份**加工腿**文件 —— 禁令按能力放行，换工作流就是绕过。
 - 返回归一 JSON：`{ok, result, credits:{estimated,charged,tokens,basis,balance_after}, error}`。
 - 🔴 **hypit 只有三条"已绑 capability"能花钱**（2026-10-03 定）：`@hypit/seedance@1#seedance-2-mini`（`model="mini"`，50 分/5 秒）、`#seedance-2.5`（`model="2.5"`，60 分）、`@hypit/minimax-h3@1#minimax-h3`（`<h3:…>` 元素，无 `model` 属性，60 分）。官方 `hypihub.default` 端点已从 `hypit_runs/hypit.runtime.json` **摘掉**（备份 `hypit.runtime.json.bak-hypihub`）⇒ 未绑定的写法在 `hypit plan` 就报错、0 分，不再静默 POST `https://hypit.ai`（2026-10-03 实测漏绑一条就是这个走法，靠对方欠费才没花出去）。四张表（profile bindings / `provider.js` LANES / 桥 `HYPIT_MODELS`·`LANE_SPECS` / 网关 `ROUTES`）改任何一张都跑：`python scripts/check-runtime-bindings.py`。
 - **积分**：网关调用前自动 校验余额→预扣→成功提交 / 失败回滚；不足则 `ok:false` 提示去 weeksir.com 充值。`--account` 用 `LOOP.member`。

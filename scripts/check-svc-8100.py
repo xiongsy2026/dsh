@@ -379,6 +379,28 @@ if SELFHEAL:
     check("L1 自愈成功（≤90 秒）", up is not None and up <= 90, True)
     print("   恢复耗时 %s 秒" % up)
 
+# 🔴 W10（2026-10-14 现网）：守卫【自己】不许是故障点 —— restart 已经真换人了
+#    （pid 52580→56676、新进程晚于 gateway.py 的 mtime），却被最后一行带 ⇒ 的 print 崩成 traceback，
+#    调用方只看到 UnicodeEncodeError、看不到"生效没有"。这条路是"只有出事才走"的那条，
+#    它绊倒一次 = 那天没人起服务。判据 = 出口处包了 _safe，且 _safe 不 reconfigure 整条流。
+_gsrc2 = io.open(r"D:\video-skill\svc_8100_guard.py", encoding="utf-8", errors="replace").read()
+_restarts = [l for l in _gsrc2.split(chr(10)) if "RESTARTED-" in l and "print" in l]
+check("W10 守卫的结论行不会被半句中文绊倒（print 出口都过 _safe）",
+      [len(_restarts) >= 1, all("_safe(" in l for l in _restarts),
+       _gsrc2.count("def _safe(")], [True, True, 1])
+check("W10b 变异：把 _safe 摘掉 ⇒ 同一条断言立刻失配（证明它钉的是真接线，不是注释里写了 _safe）",
+      all("_safe(" in l for l in [r.replace("_safe(", "(", 1) for r in _restarts]), False)
+check("W10c _safe 只换字符、不许 reconfigure 整条输出流（后者会造零输出+exit0 的静默假绿）",
+      (lambda b: ["reconfigure" in b, ".encode(" in b and '"replace"' in b])(
+          # 🔴 判据打在【函数体】上，且先剥掉注释与文档串：文档里就写着"绝不 reconfigure 成 utf-8"
+          #    —— 拿整份源码做子串判断会把它自己当成违规（2026-10-14 我就这样假红过一次）。
+          "\n".join(l for l in __import__("inspect").getsource(G._safe).splitlines()
+                    if not l.strip().startswith("#")).replace(
+              '"""' + (G._safe.__doc__ or "") + '"""', "")),
+      [False, True])
+check("W10d 真跑一次 _safe：不许抛，且回来的还是 str（守卫的结论行必须打得出来）",
+      [isinstance(G._safe("结论 ⇒ 已换人"), str), G._safe("a⇒b").startswith("a")], [True, True])
+
 bad = [n for ok, n in out if not ok]
 print("\n=== 8100 自愈闸：%d 条断言，失败 %d ===" % (len(out), len(bad)))
 sys.exit(1 if bad else 0)

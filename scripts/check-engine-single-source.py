@@ -12,6 +12,9 @@ E 组  三方比对（每条同时有 form 段和 contract 段的线都跑，不
 F 组  提交腿：合同 spend 的 cap/purpose 必须就是代码里 gw.invoke 的那一对
 G 组  反向对照 + 变异对照（把当年那个错形状喂进同一个判据）
 H 组  散文不许造第二个上游：SKILL.md 里"报价来源"那几行点名的 provider 必须 == 路由 provider
+J 组  口型对齐这条腿（2026-10-14）：合同那一格 ↔ ROUTES ↔ 显式单价 ↔ 默认要批 ↔ runner 的两个交付口
+      —— 它以前挂在 ROUTES/价目上却没有适配器（call() 一路落到 NotImplementedError ⇒ 账本 0 次调用），
+      钉这里是为了"合同写了这一步，代码里真的走得通"，不是又一份散文。
 """
 import io
 import os
@@ -402,6 +405,72 @@ _moved = src_app[:_ep] + _seg_m + src_app[_end if _end > 0 else len(src_app):]
 check("I8 变异：把锁挪到建任务之后 ⇒ 必须报『拒得晚』",
       any("拒得晚" in x for x in lock_problems(src_svc, src_run, _moved)), True)
 
+
+# ── J 组：口型对齐这条腿（2026-10-14 接入；它以前挂在 ROUTES 上但没有适配器）──────────
+# 钉的是"合同那一格 ↔ 网关那条腿 ↔ 价目 ↔ 单价"四方对得上，不是某个数字。
+RUN_PY = os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py")
+_src_run_j = io.open(RUN_PY, encoding="utf-8", errors="replace").read()
+_c_j = sc.contract_for("super-clone")
+_step_j = next((s for s in (_c_j.get("steps") or []) if s.get("id") == "lip-sync"), None)
+check("J1 合同里有 lip-sync 那一格，且手段就是网关轨（不是 backend 直调、更不是手搓 ffmpeg）",
+      [bool(_step_j), (_step_j or {}).get("impl"), (_step_j or {}).get("required")],
+      [True, "gateway:invoke:lipsync", 0])
+check("J2 网关认这条路由：ROUTES 里有 lipsync/default，且已接适配器（不再落 NotImplementedError）",
+      ["lipsync/default" in routes_table(), gw.is_adapted("lipsync", "default")], [True, True])
+check("J3 单价是【显式登记】的数（拿 PRICE_BY_CAP 兜底 = 报出一个谁都没写过的价）",
+      [explicit_price("lipsync", "default"), gw.PRICE_ROUTES.get(("lipsync", "default")),
+       int(gw.unit_price("lipsync", "default"))], [True, 20, 20])
+check("J4 默认要批：lipsync 不在免批白名单里 ⇒ 没条子就不许发起",
+      gw.needs_spend_approval("lipsync", "default"), True)
+# 参数闸门值表：缺参/未知 key/segments 形状错 ⇒ 本地拒（0 分，一个请求都不发）
+# 🔴 全用【盘上真文件】算：不然"文件不在盘"那一刀会混进计数里，值表就对不上规则了（我自己第一次就写错在这）。
+_V = os.path.abspath(__file__)
+check("J5 入参值表：空 / 只给一个 / 三个都给 / 多一个未知 key / segments 形状错",
+      [len(gw.lipsync_problems({})),
+       len(gw.lipsync_problems({"video_path": _V})),
+       len(gw.lipsync_problems({"video_path": _V, "audio_path": _V, "output_dir": _V})),
+       len(gw.lipsync_problems({"video_path": _V, "audio_path": _V,
+                               "output_dir": _V, "reference_audio": _V})),
+       len(gw.lipsync_problems({"video_path": _V, "audio_path": _V,
+                               "output_dir": _V, "segments": {"start": 0}}))],
+      [3, 2, 0, 1, 1])
+check("J5b 文件不在盘要单独点名（不许和「缺参数」混成一条，那是两种修法）",
+      any("不在盘上" in x for x in gw.lipsync_problems(
+          {"video_path": "C:/no-such/vid.mp4", "audio_path": "C:/no-such/a.wav",
+           "output_dir": "C:/no-such"})), True)
+check("J5c 合法形状（含给了 segments 列表）⇒ 0 个问题：上面那五条不许把合格对象也判红",
+      [gw.lipsync_problems({"video_path": _V, "audio_path": _V, "output_dir": _V}),
+       gw.lipsync_problems({"video_path": _V, "audio_path": _V, "output_dir": _V,
+                           "segments": [{"start": 0.0, "end": 2.0}]})], [[], []])
+_rj = gw.call("lipsync", "default", video_path="C:/x/vid.mp4", audio_path="C:/x/a.wav",
+              output_dir="C:/x")
+check("J6 真跑分发：参数不合格 ⇒ success=False 且【没发出任何请求】（0 分、不建任务）",
+      [_rj.get("success"), "0 分未扣" in str(_rj.get("error") or "")], [False, True])
+check("J7 接线：runner 用合同写的那个手段调网关（写了合同却没有调用点 = 那一格永远打不上钩）",
+      [_src_run_j.count('gw.invoke(LIPSYNC_CAP[0], LIPSYNC_CAP[1]'),
+       _src_run_j.count('"lipsync", "default"'),
+       _src_run_j.count("apply_lip_sync(")], [1, 1, 3])
+check("J7b 两个交付口都接了这条腿（--stage wait 与 submit 各一处；少一处 = 那种形状没有口型）",
+      [_src_run_j.count("_lip = apply_lip_sync(")], [2])
+check("J8 目标音频是【本地抽成片自己的音轨】，不另引一次 TTS/克隆（再引一次 = 重复花钱且不是那条要贴的声）",
+      "_extract_audio_track(src, audio)" in _src_run_j and "voice_clone_to_file" not in _src_run_j, True)
+_swap_j = next((x for x in (_c_j.get("steps") or []) if x.get("id") == "narration-swap"), {})
+check("J9 两格不是一张：narration-swap(换音) 与 lip-sync(对口型) 手段/物证各写各的（合成一格=交付时看不出哪半没做）",
+      [[_swap_j.get("impl"), (_step_j or {}).get("impl")],
+       [_swap_j.get("proof", "")[:19], (_step_j or {}).get("proof", "")[:13]]],
+      [["backend:invoke:voiceover_replace.run_narration_swap", "gateway:invoke:lipsync"],
+       ["narration_swap.json", "lip_sync.json"]])
+check("J10 变异：把 runner 里的 invoke 换成直调 client ⇒ J7 的计数立刻失配（证明它数的是真接线）",
+      _src_run_j.replace("gw.invoke(LIPSYNC_CAP[0], LIPSYNC_CAP[1]",
+                         "vtp.run_lip_sync(").count("gw.invoke(LIPSYNC_CAP[0], LIPSYNC_CAP[1]"), 0)
+
+check("J11 这条腿落的仍是 R10 登记过的那份【加工腿】文件（换成生成类工作流 = 绕过 RunningHub 视频禁令）",
+      (gw.ROUTES.get(("lipsync", "default")) or {}).get("client"), "video_translate_pipeline")
+
+check("J12 丢参要看得见：请求转储里 audio 那格必须同时写明【这条 lane 收不收】（wan3-limits 第 14 条）",
+      ['"audio_param_sent_to_lane": False' in src_svc and "audio_note" in src_svc
+       and src_svc.count('"audio": eff_audio') == 1,
+       "无音频开关" in src_svc], [True, True])
 
 print(_safe("\n== 引擎单一源闸：%d 通过 / %d 失败 ==" % (len(PASS), len(FAIL))))
 for f in FAIL:
