@@ -1417,7 +1417,7 @@ chk("D28e", "入口面：--from-form / --stage 两个开关在、四格 required
 chk("D28f", "档位就是合法出口：--stage 走 stop_after 传给管线；compile 早退自己声明 0 消耗；"
     "wait 是第 5 步「拿到视频」的出口（只捞不投）—— 少一档，遵守规则的人就只能绕开入口手搓",
     ["stop_after=(" in SC_RUN,
-     'choices=["compile", "submit", "wait", "lipsync"]' in SC_RUN,  # 四档都是合法出口（lipsync=第 6 步「对口型」单独可重跑，不重投、不重编译）
+     'choices=["compile", "submit", "wait", "narration", "lipsync"]' in SC_RUN,  # 四档都是合法出口（lipsync=第 6 步「对口型」单独可重跑，不重投、不重编译）
      "compiled_only" in SC_RUN, 'a.stage == "wait"' in SC_RUN], [True, True, True, True])
 
 # 🔴 D34：声音档的自洽判据必须【真跑值表】。runner 里 voice_mode_problems 的 docstring 一直写着
@@ -1465,17 +1465,20 @@ chk("D34d", "后处理腿挂在两个出口上：submit 拿到片子就换轨、
 _nav = _sc_ns["narration_audio_verdict"]
 _V35 = [("新词完整播出", "恒源祥百年品牌这款面料", "恒源祥 百年品牌 这款面料"),
         ("还是原片旧词", "恒源祥百年品牌这款面料", "老铁现在就去抢这个保暖套装现在不等什么"),
-        ("半新半旧", "恒源祥百年品牌这款面料优质婴儿绒", "恒源祥百年品牌市面上的羊羔绒穿几次就往外跑绒")]
+        ("半新半旧", "恒源祥百年品牌这款面料优质婴儿绒", "恒源祥百年品牌市面上的羊羔绒穿几次就往外跑绒"),
+        ("只差标点", "恒源祥百年品牌，这款面料", "恒源祥百年品牌这款面料。")]
 _res35 = {k: _nav(a, b) for k, a, b in _V35}
 chk("D35", "值表：全新→过；全旧→两条问题都报；半新半旧→至少报残留",
     [_res35["新词完整播出"]["problems"] == [],
      len(_res35["还是原片旧词"]["problems"]) == 2,
      _res35["半新半旧"]["said_coverage"] < 1 and _res35["半新半旧"]["stale"] < 0.9],
     [True, True, True])
+chk("D35e", "标点不算差异（ASR 会在句尾补句号，把标点计入会把一条好配音判成「残留 11%」）",
+    _res35["只差标点"]["problems"], [])
 chk("D35b", "没文案 ⇒ 不判（返回通过但不许被读成【已验过】）",
     [_nav("", "随便什么")["said_coverage"], _nav("有稿", "")["problems"] != []], [1.0, True])
 chk("D35c", "两个交付口都调复验（少一处 = 从那一口交付的人可以宣称口播已改而没人验）",
-    [SC_RUN.count("verify_narration_audio("), SC_RUN.count("narration_audio_verify.json")], [3, 1])
+    [SC_RUN.count("verify_narration_audio("), SC_RUN.count("narration_audio_verify.json")], [4, 1])
 _vf = os.path.join(SCRATCH, "narration_audio_verify_real.json")
 _real35 = os.path.join("C:" + chr(92) + "dsh", "productions", "super-clone-20261013-2050",
                        "outputs", "narration_verify", "narration_audio_verify.json")
