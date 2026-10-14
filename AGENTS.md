@@ -496,19 +496,22 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    回归 `scripts/check-spend-receipt.py`（A 真值表 / B 真跑 invoke + 适配器打桩：无回执拒且 0 消耗、
    有回执走到批准闸、回执+条子齐真放行、失败退段 / C 顺序用 AST 行号钉 / D 变异 / E 覆盖对照）。
 - **唯一例外形态 = hypit**：它的 Provider 协议只认 HTTP，所以生成腿经自写 provider `@weeksir/provider-gateway` POST `http://localhost:8100/api/hypit`（`/uploads`、`/videos`、`/videos/{id}`、`/rates`），服务端 `hypit_bridge.py` 仍转 `gateway.invoke` ⇒ **同一套预扣/结算/审计**。不算第二条轨，只是同一轨换了入口；鉴权用 `.env` 的 `MODEL_GATEWAY_TOKEN`（Bearer）。详见 `.dsh/skills/hypit-pipeline/references/monitor-contract.md` §1.5。
-- 🔴 **改口播是 wan3.0 能【直出】的——台词位就是 prompt 里那句引号**（2026-10-14 用户问"给我一个准话"）：
-   证据四条 —— ① `force_verbatim_speech()` 在 4 个调用点（`super_clone_wan3.py:4106/4121/4162/4271` 一带）把每一镜「口播」**逐字**钉回 prompt；
-   ② 盘上那条真出片（`chunk_03/step2_wan3/seg01-prime.mp4`）ffprobe 出 `aac` 音轨 ⇒ 这条 lane 自己出声；
-   ③ 请求体只有 `prompt/duration/resolution/ratio/media`（`gateway._yz_prime_payload`），**没有专门的台词字段**，词只能待在 prompt 里；
-   ④ 而 `apply_voiceover_script()`（把改稿按 diff 对齐回各镜）**全仓零调用点** ⇒ 进 prompt 的永远是 FunASR 抄下来的原片旧词。
-   ⇒ 补的就是这一根线：`apply_customer_narration()` 在 **ASR 写回之后、编译之前**灌新稿（放前面会被原片词盖掉），
-   物证 `voice_script_binding.json`（coverage 与 stale **双向 ≥0.999**，不满 ⇒ 0 分拒提交），合同 `super-clone-wan3@11` 的 `narration-direct` 那一格。
-   ⚠️ **一段一条稿**：整条自动切多段却带着整稿 ⇒ 入口点名拒（每段各灌一遍 = 每段都念整稿），要么逐段各给各的稿，要么退后处理换轨。
-   ⚠️ **直出与换轨互斥**：有直出物证 ⇒ runner 跳过 `narration-swap`（再换一次 = 一条片子里两条声 + 重复花克隆的钱）。
-   ⚠️ **audio 是丢掉的那个参数**：这条 lane 没有"原声/静音"开关，`audio=True` 上送不进去（声音由模型按台词生成）⇒
-   现在 `_wan3_request.json` 里同时写 `audio` 与 `audio_param_sent_to_lane: False` + `audio_note`，**不许让"传了"看起来像"生效了"**（wan3-limits 第 14 条）。
-   回归：`check-skill-contract.py` 的 **N 组**（真函数值表 + 摘掉对齐那一步的变异 + N12"没物证必须抹回 ⬜" + 两个交付口的覆盖对照）、
-   `check-engine-single-source.py` 的 **J12**。
+- 🔴 **改口播：wan3.0 只到"台词位"，声音必须给客户【念好的新音频】**（2026-10-14 全天实测，推翻本文件上午那条"能直出"）：
+   台词位这根线是通的 —— `force_verbatim_speech()` 在 4 个调用点（`super_clone_wan3.py:4106/4121/4162/4271` 一带）逐字钉 prompt，
+   `apply_customer_narration()`（编译前灌新稿，物证 `voice_script_binding.json`，coverage 与 stale **双向 ≥0.999**）也已接通。
+   🔴 **但模型不照 prompt 念**：今天真出的那条 15s 成片，音轨与 0-15s 源音轨相关系数 **0.884**、本地 FunASR 听到的是
+   「老铁，现在就去抢这个保暖套装…」= **参考视频的原声被整条搬进成片**，而同一份物证里台词位逐字都是新词。
+   ⇒ "台词位有词" ≠ "观众听到新词"，把前者当后者就是静默冒充（上午我就这么判错过一次）。
+   ⇒ 口径改成：**`voice_mode=rewrite_text` 必须同时给 `voice_script`（新文案）与 `voice_audio`（一段念好新词的音频）**，
+      后者作为 `reference_audio` 送进 wan3-prime；不给 ⇒ 入口拒（`voice_mode_problems`，值表 D34）。
+   ✅ **渠道支持已核实**（上游 `GET /v1/models` 参数卡，0 分只读）：`media_types` 含 `reference_audio`、
+      且有 `audio: boolean`（defaults=true）⇒ 这两个参数现在**真送上去**
+      （`_yz_prime_payload` 以前只发 prompt/duration/resolution/ratio/media，`audio` 是静默丢的那个，见 wan3-limits 第 14 条）。
+   🔴 仍未实测的是**语义**：上游拿 `reference_audio` 是"照它念"还是"只取音色"，参数卡没写 ⇒
+      出片后必须跑 `verify_narration_audio()`（本地 FunASR，0 分上游生成）复验，物证 `narration_audio_verify.json`；
+      两个方向（新稿被听到 / 听到的都属于新稿）**任一 <0.9 ⇒ 交付里必须明写"口播没改"**，不许拿参数当证据。
+   回归：`check-skill-form.py` 的 **D34/D35**（声音档值表 + 复验判据与真产物回放）、`check-skill-contract.py` 的 **N 组**、
+   `check-engine-single-source.py` 的 **J12**（audio/reference_audio 用真函数 `_yz_prime_payload` 的值判，不读注释）。
 - 🔴 **口型对齐是一条【后处理腿】，不是 wan3 的参数**（2026-10-14 用户裁定"这个对话的目标就是改口型，wan3.0 没法直出了，得加口型对齐工作流"）：
    wan3-prime 的入参名单 `gateway._PRIME_YZ_MEDIA` 只有 `reference_image/reference_video/reference_audio/file`，payload 里**零个** lip/mouth/sync 字段；
    而上一步 `voiceover_replace.run_narration_swap` 自己的文档串就写着"不做口型同步：嘴形与新词对不上是这一档的已知代价"。

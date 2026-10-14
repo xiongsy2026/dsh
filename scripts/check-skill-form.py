@@ -864,8 +864,26 @@ try:
     r_swap = MA.form_submit({"session": "g-real", "skill": "super-clone",
                              "values": dict(_vals, voice_mode="timbre_swap 只换音色"),
                              "files": [dict(MP4, field="video")]})
-    chk("G29e", "反向对照：同一张真表换成「只换音色」⇒ 参考音频回到可见必填，不交必须照样拒",
-        [bool(r_swap.get("ok")), "参考音频" in str(r_swap.get("error") or "")], [False, True])
+    def _find_va(node):
+        """在这份下发视图里递归找 key=voice_audio 的那一格 —— 不假设嵌套形状（形状变了不该演成假红）。"""
+        if isinstance(node, dict):
+            if node.get("key") == "voice_audio":
+                return node
+            for v in node.values():
+                r = _find_va(v)
+                if r:
+                    return r
+        elif isinstance(node, list):
+            for v in node:
+                r = _find_va(v)
+                if r:
+                    return r
+        return None
+    _va_label = str((_find_va(MA.skill_forms_view()) or {}).get("label") or "")
+    chk("G29e", "反向对照：同一张真表换成「只换音色」⇒ 音频格回到可见必填，不交必须照样拒"
+        "（拒因点名的是【这张表里那一格的 label】，不硬写文案 —— 我改过一次文案就把这条演成假红）",
+        [bool(r_swap.get("ok")), _va_label in str(r_swap.get("error") or ""), bool(_va_label)],
+        [False, True, True])
 finally:
     (MA.FORM_PAYLOAD_PATH, MA.FORM_UPLOAD_DIR, MA.hypit_bridge.intent_map) = _real_rt
     shutil.rmtree(RT, ignore_errors=True)
@@ -1398,42 +1416,80 @@ chk("D28e", "入口面：--from-form / --stage 两个开关在、四格 required
     [True, True, 0, True])
 chk("D28f", "档位就是合法出口：--stage 走 stop_after 传给管线；compile 早退自己声明 0 消耗；"
     "wait 是第 5 步「拿到视频」的出口（只捞不投）—— 少一档，遵守规则的人就只能绕开入口手搓",
-    ["stop_after=(" in SC_RUN, 'choices=["compile", "submit", "wait"]' in SC_RUN,
+    ["stop_after=(" in SC_RUN,
+     'choices=["compile", "submit", "wait", "lipsync"]' in SC_RUN,  # 四档都是合法出口（lipsync=第 6 步「对口型」单独可重跑，不重投、不重编译）
      "compiled_only" in SC_RUN, 'a.stage == "wait"' in SC_RUN], [True, True, True, True])
 
 # 🔴 D34：声音档的自洽判据必须【真跑值表】。runner 里 voice_mode_problems 的 docstring 一直写着
 #    "闸直接跑值表"，但 2026-10-13 之前全仓没有任何一处调它 ⇒ 一条判据都没被验过（空口判据=没有判据）。
 #    四档 × 有没有参考音频 × 有没有新文案，每格点名，并做一次变异对照证明那条判断真在拒东西。
 _vm = _sc_ns["voice_mode_problems"]
+# 🔴 2026-10-14 用户改口径：rewrite_text（改口播）必须【给新口播音频】并送进 wan3 的 reference_audio。
+#    旧规则正好相反（给了音频=自相矛盾），依据是"新词靠后处理换轨"——那条今天被实测打掉：
+#    不给新音频时成片整条搬的是参考视频的原声（与源音轨相关系数 0.884）。值表跟着翻。
 _V34 = {("preserve_original", 0, 0): "",   ("preserve_original", 1, 0): "REJ",
         ("timbre_swap", 0, 0): "REJ",      ("timbre_swap", 1, 0): "",
-        ("rewrite_text", 0, 0): "REJ",     ("rewrite_text", 0, 1): "",
-        ("rewrite_text", 1, 1): "REJ",     ("rewrite_voice", 1, 1): "REJ",
+        ("rewrite_text", 0, 0): "REJ",     ("rewrite_text", 0, 1): "REJ",
+        ("rewrite_text", 1, 0): "REJ",     ("rewrite_text", 1, 1): "",
+        ("rewrite_voice", 1, 1): "REJ",
         ("bogus_mode", 0, 0): "REJ"}
-chk("D34", "🔴 声音档值表（%d 格）：原声保留禁给参考音频、只换音色必给、改口播必须有新文案且禁给参考音频、"
+chk("D34", "🔴 声音档值表（%d 格）：原声保留禁给音频、只换音色必给、【改口播必须同时给新音频和新文案】、"
     "换人声这一档今天没实现路径必须拒、认不出的档拒" % len(_V34),
     [(bool(_vm(m, bool(a), bool(s))) == (want == "REJ"))
      for (m, a, s), want in sorted(_V34.items())], [True] * len(_V34))
 chk("D34b", "拒因必须点名可执行的下一步（只说「不行」= agent 回头自己发明出路）：换人声指回另两档、"
-    "缺文案指表单那一格、给了参考音频指出它和这一档矛盾在哪",
+    "缺文案指表单那一格、缺音频指出这一档不给就只会播原片那条声",
     [("rewrite_text" in _vm("rewrite_voice", True, True) and "timbre_swap" in _vm("rewrite_voice", True, True)),
-     ("口播文案" in _vm("rewrite_text", False, False)),
-     ("voice-audio" in _vm("rewrite_text", True, True))], [True, True, True])
+     ("口播文案" in _vm("rewrite_text", True, False)),
+     ("voice-audio" in _vm("rewrite_text", False, True) and "原片那条声" in _vm("rewrite_text", False, True))],
+    [True, True, True])
 _vm_src = SC_RUN[SC_RUN.index("def voice_mode_problems"):SC_RUN.index("FORM_GATE_URL")]
 _ns34 = {"VOICE_MODES": _sc_ns["VOICE_MODES"], "SWAP_MODES": _sc_ns["SWAP_MODES"],
          "MODE_NOT_WIRED": _sc_ns["MODE_NOT_WIRED"]}
 exec(compile(_vm_src.replace("if mode in SWAP_MODES and not has_script:", "if False:"),
              "mutated", "exec"), _ns34)
-chk("D34c", "变异对照：摘掉「改口播必须有新文案」那句 ⇒ rewrite_text 没文案也放行"
+chk("D34c", "变异对照：摘掉「改口播必须有新文案」那句 ⇒ 音频给了、文案没给的 rewrite_text 就放行"
     "（证明上面那条拒是来路真实的判断，不是抄来的期望）",
-    [bool(_ns34["voice_mode_problems"]("rewrite_text", False, False)),
-     bool(_vm("rewrite_text", False, False))], [False, True])
+    [bool(_ns34["voice_mode_problems"]("rewrite_text", True, False)),
+     bool(_vm("rewrite_text", True, False))], [False, True])
 chk("D34d", "后处理腿挂在两个出口上：submit 拿到片子就换轨、wait 捞回来也换轨"
     "（少一处 = 从 wait 交付的那条永远不改口播，而客户以为改了）",
     ["apply_narration_swap" in SC_RUN,
      SC_RUN.count("apply_narration_swap(") >= 3,          # 定义 1 + submit 1 + wait 1
      'SWAP_MODES = ("rewrite_text",)' in SC_RUN,
      "narration_swapped_path" in SC_RUN], [True, True, True, True])
+
+# ---- D35 出片后【必须听一遍】：复验判据与两个交付口都钉住（2026-10-14 现网）----
+# 事故形状：prompt 台词位逐字是新词（voice_script_binding 双向 1.000），成片播的却是参考视频的原声。
+# "参数发出去了"被当成了"口播改好了" ⇒ 这一组钉的是【听到的等于新稿】才算改过。
+_nav = _sc_ns["narration_audio_verdict"]
+_V35 = [("新词完整播出", "恒源祥百年品牌这款面料", "恒源祥 百年品牌 这款面料"),
+        ("还是原片旧词", "恒源祥百年品牌这款面料", "老铁现在就去抢这个保暖套装现在不等什么"),
+        ("半新半旧", "恒源祥百年品牌这款面料优质婴儿绒", "恒源祥百年品牌市面上的羊羔绒穿几次就往外跑绒")]
+_res35 = {k: _nav(a, b) for k, a, b in _V35}
+chk("D35", "值表：全新→过；全旧→两条问题都报；半新半旧→至少报残留",
+    [_res35["新词完整播出"]["problems"] == [],
+     len(_res35["还是原片旧词"]["problems"]) == 2,
+     _res35["半新半旧"]["said_coverage"] < 1 and _res35["半新半旧"]["stale"] < 0.9],
+    [True, True, True])
+chk("D35b", "没文案 ⇒ 不判（返回通过但不许被读成【已验过】）",
+    [_nav("", "随便什么")["said_coverage"], _nav("有稿", "")["problems"] != []], [1.0, True])
+chk("D35c", "两个交付口都调复验（少一处 = 从那一口交付的人可以宣称口播已改而没人验）",
+    [SC_RUN.count("verify_narration_audio("), SC_RUN.count("narration_audio_verify.json")], [3, 1])
+_vf = os.path.join(SCRATCH, "narration_audio_verify_real.json")
+_real35 = os.path.join("C:" + chr(92) + "dsh", "productions", "super-clone-20261013-2050",
+                       "outputs", "narration_verify", "narration_audio_verify.json")
+_bind35 = os.path.join(os.path.dirname(os.path.dirname(_real35)), "voice_script_binding.json")
+if os.path.isfile(_real35) and os.path.isfile(_bind35):
+    _j35 = json.loads(open(_real35, encoding="utf-8").read())
+    _s35 = json.loads(open(_bind35, encoding="utf-8").read()).get("voice_script") or ""
+    _re35 = _nav(_s35, _j35.get("heard") or "")
+    chk("D35d", "真产物回放：今天那条【口播没改】的片子，用同一个判据重算必须仍然判不合格"
+        "（判据与线上那份物证对得上，不是各写一份）",
+        [bool(_re35["problems"]), abs(_re35["said_coverage"] - float(_j35.get("said_coverage") or -1)) < 0.01],
+        [True, True])
+else:
+    chk("D35d", "真产物那份复验物证不在了（这条不判红，但线上就没验过）", "missing", "missing")
 
 # 🔴 D28g：档位必须【一路传到底】。现网 super-clone-20261012-1824（18:44）：`--stage compile`
 #    在"按长度切段"那条递归里没带 stop_after ⇒ 每一块都走到提交那一刀，

@@ -143,8 +143,26 @@ _deeper = mk2("deep4", deep=("chunk_01",))
 os.makedirs(os.path.join(_deeper, "outputs", "step2_wan3", "chunk_01", "x", "chunk_09"), exist_ok=True)
 check("K2k 反向对照：段目录嵌到第 4 层就不数了（证明 max_depth 真在生效，不是碰巧走全树）",
       gw._seg_dirs_under(os.path.join(_deeper, "outputs")), ["chunk_01"])
-_real_new = gw.plan_segment_count(os.path.join(PROD, "super-clone-20261013-2050"))
-check("K2l 真产物：那条把 3 段算成 1 段的任务目录，现在算出 3", _real_new.get("count"), 3)
+_real_new = os.path.join(PROD, "super-clone-20261013-2050")
+_rn = gw.plan_segment_count(_real_new)
+_plan_here = os.path.join(_real_new, "outputs", PLAN)
+# 🔴 这条钉的是【规则】不是某个数字：那条任务目录里现在躺着什么计划，取决于最近一次真跑了几段
+#    （10-13 那次切了 3 段、10-14 这一单只要 0-15s ⇒ 计划就是 1 段）。写死"3"会把读对了的判据演成假红。
+_want_here = None
+if os.path.isfile(_plan_here):
+    try:
+        _want_here = int((json.loads(io.open(_plan_here, encoding="utf-8").read()) or {}).get("count"))
+    except (ValueError, TypeError):
+        _want_here = "坏计划"
+check("K2l 真产物：有提交计划的那条任务，段数必须【等于计划自己写的数】且来源是计划文件"
+      "（不写死数字——计划跟着真跑走）",
+      [_rn.get("source"), _rn.get("count"), _want_here],
+      [PLAN, _want_here, _want_here])
+check("K2l2 真产物：那份计划必须带窗口且算得出指纹（段数没有来历 = 和当年『按单段建』一样不可用）",
+      [bool(gw.submit_plan_id(_real_new)) == bool(_want_here),
+       "_submit_plan.json" in (_rn.get("detail") or ""),
+       ("0.00-15.00s" in (_rn.get("detail") or "")) if _want_here == 1 else True],
+      [True, True, True])
 
 import ast as _ast                                                   
 _wsrc = io.open(SVC_PY, encoding="utf-8", errors="replace").read()

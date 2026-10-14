@@ -449,7 +449,7 @@ check("J6 真跑分发：参数不合格 ⇒ success=False 且【没发出任何
 check("J7 接线：runner 用合同写的那个手段调网关（写了合同却没有调用点 = 那一格永远打不上钩）",
       [_src_run_j.count('gw.invoke(LIPSYNC_CAP[0], LIPSYNC_CAP[1]'),
        _src_run_j.count('"lipsync", "default"'),
-       _src_run_j.count("apply_lip_sync(")], [1, 1, 3])
+       _src_run_j.count("apply_lip_sync(")], [1, 1, 4])
 check("J7b 两个交付口都接了这条腿（--stage wait 与 submit 各一处；少一处 = 那种形状没有口型）",
       [_src_run_j.count("_lip = apply_lip_sync(")], [2])
 check("J8 目标音频是【本地抽成片自己的音轨】，不另引一次 TTS/克隆（再引一次 = 重复花钱且不是那条要贴的声）",
@@ -467,10 +467,24 @@ check("J10 变异：把 runner 里的 invoke 换成直调 client ⇒ J7 的计�
 check("J11 这条腿落的仍是 R10 登记过的那份【加工腿】文件（换成生成类工作流 = 绕过 RunningHub 视频禁令）",
       (gw.ROUTES.get(("lipsync", "default")) or {}).get("client"), "video_translate_pipeline")
 
-check("J12 丢参要看得见：请求转储里 audio 那格必须同时写明【这条 lane 收不收】（wan3-limits 第 14 条）",
-      ['"audio_param_sent_to_lane": False' in src_svc and "audio_note" in src_svc
-       and src_svc.count('"audio": eff_audio') == 1,
-       "无音频开关" in src_svc], [True, True])
+# J12：audio / reference_audio 到底送没送 —— 判"送没送"要用真函数的返回值，不看注释也不看转储。
+_wc_src = io.open(WAN3, encoding="utf-8", errors="replace").read()
+_v12, _e12 = gw._yz_prime_payload({"prompt": "x", "duration": 15, "output_path": "C:/x/a.mp4",
+                                  "audio": False, "audio_urls": ["https://d.example/a.wav"]})
+_v12t, _ = gw._yz_prime_payload({"prompt": "x", "duration": 15, "output_path": "C:/x/a.mp4",
+                                 "audio": True})
+_v12n, _ = gw._yz_prime_payload({"prompt": "x", "duration": 15, "output_path": "C:/x/a.mp4"})
+check("J12 上游参数卡合法的两个音频入参【真送出去】：audio 是布尔、reference_audio 落进 media",
+      [_e12, _v12["body"].get("audio"),
+       [m["type"] for m in _v12["body"].get("media") or [] if m["type"] == "reference_audio"]],
+      [None, False, ["reference_audio"]])
+check("J12b audio=true 也照送；调用方没提这个参数时【不凭空塞一个】（丢参与瞎补都错）",
+      [_v12t["body"].get("audio"), "audio" in _v12n["body"]], [True, False])
+check("J12c 提交腿把上层的 audio 一路带到 params（以前它收了参数就丢）",
+      '"audio": bool(audio)' in _wc_src, True)
+check("J12d 转储要说真话：现在确实送上了，同时必须写明『语义未实测 ⇒ 出片要 ASR 复验』",
+      ['"audio_param_sent_to_lane": True' in src_svc, "ASR 复验" in src_svc,
+       '"reference_audio_sent": bool(audio_urls)' in src_svc], [True, True, True])
 
 print(_safe("\n== 引擎单一源闸：%d 通过 / %d 失败 ==" % (len(PASS), len(FAIL))))
 for f in FAIL:
