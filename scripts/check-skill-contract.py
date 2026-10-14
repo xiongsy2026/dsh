@@ -974,17 +974,34 @@ if _svc:
     check("N5 纯判据值表：空格与换行不算差异、缺字要掉比例",
           [_svc.narration_coverage("甲 乙\n丙", "甲乙丙"), _svc.narration_coverage("甲乙丙", "甲乙"),
            _svc.narration_coverage("", "随便")], [1.0, 0.6667, 1.0])
+    # 🔴 现网形状（2026-10-14 抓到）：ASR 7 段、客户稿 6 行 ⇒ 字符 diff 让最后一镜没分到字，
+    #    盘上出现"第 7 镜还在说原片旧词"（残留 19.3%）。按镜时长占比切分必须双向都满、拼回=原稿。
+    _uneven = [{"shot": i + 1, "时间区间": {"开始时间": a, "结束时间": a + d},
+                "口播": "原片第%d句大约这么长的一段话" % (i + 1)}
+               for i, (a, d) in enumerate([(0.0, 3.1), (3.1, 2.2), (5.3, 1.4), (6.7, 2.9),
+                                           (9.6, 1.8), (11.4, 2.0), (13.4, 1.6)])]
+    _NL = chr(10)
+    _SIX = _NL.join(["第一行台词稍长一些用来占两个镜的时长", "第二行", "第三行也长一点凑凑字数",
+                     "第四行", "第五行", "第六行收尾"])
+    _r_uneven = _svc.apply_customer_narration(_uneven, _SIX, _nd)
+    _landed = "".join(x["口播"] for x in _uneven if x["口播"] != "无")
+    check("N6 段数≠行数（现网那个形状：7 镜 vs 6 行）⇒ 双向必须满，拼回去就是客户那份稿",
+          [_r_uneven["coverage"], _r_uneven["stale"], _svc.narration_coverage(_landed, _SIX),
+           any(x["新口播"] == "无" for x in _r_uneven["shots"])],
+          [1.0, 1.0, 1.0, True])
+    check("N6b 切分函数本身：连续切片拼回必须等于原稿（顺序=客户稿行序，不许跳着拿）",
+          "".join(_svc.split_script_by_durations("ABCDEFGHIJ" * 6, [3.0, 1.0, 2.0, 4.0])) == "ABCDEFGHIJ" * 6, True)
     # 🔴 变异（真变异，不是自我比对）：把干活的那一步换成空转 ⇒ 判据必须当场拒
-    _real_avs = _svc.apply_voiceover_script
-    _svc.apply_voiceover_script = lambda sb, t: sb
+    _real_avs = _svc.split_script_by_durations
+    _svc.split_script_by_durations = lambda text, durs: [""] * len(durs)
     try:
         _svc.apply_customer_narration(_sb(), _NEW, _nd)
         _n6 = "空转也能过（判据没咬）"
     except RuntimeError as _e:
         _n6 = "拒" if "只落位" in str(_e) else ("拒因不对:" + str(_e)[:40])
     finally:
-        _svc.apply_voiceover_script = _real_avs
-    check("N6 变异：摘掉对齐那一步 ⇒ 覆盖率判据必须拒（证明它不是白写的）", _n6, "拒")
+        _svc.split_script_by_durations = _real_avs
+    check("N6c 变异：摘掉切分那一步 ⇒ 覆盖率判据必须拒（证明它不是白写的）", _n6, "拒")
 
     _l_call = next((i for i, l in enumerate(_svc_src.split(chr(10)), 1)
                     if "apply_customer_narration(storyboard" in l), 0)
