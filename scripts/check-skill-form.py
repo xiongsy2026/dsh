@@ -19,15 +19,17 @@ import sys
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+WS = os.path.dirname(HERE)
+BACKEND = os.path.join(WS, "backend")
 SCRATCH = os.path.abspath(os.path.join(HERE, "..", "scratch", "skill-form-gate"))
 os.makedirs(SCRATCH, exist_ok=True)
 
-CLIENT = r"C:\dsh\plugins\super-clone-ui\lib\client.js"
-SKILLS_DIR = r"C:\dsh\.dsh\skills"
-GW = r"D:\video-skill"
+CLIENT = os.path.join(WS, r"plugins\super-clone-ui\lib\client.js")
+SKILLS_DIR = os.path.join(WS, r".dsh\skills")
+GW = BACKEND
 # 🔴 2026-10-09 挂点改判：表单渲染器搬进 8100 的页面（backend/skill_form_page.py），
 #    插件里【不该再有表单】。所以这个闸现在扫两个地方：页面里该有的必须全有，插件里不该有的必须全无。
-PAGE = os.path.join(GW, "backend", "skill_form_page.py")
+PAGE = os.path.join(GW, "skill_form_page.py")
 
 SRC = open(CLIENT, encoding="utf-8").read()
 PAGE_SRC = open(PAGE, encoding="utf-8").read()
@@ -72,8 +74,9 @@ def chk(cid, desc, got, want):
 
 
 # ---------- 解析器（服务端那份，直接 import 真代码，不复制） ----------
+sys.path.insert(0, WS)
 sys.path.insert(0, GW)
-os.environ.setdefault("WEEKSIR_SKILLS_DIR", r"C:\dsh\.dsh\skills")
+os.environ.setdefault("WEEKSIR_SKILLS_DIR", os.path.join(WS, r".dsh\skills"))
 from backend import model_admin as MA  # noqa: E402
 
 fields = MA.parse_skill_form(MD)
@@ -157,7 +160,7 @@ chk("B12", "🔴 插件侧：对话流里【没有任何技能表单】（turnTa
 chk("B13", "插件侧：也不许出现输入框覆盖层/表单卡的残留槽名",
     bool(re.search(r"conversation\.chat\.turnTail[\s\S]{0,400}form", SRC, re.I)), False)
 chk("B14", "右栏那一档的 url 由判定口给（插件不硬编第二份端口/技能名）",
-    "weeksir-skill-form-view" in open(r"C:\dsh\plugins\ops-gateway\lib\client.js",
+    "weeksir-skill-form-view" in open(os.path.join(WS, r"plugins\ops-gateway\lib\client.js"),
                                       encoding="utf-8").read(), True)
 
 # ---------- C 提交按钮完成判据 formIsComplete 的纯函数值表（从页面里抠出来，进 node 真跑） ----------
@@ -391,6 +394,28 @@ try:
     chk("E14", "空文件/超大文件 ⇒ 拒", bool(MA.form_submit(
         {"session": "session-live", "skill": "one-shot-video", "values": {"user_intent": "x"},
          "files": [{"name": "a.png", "type": "image/png", "data": ""}]}).get("error")), True)
+    # ── E16/E17（2026-10-14 现网 15:35）：一句拒绝里混着两件事 ⇒ 把排查方向整个带偏 ──
+    # 现场：回填记录里的名字被"双前缀 + 32 字截断"改掉 ⇒ 盘上根本没有那个文件，而守卫那句
+    # `not startswith(root) or not isfile(p)` 只会说"不在表单上传目录里（不接任意路径）"，
+    # 读起来像安全闸误伤 ⇒ 客户连点六次，谁都会先去查路径规则而不是查"文件还在不在"。
+    _flds = ((MA.skill_form_index() or {}).get("product-video") or {}).get("fields") or []
+    _mkey = next((f["key"] for f in _flds if f.get("type") in ("images", "image", "video", "audio")), "")
+    _ghost = os.path.join(MA._form_sid_dir("session-live"), _mkey or "slot", "01-deadbeef-never-written.png")
+    _rg = MA.form_submit({"session": "session-live", "skill": "one-shot-video",
+                          "values": {"user_intent": "x"},
+                          "files": [{"field": _mkey, "path": _ghost}]})
+    chk("E16", "🔴 路径在【本会话根内】但盘上没这个文件 ⇒ 拒因点名「盘上找不到」（回填记录过期），"
+        "且不许套用「不接任意路径」那句越界文案",
+        [bool(_rg.get("error")), "盘上找不到" in str(_rg.get("error")),
+         "不接任意路径" in str(_rg.get("error"))], [True, True, False])
+    _far = os.path.join(SANDBOX, "far-away.png")
+    open(_far, "wb").write(b"x")
+    _rx = MA.form_submit({"session": "session-live", "skill": "one-shot-video",
+                          "values": {"user_intent": "x"},
+                          "files": [{"field": _mkey, "path": _far}]})
+    chk("E17", "反向对照：文件【存在】但落在根外 ⇒ 仍然说「不接任意路径」"
+        "（证明 E16 是拆文案，不是把守卫改松）",
+        [bool(_rx.get("error")), "不接任意路径" in str(_rx.get("error"))], [True, True])
 finally:
     (MA.FORM_PAYLOAD_PATH, MA.FORM_UPLOAD_DIR, MA.skill_form_index,
      MA.hypit_bridge.intent_map) = _real
@@ -425,12 +450,12 @@ _voice_opts = [o.split(" ")[0] for o in
                next((f["options"] for f in SC_FIELDS if f["key"] == "voice_mode"), [])]
 chk("D4", "声音三档的选项 == runner 的 VOICE_MODES 唯一源（漂了就是一边能选一边被拒）",
     _voice_opts, re.findall(r'"(\w+)"', re.search(r"VOICE_MODES\s*=\s*\(([^)]*)\)", SC_RUN).group(1)))
-_gw = open(os.path.join(GW, "backend", "gateway.py"), encoding="utf-8", errors="replace").read()
+_gw = open(os.path.join(GW, "gateway.py"), encoding="utf-8", errors="replace").read()
 _ratio_opts = [o.split(" ")[0] for o in
                next((f["options"] for f in SC_FIELDS if f["key"] == "aspect_ratio"), [])]
-chk("D5", "🔴 画面比例的选项 == 网关 _PRIME_YZ_RATIOS（含顺序）：名单只在网关那一份",
+chk("D5", "🔴 画面比例的选项 == 网关 _YZ30_RATIOS（含顺序）：名单只在网关那一份",
     _ratio_opts, [x.strip().strip('"\'') for x in
-                  re.search(r"_PRIME_YZ_RATIOS\s*=\s*\(([^)]*)\)", _gw).group(1).split(",")
+                  re.search(r"_YZ30_RATIOS\s*=\s*\(([^)]*)\)", _gw).group(1).split(",")
                   if x.strip()])
 chk("D5b", "反向对照：比例选项不是空表（空表会让 D5 两边都空而绿）", len(_ratio_opts) >= 4, True)
 chk("D6", "super-clone 的 intent 键对得上档名（挂错档 = 弹别人的台或不弹）",
@@ -446,7 +471,7 @@ chk("D8b", "反向对照：applyVis 确实是个真函数且被 render 收尾调
 # 现网事故形状（2026-10-10）：三条 super-clone 会话全部 await-prefill ⇒ 表单一张都没弹过，
 # 因为回填是一条【可以跳过的额外命令】。这条判据绑到必然发生的动作（走入口出片）上，
 # 并且真调函数跑值表 —— grep 到函数名不等于它会拒。
-_sc_ns = {"__name__": "sc_runner_selftest"}
+_sc_ns = {"__name__": "sc_runner_selftest", "__file__": SC_RUN}
 exec(compile(SC_RUN, "runner/run.py", "exec"), _sc_ns)
 _fg = _sc_ns["form_gate_verdict"]
 chk("D9", "🔴 入口判据值表：没登记/已提交/已回填(值或素材) ⇒ 放行；登记了但表没出现过 ⇒ 拒"
@@ -782,7 +807,7 @@ try:
     chk("G20c", "inputs 与 src 是真的分家：回填 `src/`（agent 派生物）⇒ 拒，且拒因点名目录",
         [bool(_rc.get("error")), "不在表单上传目录里" in str(_rc.get("error")),
          "01-cafebabe-derived.png" in str(_rc.get("error"))], [True, True, True])
-    _G["g-pre"]["task_dir"] = r"D:\video-skill"
+    _G["g-pre"]["task_dir"] = os.path.dirname(WS)          # 工作区的父目录 = 真·工作区外
     chk("G20d", "task_dir 指向工作区外 ⇒ 不认，退回 .dsh/form-uploads/<hash>（不给越界写开口子）",
         os.path.realpath(MA._form_sid_dir("g-pre")).startswith(os.path.realpath(MA.FORM_UPLOAD_DIR)), True)
     _G["g-pre"].pop("task_dir", None)
@@ -891,7 +916,7 @@ chk("G29f", "🔴 真表自测同样只打在临时目录：客户那份真载�
     _probe(_real_rt[0]), PROD_BEFORE)
 
 # ---------- F 品牌与体验（2026-10-09 产品要求："要有品牌感、不能是简陋表格、要有体验感"） ----------
-APPROVAL_SRC = open(os.path.join(GW, "backend", "model_admin.py"), encoding="utf-8",
+APPROVAL_SRC = open(os.path.join(GW, "model_admin.py"), encoding="utf-8",
                     errors="replace").read()
 chk("F1", "品牌 token 只有一份：:root 只出现在 WS_TOKENS（深色 1 + 浅色覆盖 1 = 2 段）",
     (PAGE_SRC.count(":root{"), PAGE_SRC.count("--brand:")) , (2, 1))
@@ -941,8 +966,8 @@ def _logo_ok(w, h, ct, a):
     return ct == 6 and a == 0
 
 
-LOGO_GW = os.path.join(GW, "backend", "assets", "weeksir-logo.png")
-LOGO_PLUG = r"C:\dsh\plugins\super-clone-ui\assets\weeksir-logo.png"
+LOGO_GW = os.path.join(GW, "assets", "weeksir-logo.png")
+LOGO_PLUG = os.path.join(WS, r"plugins\super-clone-ui\assets\weeksir-logo.png")
 _lg, _lp = open(LOGO_GW, "rb").read(), open(LOGO_PLUG, "rb").read()
 chk("F11", "🔴 8100 供的 logo 必须是【透明】那张（RGBA + 左上角 alpha=0），白底图贴深色页就是白块",
     _logo_ok(*_png_head(_lg)), True)
@@ -1016,7 +1041,7 @@ finally:
 # ---------- I9 提交尝试台账：查「我点了没反应」的唯一现场 ----------
 # 真跑服务端函数（不是 grep），并且钉死两件事：① 它【不写】载荷/回填 ⇒ 点了没成交永远不算授权；
 # ② 环形上限 ⇒ 诊断面不许长成盘。
-MA_SRC = open(os.path.join(GW, "backend", "model_admin.py"), encoding="utf-8", errors="replace").read()
+MA_SRC = open(os.path.join(GW, "model_admin.py"), encoding="utf-8", errors="replace").read()
 _ATP = os.path.join(SCRATCH, "attempts-sb")
 shutil.rmtree(_ATP, ignore_errors=True)
 os.makedirs(_ATP, exist_ok=True)
@@ -1044,10 +1069,13 @@ finally:
 chk("I9e", "页头必须带会话尾号：多会话并发 + 任务名可重名，「我点的到底是哪条会话的表」要一眼能认",
     "会话 " in PAGE_CODE and 'getElementById("skill")' in PAGE_CODE, True)
 chk("I9f", "🔴 reportAttempt 三个现场都要调得到：前端拦 / 服务端拒 / fetch 没送到"
-    "（漏一个就还是「查不到现场」，而这次那条会话正是被误判成「你提交到了别的会话」的）",
+    "（漏一个就还是「查不到现场」）。15:35 之后两处失败的拒因统一先落 stickyErr 再记账，"
+    "所以这里钉的是【三处调用 + 两处各有一个拒因来源】，不是钉死当年那句字面量"
+    "—— 钉字面量会把一次正确的改动判成回归（这次就误判了一回）",
     [PAGE_CODE.count("reportAttempt("), PAGE_CODE.count("reportAttempt(miss.map"),
-     PAGE_CODE.count('reportAttempt([], (j && j.error)'), PAGE_CODE.count('reportAttempt([], "fetch')],
-    [4, 1, 1, 1])
+     PAGE_CODE.count("reportAttempt([], stickyErr)"),
+     PAGE_CODE.count("stickyErr = (j && j.error)"), PAGE_CODE.count('stickyErr = "提交失败：')],
+    [4, 1, 2, 1, 1])
 # 🔴 反向对照要【自带沙盒】：这条曾经放在 finally 之后跑，把 session-probe2 写进了线上
 #    .dsh/form_attempts.json —— 自测后门只对临时账本有效这条规矩，我自己违反过一次（2026-10-10）。
 _ATP2 = os.path.join(SCRATCH, "attempts-sb2")
@@ -1158,6 +1186,18 @@ try:
          _v2.get("prefill_gap"), _v2.get("loose_materials")],
         [True, True, ["video"], [], []])
 
+    # D12d：已交表的会话 + 字段表后来新增的必填素材格（2026-10-14 现网 `voice_audio` 那次卡死）
+    # 🔴 生效值 = 载荷 ∪（载荷里没有的格用回填顶上）。旧写法"交过表就把回填整格丢掉" ⇒
+    #    这条会话【永远填不上】那一格 ⇒ approve 被报价前置恒拒，在途单死在这里。
+    json.dump({_COV_SID: {"skill": "super-clone", "params": {"voice_mode": "preserve_original"},
+                          "ts": _t.time()}}, open(_COV_PAYLOAD, "w", encoding="utf-8"))
+    _vd1 = _cov_view({"voice_mode": "preserve_original"}, {"video": [_COV_VID]})
+    _vd2 = _cov_view({"voice_mode": "preserve_original"}, {})
+    chk("D12d", "已交表 + 载荷里没这一格 ⇒ 回填的值算生效（放行）；回填也没给 ⇒ 仍然拒（不是放宽成恒过）",
+        [_vd1.get("submitted"), _vd1.get("prefill_gap"), _vd2.get("prefill_gap")],
+        [True, [], ["video"]])
+    open(_COV_PAYLOAD, "w", encoding="utf-8").write("{}")
+
     chk("D13", "🔴 入口真的据这条拒：已回填但覆盖率不合格 ⇒ 拒；填齐 ⇒ 放行；已提交 ⇒ 不再拦"
         "（客户交完表 agent 必须能接着跑，拦在这儿就是把活卡死）",
     [bool(_fg(dict(_v1, show=True))), bool(_fg(dict(_v2, show=True))),
@@ -1228,7 +1268,7 @@ chk("D21", "表登记完就弹（判定口不再拿回填当前置），页面�
      ("!j.prefilled && !j.submitted" in PAGE_JS),
      ("还没分析这批素材" in PAGE_JS)], [False, True, True])
 chk("D22", "反向对照·压力只是换位置：回填仍是 approve 的硬前置（判据在 gateway，页面/判定口都不放行花钱）",
-    [("form_prefill_blockers" in open(os.path.join(GW, "backend", "gateway.py"),
+    [("form_prefill_blockers" in open(os.path.join(GW, "gateway.py"),
                                       encoding="utf-8", errors="replace").read())], [True])
 
 # ── 2026-10-11 现网（同一条会话 20:56 回填 / 21:02 客户重传）：agent 猜字段名，猜错还是【静默】的 ──
@@ -1287,7 +1327,7 @@ chk("D24", "🔴 这道拒必须【在所有副作用之前】：key 判据先�
      _a < _cmdp.index('for n, item in enumerate(body.get("files")'),
      "die(" in _cmdp[_a:_cmdp.index("updir = str(gate")]],
     [True, True, True, True])
-_vw = _fv({"upload_root": r"C:\dsh\productions\t\inputs", "fields": _WIRE})
+_vw = _fv({"upload_root": os.path.join(WS, r"productions\t\inputs"), "fields": _WIRE})
 _tv, _tf = _vw["template"]["values"], _vw["template"]["files"]
 _sel = [f for f in _WIRE if f["type"] == "select"]
 _locks = [f for f in _WIRE if f["type"] == "locked"]
@@ -1371,9 +1411,9 @@ _am = _sc_ns["missing_required"]
 _p28 = _sc_ns["build_parser"]()
 _md28 = _sc_ns["multi_dests"](_p28)
 _K28 = {a.dest: None for a in _p28._actions if a.dest and a.dest != "help"}
-_G28 = {"submitted": True, "task_dir": r"C:\dsh\productions\t1",
-        "params": {"video": r"C:\dsh\productions\t1\inputs\video\01-aabb.mp4",
-                   "product_images": [r"C:\dsh\productions\t1\inputs\product_images\01-cc.jpg"],
+_G28 = {"submitted": True, "task_dir": os.path.join(WS, r"productions\t1"),
+        "params": {"video": os.path.join(WS, r"productions\t1\inputs\video\01-aabb.mp4"),
+                   "product_images": [os.path.join(WS, r"productions\t1\inputs\product_images\01-cc.jpg")],
                    "product_name": "假发", "customer_request": "换整头", "voice_mode": "preserve_original",
                    "aspect_ratio": "adaptive", "scene_text": "", "voice_script": "客户要的口播全文",
                    "not_a_runner_param": "表上有这格但入口不吃"}}
@@ -1386,9 +1426,9 @@ chk("D28", "🔴 合并规则值表：命令行显式给的赢、其余从表单
      _v28["video"], _v28["product_images"], _v28["scene_text"], _v28["output_dir"],
      _v28["voice_script"], _src28.get("voice_script"), _un28, _am(_v28)],
     ["命令行给的", "命令行", "表单", "任务目录",
-     r"C:\dsh\productions\t1\inputs\video\01-aabb.mp4",
-     [r"C:\dsh\productions\t1\inputs\product_images\01-cc.jpg"], None,
-     os.path.join(r"C:\dsh\productions\t1", "outputs"),
+     os.path.join(WS, r"productions\t1\inputs\video\01-aabb.mp4"),
+     [os.path.join(WS, r"productions\t1\inputs\product_images\01-cc.jpg")], None,
+     os.path.join(os.path.join(WS, r"productions\t1"), "outputs"),
      "客户要的口播全文", "表单",
      ["not_a_runner_param=表上有这格但入口不吃"], []])
 _v28b, _pr28b, _ = _ap(dict(_K28), dict(_G28, params={"product_name": "假发"}), _md28)
@@ -1477,8 +1517,20 @@ chk("D35e", "标点不算差异（ASR 会在句尾补句号，把标点计入会
     _res35["只差标点"]["problems"], [])
 chk("D35b", "没文案 ⇒ 不判（返回通过但不许被读成【已验过】）",
     [_nav("", "随便什么")["said_coverage"], _nav("有稿", "")["problems"] != []], [1.0, True])
-chk("D35c", "两个交付口都调复验（少一处 = 从那一口交付的人可以宣称口播已改而没人验）",
-    [SC_RUN.count("verify_narration_audio("), SC_RUN.count("narration_audio_verify.json")], [4, 1])
+# 🔴 计数要打在【真调用点】上，不是打在整份文本上：run.py 第 1063 行那句 docstring
+#    "音轨有 `verify_narration_audio()` 复验、画面文字一个复验口都没有"带着同名括号，
+#    `SC_RUN.count(...)` 把它算成第 5 个调用点 ⇒ 一条写得更清楚的注释把闸顶成假红（2026-10-30 实测）。
+#    判据本来要钉的是"两个交付口都真调了复验"= 1 处定义 + 3 处调用 ⇒ 用 AST 数 Call 节点。
+import ast as _ast35
+_t35 = _ast35.parse(SC_RUN)
+_d35 = sum(1 for n in _ast35.walk(_t35)
+           if isinstance(n, (_ast35.FunctionDef, _ast35.AsyncFunctionDef))
+           and n.name == "verify_narration_audio")
+_c35 = sum(1 for n in _ast35.walk(_t35)
+           if isinstance(n, _ast35.Call) and getattr(n.func, "id", "") == "verify_narration_audio")
+chk("D35c", "两个交付口都调复验（少一处 = 从那一口交付的人可以宣称口播已改而没人验）"
+    "—— 数 AST 里的定义与调用，docstring 里提一次不算调用点",
+    [_d35, _c35, SC_RUN.count("narration_audio_verify.json")], [1, 3, 1])
 _vf = os.path.join(SCRATCH, "narration_audio_verify_real.json")
 _real35 = os.path.join("C:" + chr(92) + "dsh", "productions", "super-clone-20261013-2050",
                        "outputs", "narration_verify", "narration_audio_verify.json")
@@ -1499,7 +1551,7 @@ else:
 #    只是当时没有批准条子才被网关拦回 approval_required —— 有条子就是真花 60 分/段。
 #    判据用 AST 找那次调用，不拿字符串数（文本里到处是 stop_after，数得再多次都可能对不上号）。
 import ast as _ast28                                                   # noqa: E402
-_W3 = open(r"D:\video-skill\backend\services\super_clone_wan3.py", encoding="utf-8").read()
+_W3 = open(os.path.join(BACKEND, r"services\super_clone_wan3.py"), encoding="utf-8").read()
 _tree28 = _ast28.parse(_W3)
 _chunk_fn = next((n for n in _ast28.walk(_tree28)
                   if isinstance(n, _ast28.AsyncFunctionDef) and n.name == "_run_one_chunk"), None)
@@ -1594,7 +1646,7 @@ _LIVE31.kill()
 _LIVE31.wait()
 
 # ---- D31e 🔴 祖先那一支不算撞车（2026-10-12 18:26 现网：一整天"点火零产物"的真死因）----
-# 8100 用 `D:\video-skill\.venv\Scripts\pythonw.exe` 起子进程 —— 那是个【重定向壳】：
+# 8100 用 `.venv\Scripts\pythonw.exe` 起子进程 —— 那是个【重定向壳】：
 # 实测 `Popen.pid=65192`，而真正执行 run.py 的是它的子进程 55020。牌子写的是壳的号 ⇒
 # run.py 一读牌子 = 我自己爸、判活为真 ⇒ **把自己拒了**，outputs/ 空，
 # compile.log 里那句【已经在跑 pid=58268】是它自己打印的。这条只能真跑 subprocess 验
@@ -1722,7 +1774,7 @@ chk("D32b", "真跑：没号 ⇒ 退非 0 且明说「wait 不是重投的口子
 _wj32()
 _w2 = subprocess.run([sys.executable, "-c", """
 import importlib.util, io, json, os, sys
-sys.path.insert(0, r"D:\\video-skill")
+sys.path.insert(0, r"%s")
 spec = importlib.util.spec_from_file_location("w2", r"%s")
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 import backend.gateway as gw
@@ -1735,9 +1787,10 @@ try:
     rc = m.main(["--stage", "wait", "--output-dir", r"%s"])
 except SystemExit as e:
     rc = e.code if isinstance(e.code, int) else 9
-io.open(r"C:\\dsh\\scripts\\_wait_calls.json", "w", encoding="utf-8").write(
+io.open(r"%s", "w", encoding="utf-8").write(
     json.dumps({"rc": rc, "calls": calls}, ensure_ascii=False))
-""" % (os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py"), os.path.join(_WT, "outputs"))],
+""" % (WS, os.path.join(SKILLS_DIR, "super-clone", "runner", "run.py"), os.path.join(_WT, "outputs"),
+       os.path.join(HERE, "_wait_calls.json"))],
                      capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace")
 _w2f = os.path.join(HERE, "_wait_calls.json")
 _w2j = json.load(open(_w2f, encoding="utf-8")) if os.path.isfile(_w2f) else {}
@@ -1790,6 +1843,87 @@ chk("D33c", "顺序 + 反向对照：这道检查排在 import 引擎之前；�
      "submitted_but_unpaid(_tdir)" in _m33.replace("submitted_but_unpaid(_tdir)", "", 1)],
     [True, False])
 shutil.rmtree(_OT, ignore_errors=True)
+
+# ---- D36 槽内落盘名的幂等（2026-10-14 现网 15:12：客户连点四次【提交给 agent 分析】全被拒）----
+# 死因不在 8100、不在素材：回填拿【上一轮的槽内产物】当源再跑一次，`NN-sha8-` 前缀被拼两遍，
+# 再被 32 字上限截断 ⇒ 注册出一个盘上不存在的路径 ⇒ 提交时"第 1 个文件不在表单上传目录里"。
+import importlib.util
+_ispec = importlib.util.spec_from_file_location(
+    "_intent_slot_stem", os.path.join(HERE, "intent.py"))
+_imod = importlib.util.module_from_spec(_ispec)
+_ispec.loader.exec_module(_imod)
+_stem = _imod.slot_stem
+_ONE = "01-317a8726-video-317A8726-video16.mp4"          # 第一次回填的真产物
+_TWICE = "01-317a8726-" + _ONE                            # 修前第二次拼出来的那种名字
+chk("D36", "幂等：槽内产物当源再跑一次 ⇒ 名字不变（跑几轮都收敛到同一个 stem）",
+    [_stem(_ONE), _stem(_TWICE), _stem("video(16).mp4")],
+    ["video-317A8726-video16", "video-317A8726-video16", "video16"])
+chk("D36b", "注册名必须落在盘上取得到的那一格：剥完前缀不超 32 字、不含 `NN-sha8-`",
+    [len(_stem(_TWICE)) <= 32, bool(_imod._SLOT_PREFIX.match(_stem(_TWICE)))], [True, False])
+
+
+def _old_stem(src):                                                # 修前那版算式（只清洗+截断）
+    return re.sub(r"[^A-Za-z0-9._-]", "", os.path.splitext(os.path.basename(src))[0])[:32] or "file"
+
+
+chk("D36c", "反向对照：把【第一次回填的产物】喂给修前的算式 ⇒ 正好拼出现网那个双前缀被截断的名字"
+    "（新算式喂同一个输入 ⇒ 剥回原名，证明这一格真的在管）",
+    [_old_stem(_ONE), _stem(_ONE), _old_stem(_ONE) == _stem(_ONE)],
+    ["01-317a8726-video-317A8726-video", "video-317A8726-video16", False])
+chk("D36d", "cmd_prefill 里那一行确实换成了这个函数（不是只写了个没人调的 helper）",
+    [_stem.__module__ == "_intent_slot_stem", "stem = slot_stem(src)" in _Isrc], [True, True])
+
+# ---------- J 提示位：服务端刚给的拒因不许被 paint() 盖掉（2026-10-14 现网 15:35）----------
+# 现场：submit() 失败分支是 hint(拒因) → reportAttempt() → paint()，而 paint() 每次都拿
+# formIsComplete 的结果重算提示位；那一刻前端判【不缺项】⇒ hint("") 把拒因清成空串。
+# 客户面上就是"点了没反应"，唯一现场证据只剩 .dsh/form_attempts.json。
+# 判据抽成页面里的 hintTextFor（纯函数），这里抠进 node 跑值表 —— 不在闸里复制第二份逻辑。
+_j0 = PAGE_CODE.index("function hintTextFor")
+_j1 = PAGE_CODE.index("\n}", _j0) + 2
+_JBODY = PAGE_CODE[_j0:_j1]
+_JCASES = """
+const out = [];
+out.push(hintTextFor("原片 第 1 个文件在盘上找不到", []));            // 1 服务端拒过、前端不缺项 ⇒ 还它
+out.push(hintTextFor("原片 第 1 个文件在盘上找不到", ["商品图"]));     // 2 两边都有 ⇒ 服务端优先（缺项那句是旧的）
+out.push(hintTextFor("", ["商品图", "画面比例"]));                    // 3 只有缺项 ⇒ 说还差哪几格
+out.push(hintTextFor("", []));                                        // 4 都没有 ⇒ 清空
+out.push(hintTextFor(null, undefined));                               // 5 判据不许自己炸
+console.log(JSON.stringify(out));
+"""
+
+
+def _run_hint(body, tag):
+    f = os.path.join(SCRATCH, "hinttext-%s.js" % tag)
+    open(f, "w", encoding="utf-8").write(body + _JCASES)
+    r = subprocess.run(["node", f], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    for line in reversed((r.stdout or "").splitlines()):
+        try:
+            p = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(p, list):
+            return p, r.returncode
+    return None, r.returncode
+
+
+_jout, _jrc = _run_hint(_JBODY, "real")
+if _jout is None:
+    chk("J0", "node 跑出提示位值表（跑不出来=判据没被真测，不是跳过）", "rc=%s" % _jrc, "rc=0")
+else:
+    chk("J1", "🔴 服务端拒过 + 前端不缺项 ⇒ 提示位仍是那句拒因（15:35 那个洞就长在这）",
+        _jout[0], ["原片 第 1 个文件在盘上找不到", "bad"])
+    chk("J2", "两边都有 ⇒ 服务端那句优先（缺项那句是改动前的旧状态）",
+        _jout[1], ["原片 第 1 个文件在盘上找不到", "bad"])
+    chk("J3", "只有前端缺项 ⇒ 照旧说「还差：…」", _jout[2], ["还差：商品图；画面比例", ""])
+    chk("J4", "都没有 ⇒ 清空（这条判据不会变成永久横幅）", _jout[3], ["", ""])
+    chk("J5", "入参残缺（null/undefined）也不炸 —— 闸与页面都不许成为故障点", _jout[4], ["", ""])
+    _jm, _ = _run_hint(_JBODY.replace('if (sticky) return [String(sticky), "bad"];', ""), "mut")
+    chk("J6", "反向对照：摘掉 sticky 那一行 ⇒ 第 1 格立刻退回【空串】= 现网那个「点了没反应」",
+        [_jm[0] if _jm else None, _jm[2] if _jm else None], [["", ""], ["还差：商品图；画面比例", ""]])
+    chk("J7", "paint() 只经 hintTextFor 决定提示位（不许再出现第二处 hint(miss…) 直写）",
+        [_JBODY.count("function hintTextFor") == 1,
+         PAGE_CODE.count("hint(miss.length") == 0,
+         "hintTextFor(stickyErr, miss.map(missText))" in PAGE_CODE], [True, True, True])
 
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 技能表单闸汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))

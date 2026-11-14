@@ -15,9 +15,10 @@ import re
 import shutil
 import subprocess
 import sys
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
 WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VIDEO_SKILL = os.environ.get("DSH_VIDEO_SKILL") or r"D:\video-skill"
+VIDEO_SKILL = os.environ.get("DSH_VIDEO_SKILL") or BACKEND
 PROFILE = os.path.join(WS, "hypit_runs", "hypit.runtime.json")
 PROVIDER = os.path.join(WS, "hypit_runs", "packages", "provider-gateway", "src", "provider.js")
 PRODUCTIONS = os.path.join(WS, "hypit_runs", "productions")

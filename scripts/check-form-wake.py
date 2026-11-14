@@ -19,9 +19,9 @@ import sys
 import time
 
 os.environ.setdefault("HYPIT_NO_AUTOSTART", "1")
-SCRATCH = r"C:\dsh\_scratch_wake"
+SCRATCH = os.path.join(WS, r"_scratch_wake")
 os.makedirs(SCRATCH, exist_ok=True)
-PLUGIN = r"C:\dsh\plugins\ops-gateway\lib\index.js"
+PLUGIN = os.path.join(WS, r"plugins\ops-gateway\lib\index.js")
 TOTAL = [0]
 fails = []
 
@@ -46,6 +46,8 @@ def check(name, got, want):
 # ── A 判据值表：把 wakeDecision 整块抠进 node 跑（不复制一份逻辑到闸里）──────────────
 NODE_A = r"""
 import { pathToFileURL } from "node:url";
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 const m = await import(pathToFileURL(process.argv[2]).href);
 const f = m.wakeDecision;
 const rows = [
@@ -62,7 +64,7 @@ console.log(JSON.stringify(rows.map(r => [r[0], r[1]])));
 # wakeDecision 在 ESM 里；node 直接 import 我们的插件（package.json type=module）
 node_src = os.path.join(SCRATCH, "a.mjs")
 io.open(node_src, "w", encoding="utf-8").write(NODE_A)
-p = subprocess.run(["node", node_src, PLUGIN], capture_output=True, cwd=r"C:\dsh")
+p = subprocess.run(["node", node_src, PLUGIN], capture_output=True, cwd=WS)
 txt = (p.stdout or b"").decode("utf-8", "replace")
 try:
     rowsA = json.loads(txt.strip().splitlines()[-1])
@@ -102,7 +104,7 @@ for tag, old, new, expect_changed in [
         'const m = await import(pathToFileURL(process.argv[2]).href);\n'
         'console.log(JSON.stringify([m.wakeDecision({session:"s",at:1}, null, false),'
         ' m.wakeDecision({session:"s",at:1},{status:"idle"},true)]));\n')
-    r = subprocess.run(["node", mp, bad], capture_output=True, cwd=r"C:\dsh")
+    r = subprocess.run(["node", mp, bad], capture_output=True, cwd=WS)
     out = (r.stdout or b"").decode("utf-8", "replace").strip().splitlines()
     try:
         got = json.loads(out[-1])
@@ -113,8 +115,19 @@ for tag, old, new, expect_changed in [
     os.remove(bad)
 
 # ── B 服务端队列：真跑 form_submit / wake 视图 / ack，全落临时目录 ──────────────────
-sys.path.insert(0, r"D:\video-skill")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import hypit_bridge, model_admin as MA  # noqa: E402
+
+# 🔴 现网两份唤醒队列的【字节快照】，必须在任何一次改 MA.*_PATH 之前拿（末尾 Z3 逐字节比回来）。
+#    为什么这条快照要有：K 组会 `_ilu.module_from_spec(...)` 重新 exec 一份 model_admin 当 MA ——
+#    那份新实例的全局变量是【出厂默认值】，上面 138 行那次重定向对它根本不生效，
+#    2026-10-15 就是这么把 ok_K11 / ok_K15b 两格写进了现网 .dsh/approval_wake.json，
+#    8100 下一次轮询把它们当真空条子发给了插件（差一点就叫醒客户会话去"交付"一笔不存在的单）。
+_LIVE_WAKE = {}
+for _p in (os.path.join(MA.WORKSPACE_DIR, ".dsh", "approval_wake.json"),
+           os.path.join(MA.WORKSPACE_DIR, ".dsh", "compile_wake.json")):
+    _LIVE_WAKE[_p] = open(_p, "rb").read() if os.path.exists(_p) else None
 
 MD = """---
 name: probe-skill
@@ -221,8 +234,47 @@ MA.form_wake_ack = _real_ack
 
 # ── E 批准核销这一路（2026-10-10 用户："我点了审批不执行，还得回一句点了条子，这个逻辑有问题"）──
 # 缺的就是这一格：表单提交有 wake.pending，批准核销只到 consume_by_click 就结束 ⇒ agent 不动。
-ma_src = io.open(r"D:\video-skill\backend\model_admin.py", encoding="utf-8", errors="replace").read()
+ma_src = io.open(os.path.join(BACKEND, r"model_admin.py"), encoding="utf-8", errors="replace").read()
 plg_src = io.open(PLUGIN, encoding="utf-8", errors="replace").read()
+
+# 🔴 K17 点火的子进程【不许有可见控制台窗口】。这格改过两次，两次都因为只盯着"那一个框"：
+#    ① DETACHED_PROCESS(0x08) 只是"不继承父控制台"，控制台子系统的解释器照样新建一个 ⇒ 每点火闪一个黑框；
+#    ② CREATE_NO_WINDOW(0x08000000) 确实没框了，但那是"父有控制台、子不给"的用法 —— 8100 本身是 pythonw
+#       （无控制台），于是 runner 一个控制台都没有 ⇒ 它每起一个 ffmpeg/ffprobe/python/cmd 子进程，
+#       Windows 现开一个新控制台 = 一个新黑框（2026-10-22 现网"很多 cmd 窗口闪"就是这个形状）。
+#    正解 = CREATE_NEW_CONSOLE(0x00000010) + STARTUPINFO(SW_HIDE)：给 runner 一个"建出来就是隐藏的"控制台，
+#    所有子孙继承它 ⇒ 一个窗都不出，且 os.system / C 层起的进程一起覆盖到。
+def _strip_comments(src):
+    """剥掉 # 注释（含行尾注释）后再判 —— 这条自己踩过：K17 新写的注释里就带着 0x00000010，
+       拿整份源码做子串判断会把【注释里的历史说明】当成代码，反向对照因此变成空跑的绿。"""
+    import io as _io
+    import tokenize as _tk
+    cut = {}
+    try:
+        for tok in _tk.generate_tokens(_io.StringIO(src).readline):
+            if tok.type == _tk.COMMENT:
+                cut[tok.start[0]] = tok.start[1]
+    except Exception:                                    # noqa: BLE001 —— 剥不动就退回原文，宁可判不准也别不跑
+        return src
+    out = []
+    for i, ln in enumerate(src.split("\n"), start=1):
+        col = cut.get(i)
+        out.append(ln[:col].rstrip() if col is not None else ln)
+    return "\n".join(out)
+
+
+_ma_code = _strip_comments(ma_src)
+check("K17 点火用 CREATE_NEW_CONSOLE + 隐藏窗口；CREATE_NO_WINDOW 与 DETACHED 都不许再当'无窗'（剥注释后判）",
+      ["0x00000010" in _ma_code, "STARTF_USESHOWWINDOW" in _ma_code, "wShowWindow = 0" in _ma_code,
+       "creationflags=(0x08000000 | 0x00000200)" in _ma_code, "creationflags = 0x00000008" in _ma_code],
+      [True, True, True, False, False])
+check("K17c 半条修不够：解释器也要换成【控制台那一个】（pythonw 是 GUI 子系统，换 flags 也拿不到控制台）",
+      ['endswith("pythonw.exe")' in _ma_code, '+ "python.exe"' in _ma_code, "cmd[0] = _alt" in _ma_code],
+      [True, True, True])
+_ma_mut = _ma_code.replace("creationflags=(0x00000010 | 0x00000200) if os.name == \"nt\" else 0",
+                           "creationflags=(0x08000000 | 0x00000200) if os.name == \"nt\" else 0")
+check("K17d 反向对照：把点火退回 CREATE_NO_WINDOW ⇒ K17 立刻红（上一版就是这么留下 N 个框的）",
+      ["0x00000010" in _ma_mut, "creationflags=(0x08000000 | 0x00000200)" in _ma_mut], [False, True])
 
 
 def _grant(gid, sid="s-ap", **kw):
@@ -290,11 +342,23 @@ def approve_hook_problems(src):
 
 
 check("E10 服务端：/api/spend/approve 成功后必须挂号（问题清单为空）", approve_hook_problems(ma_src), [])
-for _tag, _old, _new in [
-    ("E10a 变异 摘掉挂号", "                    r[\"wake\"] = approval_wake_note(r.get(\"grant\") or {})", ""),
-    ("E10b 变异 去掉成功判据（拒了也叫醒）", '                if r.get("ok"):\n', '                if True:\n'),
+
+
+def _seg_map(src, fn):
+    """只对【核销那一段】动手，其余原样 —— 变异打在【规则】上，不打在某一行的字面量上。
+    （E10a 原来锚的是那整行 `r["wake"] = approval_wake_note(<实参>)`：2026-10-14 批准即点火给它加了
+    第二个实参，锚点没命中 ⇒ 变异成了空跑 ⇒ 假绿。锚实参 = 钉现场，钉名字 = 钉规则。）"""
+    i = src.find("r = gateway.consume_by_click(pid)")
+    j = src.find('self._send(200 if r.get("ok") else 409', i)
+    return src if i < 0 or j <= i else src[:i] + fn(src[i:j]) + src[j:]
+
+
+for _tag, _mut in [
+    ("E10a 变异 摘掉挂号", _seg_map(
+        ma_src, lambda s: "\n".join(l for l in s.split("\n") if "approval_wake_note" not in l))),
+    ("E10b 变异 去掉成功判据（拒了也叫醒）", _seg_map(
+        ma_src, lambda s: s.replace('if r.get("ok"):', "if True:"))),
 ]:
-    _mut = ma_src.replace(_old, _new, 1)
     check(_tag + " ⇒ 必须红（且锚点真命中，不是空跑）",
           [_mut != ma_src, bool(approve_hook_problems(_mut))], [True, True])
 
@@ -322,7 +386,7 @@ io.open(os.path.join(SCRATCH, "e.mjs"), "w", encoding="utf-8").write(NODE_E)
 def _text_of(plugin_src, tag):
     cp = os.path.join(SCRATCH, "plugin-%s.mjs" % tag)
     io.open(cp, "w", encoding="utf-8").write(plugin_src)
-    r = subprocess.run(["node", os.path.join(SCRATCH, "e.mjs"), cp], capture_output=True, cwd=r"C:\dsh")
+    r = subprocess.run(["node", os.path.join(SCRATCH, "e.mjs"), cp], capture_output=True, cwd=WS)
     try:
         return json.loads((r.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -540,17 +604,23 @@ check("W7 这份宿主插件 import 得动（语法/引用错在桌面端会变�
 # ── K 组：交表即点火（2026-10-12 用户定：提交表单 = 直接进管线跑编译，别等 agent 想起来）────
 # 🔴 切点写死在【编译】：服务端只能起 --stage compile；花钱那一下仍只有 agent 能发起、仍要人点一次批准。
 import importlib.util as _ilu                                     # noqa: E402
-_mspec = _ilu.spec_from_file_location("ma_k", r"D:\video-skill\backend\model_admin.py")
+_mspec = _ilu.spec_from_file_location("ma_k", os.path.join(BACKEND, r"model_admin.py"))
 MA = _ilu.module_from_spec(_mspec)
 _mspec.loader.exec_module(MA)
 _KD = os.path.join(SCRATCH, "kick")
 os.makedirs(_KD, exist_ok=True)
 _KW = os.path.join(SCRATCH, "compile_wake.json")
+# 🔴 新实例的【批准待醒】队列也必须换（上面那次换的是旧实例，对它无效 —— 见 116 行那条快照的注释）
+_KA = os.path.join(SCRATCH, "approval_wake_k.json")
+for _f in (_KW, _KA):
+    if os.path.exists(_f):
+        os.remove(_f)
 _KPID = os.path.join(_KD, ".compile.pid")
-_KSAVE = (MA.COMPILE_WAKE_PATH, MA.hypit_bridge.intent_map)
+_KSAVE = (MA.COMPILE_WAKE_PATH, MA.APPROVAL_WAKE_PATH, MA.hypit_bridge.intent_map)
 _REAL_POPEN = __import__("subprocess").Popen
 try:
     MA.COMPILE_WAKE_PATH = _KW
+    MA.APPROVAL_WAKE_PATH = _KA
     MA.hypit_bridge.intent_map = lambda: {"s-K": {"skill": "super-clone", "task": "k", "ts": time.time(),
                                                   "task_dir": _KD}}
     check("K1 只给白名单里的线点火：没登记的 skill ⇒ 不起、并说清『仍由 agent 决定』（不猜命令）",
@@ -616,9 +686,107 @@ try:
               (MA.compiled_report({"session": "s-K", "ok": True}),
                MA.wake_ack({"kind": "compiled", "session": "s-K", "at": 1.0})["ok"])[1], False)
     finally:
+        # ── K11~K15（2026-10-14 用户裁定翻案）：批准即点火 —— 人点【批准，开始跑】那一下，
+        #    服务端自己起提交腿，不再等 agent 醒。原话："审批条子的时候就是提交wan3.0直接触发，
+        #    别通过agent，太慢了"。慢的真相不是几十秒：`form-wake 等着没叫: 原因=agent-not-live`
+        #    （会话不在前台 ⇒ 永不叫醒）—— 现网那条 16:14 批完，67 分钟后账本连一笔 preauth 都没有。
+        def _gr(**kw):
+            g = {"id": "ok_K11", "capability": "video.generate", "purpose": "wan3-prime",
+                 "account": "local", "session": "s-K", "count": 1, "used": 0, "credits": 60,
+                 "used_credits": 0, "expires": time.time() + 3600, "scope": "自测：批准即点火",
+                 "attest": {"method": "dsh-card-click", "at": time.time() - 30}}
+            g.update(kw)
+            return g
+        check("K11 两个 stage 常量各钉一个口子：交表只许 compile，批准核销才许 submit"
+              "（K3 那条『服务端不许花钱』的禁令没有整块放开，只放开这一格）",
+              [MA.KICKOFF_STAGE, MA.KICKOFF_SUBMIT_STAGE], ["compile", "submit"])
+        _n0 = len(_cmds)
+        _rs = MA.kickoff_submit("s-K", _gr())
+        _cs = _cmds[-1][0] if len(_cmds) > _n0 else []
+        check("K12 🔴 批准即点火真起的命令：--from-form --session <id> --stage submit + 一个固定常量参数"
+              " `--reuse-compile-if-hit`（2026-10-23 现网：人批完点链接，服务端那台却从 Step0 重跑分镜+编译）、"
+              "命令不来自请求体、cwd 锁工作区、日志 submit.log、牌子 .submit.pid",
+            [_rs.get("started"), _cs[2:], os.path.normcase(_cmds[-1][1].get("cwd")),
+             str(_rs.get("log", "")).endswith("submit.log"),
+             os.path.isfile(os.path.join(_KD, ".submit.pid"))],
+            [True, ["--from-form", "--session", "s-K", "--stage", "submit", "--reuse-compile-if-hit"],
+             os.path.normcase(MA.WORKSPACE_DIR), True, True])
+        # 🔴 这一组钉的是"多出来那个参数仍然是【常量】"：argv 里不许出现任何来自请求体/条子的值，
+        #    否则"命令不来自请求体"那条禁令就被一个参数撬开了（K2 钉 compile 档没这个参数 = 反向对照）。
+        _rn = open(os.path.join(os.path.dirname(MA.__file__), "model_admin.py"), encoding="utf-8").read()
+        _rs0 = _rn.index("def _spawn_kickoff(")
+        _re0 = _rn.find(chr(10) + "def ", _rs0 + 10)          # 切到下一个顶层 def 之前（写死函数名会漂）
+        _rk = _rn[_rs0:(_re0 if _re0 > 0 else len(_rn))]
+        check("K12b 那个新参数是【写死的字面量】、且只加在 submit 那一档；argv 其余部分一字未变",
+              ['cmd.append("--reuse-compile-if-hit")' in _rk,
+               'if stage == KICKOFF_SUBMIT_STAGE:' in _rk,
+               "cmd.append(gid" not in _rk and "cmd.append(sid" not in _rk], [True, True, True])
+        _rr = open(os.path.join(MA.WORKSPACE_DIR, ".dsh", "skills", "super-clone", "runner", "run.py"),
+                   encoding="utf-8").read()
+        check("K12c 软档不许偷偷变成硬拒：reuse_compile_strict 只能由【硬档那个开关】决定，"
+              "点火用的软档不命中时必须重编而不是拒（一张已生效的批准不能被拒死）",
+              ["reuse_compile_strict=bool(getattr(a, \"reuse_compile\", False))" in _rr,
+               "--reuse-compile-if-hit" in _rr], [True, True])
+        check("K13 护栏·没有【人点击】的人证 ⇒ 不起（agent 单方面签不出这格，服务端就不该花）",
+              [MA.kickoff_submit("s-K", _gr(attest={}))["started"],
+               MA.kickoff_submit("s-K", _gr(attest={"method": "self-signed"}))["started"]],
+              [False, False])
+        check("K13b 护栏·过期 ⇒ 不起；段数已用满 ⇒ 不起（再起一次 = 重复消费别人的授权）",
+              [MA.kickoff_submit("s-K", _gr(expires=time.time() - 10))["started"],
+               MA.kickoff_submit("s-K", _gr(used=1))["started"]], [False, False])
+        check("K13c 护栏·这条 lane 没被任何合同的 spend 认领 ⇒ 不起（不猜该跑哪条流程）",
+              MA.kickoff_submit("s-K", _gr(purpose="no-such-lane"))["started"], False)
+        open(os.path.join(_KD, ".submit.pid"), "w", encoding="utf-8").write(str(os.getpid()))
+        _r5 = MA.kickoff_submit("s-K", _gr())
+        check("K14 一台不两台：牌子 pid 还活着 ⇒ reused、不起第二台（同名产物互相覆盖）",
+              [_r5.get("started"), _r5.get("reused")], [False, True])
+        os.remove(os.path.join(_KD, ".submit.pid"))
+        _wn = MA.approval_wake_note(_gr(), {"started": True, "pid": 4242})
+        _wq = [i for i in MA.wake_view()["pending"] if i.get("kind") == "approval"]
+        check("K15 队列项带 kicked_off + kickoff_pid（插件据此决定叫 agent 做【交付】还是做【提交】）",
+              any(i.get("grant_id") == "ok_K11" and i.get("kicked_off")
+                  and str(i.get("kickoff_pid")) == "4242" for i in _wq), True)
+        MA.approval_wake_note(_gr(id="ok_K15b"), {"started": False, "why": "这条线没配点火 runner"})
+        _wq2 = [i for i in MA.wake_view()["pending"] if i.get("kind") == "approval"]
+        check("K15b 没点成时把【为什么没点】一起带进队列 ⇒ 文案能说清这一条仍由 agent 发起",
+              any(i.get("grant_id") == "ok_K15b" and not i.get("kicked_off")
+                  and "runner" in str(i.get("kickoff_why")) for i in _wq2), True)
         __import__("subprocess").Popen = _REAL_POPEN
 finally:
-    MA.COMPILE_WAKE_PATH, MA.hypit_bridge.intent_map = _KSAVE
+    MA.COMPILE_WAKE_PATH, MA.APPROVAL_WAKE_PATH, MA.hypit_bridge.intent_map = _KSAVE
+
+# ── K16 插件文案分流（真跑 wakeText）：已点火的叫【交付】，没点火的才叫【发起】 ──
+NODE_K16 = r"""
+import { pathToFileURL } from "node:url";
+const m = await import(pathToFileURL(process.argv[2]).href);
+const base = { kind: "approval", capability: "video.generate", purpose: "wan3-prime",
+              count: 1, credits: 60, grant_id: "ok_k16", session: "session-k16" };
+const on = m.wakeText({ ...base, kicked_off: true, kickoff_pid: "4242" });
+const off = m.wakeText({ ...base, kicked_off: false, kickoff_why: "这条线没配点火 runner" });
+const rows = [
+  ["已点火 ⇒ 说「服务端已替你提交」", on.includes("服务端已替你提交")],
+  ["已点火 ⇒ 明写「不要再 gateway call 一次」+ 别再敲 runner",
+   on.includes("不要再 gateway call 一次") && on.includes("--stage submit")],
+  ["已点火 ⇒ 旧那句（让 agent 自己发起）必须消失 ⇒ 否则两台并发互相覆盖产物",
+   !on.includes("直接继续跑那条已批的方案")],
+  ["已点火 ⇒ 把 pid 与 submit.log 交给 agent（它要知道去哪盯）",
+   on.includes("4242") && on.includes("submit.log")],
+  ["没点火 ⇒ 仍叫 agent 发起，并把【为什么没点】念给它",
+   off.includes("直接继续跑那条已批的方案") && off.includes("这条线没配点火 runner")],
+];
+console.log(JSON.stringify(rows));
+"""
+_k16 = os.path.join(SCRATCH, "wake-text-k16.mjs")
+io.open(_k16, "w", encoding="utf-8").write(NODE_K16)
+_p16 = subprocess.run(["node", _k16, PLUGIN], capture_output=True, cwd=WS)
+try:
+    _rows16 = json.loads((_p16.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
+except (ValueError, IndexError):
+    _rows16 = None
+    check("K16a wakeText 可被 import 并跑值表（拿不到结果=整组按失败计）",
+          (_p16.returncode, (_p16.stderr or b"").decode("utf-8", "replace")[-200:]), (0, ""))
+for _nm, _ok in (_rows16 or []):
+    check("K16 " + _nm, _ok, True)
 
 # ── O 组：收工拦截（agent/turn-stopping）——"必须盯到终态"从散文变成机制 ──────────────
 # 现网形状（session-5282eabf，13:14:56）：agent 把提交起起来就 turn/end，而"后台命令跑完"不在三个
@@ -648,7 +816,7 @@ console.log(JSON.stringify(rows.map(r => [r[0], r[1]])));
 """
 _osrc = os.path.join(SCRATCH, "stop_decision.mjs")
 io.open(_osrc, "w", encoding="utf-8").write(NODE_O)
-_p = subprocess.run(["node", _osrc, PLUGIN], capture_output=True, cwd=r"C:\dsh")
+_p = subprocess.run(["node", _osrc, PLUGIN], capture_output=True, cwd=WS)
 try:
     _rowsO = json.loads((_p.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
 except (ValueError, IndexError):
@@ -818,7 +986,7 @@ check("X16 wake_view 一次合并四个来源（判据分两处问就有缝，�
        _wvs.count("compile_wake_queue("), _wvs.count("compile_died_queue(")], [1, 1, 1, 1])
 
 # ── 入口自己挂牌：让"agent 起的那台"也在盘上存在 ────────────────────────────────
-RUN = r"C:\dsh\.dsh\skills\super-clone\runner\run.py"
+RUN = os.path.join(WS, r".dsh\skills\super-clone\runner\run.py")
 _run_src = io.open(RUN, encoding="utf-8", errors="replace").read()
 _run_lines = _run_src.splitlines()
 _main_at = next((n for n, l in enumerate(_run_lines, 1) if l.startswith("def main(")), 0)
@@ -840,7 +1008,7 @@ check("X19 牌子路径算法只有一份：读（撞车）与写（挂牌）都
 _XRUN = os.path.join(SCRATCH, "x_claim.py")
 io.open(_XRUN, "w", encoding="utf-8").write(r"""
 import importlib.util, json, os, sys
-spec = importlib.util.spec_from_file_location("sc_run", r"C:\dsh\.dsh\skills\super-clone\runner\run.py")
+spec = importlib.util.spec_from_file_location("sc_run", os.path.join(WS, r".dsh\skills\super-clone\runner\run.py"))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 d = sys.argv[1]
 wrote = m.claim_compile_pid({"task_dir": d}, "")
@@ -850,7 +1018,7 @@ print(json.dumps([wrote == pidf, raw == str(os.getpid()), list(m.compile_collisi
 """)
 _XD2 = os.path.join(SCRATCH, "x-claim")
 os.makedirs(_XD2, exist_ok=True)
-_p19 = subprocess.run([sys.executable, _XRUN, _XD2], capture_output=True, cwd=r"C:\dsh")
+_p19 = subprocess.run([sys.executable, _XRUN, _XD2], capture_output=True, cwd=WS)
 try:
     _v19 = json.loads((_p19.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
 except (ValueError, IndexError):
@@ -859,12 +1027,15 @@ check("X20 真跑入口函数：写的就是自己这条 pid ⇒ 下次自己再
       "（compile_collision 认 pid != os.getpid()）", _v19, [True, True, [0, ""]])
 check("X21 挂牌写不上（目录不存在）⇒ 退出码仍是 0、不抛：挂牌失败不许把编译本身拦死",
       subprocess.run([sys.executable, _XRUN, os.path.join(_XD2, "nope")], capture_output=True,
-                     cwd=r"C:\dsh").returncode, 0)
+                     cwd=WS).returncode, 0)
 
 # 两端配平：服务端要 pid，插件就必须发 pid（少一半 = 销账永远对不上 = 每 5 秒重叫一次）
-check("X22 插件的 ack 对 compile_died 这一格发的是 pid（不是 at）—— 与 X11/X12 服务端那句配对",
-      ['kind: "compile_died", session: item.session, pid: item.pid' in " ".join(plg.split()),
-       'kind: "approval", grant_id: item.grant_id, at: item.at' in " ".join(plg.split())], [True, True])
+check("X22 插件的 ack 对【两张死牌子】(compile_died / submit_died) 发的都是 pid（不是 at）—— 与 X11/X12 服务端那句配对\n"
+      "      （2026-10-15 起两格共用一条分支，所以钉的是『这一支带 pid、那一支带 at』这个结构，不钉字面 kind）",
+      ['(item.kind === "compile_died" || item.kind === "submit_died")' in " ".join(plg.split()),
+       "kind: item.kind, session: item.session, pid: item.pid" in " ".join(plg.split()),
+       'kind: "approval", grant_id: item.grant_id, at: item.at' in " ".join(plg.split())],
+      [True, True, True])
 _x_node = os.path.join(SCRATCH, "x_text.mjs")
 io.open(_x_node, "w", encoding="utf-8").write(
     'import { pathToFileURL } from "node:url";\n'
@@ -879,7 +1050,7 @@ _X_OK_ITEM = json.dumps({"kind": "compiled", "session": "s", "skill": "super-clo
 def _wake_text(src, item_json, tag):
     cp = os.path.join(SCRATCH, "plugin-%s.mjs" % tag)
     io.open(cp, "w", encoding="utf-8").write(src)
-    r = subprocess.run(["node", _x_node, cp, item_json], capture_output=True, cwd=r"C:\dsh")
+    r = subprocess.run(["node", _x_node, cp, item_json], capture_output=True, cwd=WS)
     try:
         return json.loads((r.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -912,6 +1083,172 @@ check("X24 变异对照：把 kind 判据反着写 ⇒ 死牌子那格拿到的�
       ["编译半路死了" in _t24, "表单已提交" in _t24], [False, True])
 check("X25 死牌子那条不许变成第二种人证：文案里不许出现『已经批了 / 直接提交』",
       [s in _t23 for s in ("已经批了", "直接提交")], [False, False])
+
+# ---------- SD 批准之后那台【提交腿】死了必须有人报丧（2026-10-15 09:05 现网） ----------
+# 事故形状：人点了【批准，开始跑】⇒ 8100 自己起 `--stage submit` ⇒ 那条腿三段全死在 NameError，
+# 盘上零条红、没人被叫醒，agent 醒来只看到"没人提交"，于是自己重跑并回头问客户"批了吗"。
+# 批准即点火把"人点一次"变成真提交，就必须同时负责"那一次没成"的回读。
+_sd = os.path.join(SCRATCH, "sd-case")
+os.makedirs(os.path.join(_sd, "outputs"), exist_ok=True)
+INTENT["s-sd"] = {"skill": "super-clone", "task": "T", "ts": time.time(), "task_dir": _sd}
+
+
+def _sd_items(age_sec=600.0, alive_ret=False, progress="", pid="4242"):
+    p = os.path.join(_sd, ".submit.pid")
+    io.open(p, "w", encoding="utf-8").write(pid + "\n")
+    t = time.time() - age_sec
+    os.utime(p, (t, t))
+    return MA.submit_died_items([("s-sd", "super-clone", "T", _sd)], time.time(),
+                                lambda _p: alive_ret, lambda _d, _since: progress)
+
+
+_sd_dead = _sd_items()
+check("SD1 牌子在 + 进程没了 + 盘上既没任务号也没成片 ⇒ 报一条 submit_died（带日志路径）",
+      [len(_sd_dead), (_sd_dead or [{}])[0].get("kind"),
+       str((_sd_dead or [{}])[0].get("log", "")).endswith("submit.log")], [1, "submit_died", True])
+check("SD2 进程还活着 ⇒ 不报（那是正在跑的那一台）", len(_sd_items(alive_ret=True)), 0)
+check("SD3 刚落牌（静默期内）⇒ 不报：点火那一下不许被读成死亡", len(_sd_items(age_sec=5.0)), 0)
+check("SD4 🔴 已经投出去了（号/成片在牌子之后落盘）⇒ 不报 —— 不写这条，每次成功都会被报成死亡",
+      len(_sd_items(progress="任务号/成片")), 0)
+check("SD5 牌子读不出纯数字（半截写入）⇒ 不报，不误叫人", len(_sd_items(pid="")), 0)
+check("SD6 牌子老过意图 TTL ⇒ 不报（几天前的死相不该今天把人叫醒）",
+      len(_sd_items(age_sec=MA.hypit_bridge.INTENT_TTL_SEC + 3600.0)), 0)
+_a1 = MA.submit_died_ack({"session": "s-sd", "pid": "9999"})
+check("SD7 销账认不出是哪一台 ⇒ 不删（这一秒可能又点火起了新的一台）",
+      [_a1.get("ok"), os.path.isfile(os.path.join(_sd, ".submit.pid"))], [False, True])
+_a2 = MA.submit_died_ack({"session": "s-sd", "pid": "4242"})
+# 注意这里【不再重写牌子】—— `_sd_items()` 会把牌子建回来，那样测的就不是"销账之后队列空"了
+_sd_left = MA.submit_died_items([("s-sd", "super-clone", "T", _sd)], time.time(),
+                                lambda _p: False, lambda _d, _since: "")
+check("SD7b pid 对得上 ⇒ 删牌，队列随之空（这一格没有 pending 标志：牌子本身就是状态）",
+      [_a2.get("ok"), os.path.isfile(os.path.join(_sd, ".submit.pid")), len(_sd_left)], [True, False, 0])
+_MA_SRC_SD = io.open(os.path.join(os.path.dirname(MA.__file__), "model_admin.py"),
+                     encoding="utf-8").read()
+check("SD8 接线：wake_view 合并了这一格 + ack 分派认得 submit_died（缺一 = 叫了没人销、或销不掉）",
+      ["+ submit_died_queue()" in _MA_SRC_SD, 'if kind == "submit_died":' in _MA_SRC_SD,
+       "submit_died_ack(body)" in _MA_SRC_SD], [True, True, True])
+_sd_item = json.dumps({"kind": "submit_died", "session": "s-sd", "skill": "super-clone",
+                       "pid": 4242, "log": "T/submit.log", "at": 1.0})
+_t_sd = _wake_text(plg, _sd_item, "sd")
+check("SD9 插件那半有专门文案，且把三条最容易做错的写死：别再报价、别建条子、有号只捞不重投",
+      [s in _t_sd for s in ("提交腿半路死了", "不要重新报价", "只捞不重投")], [True, True, True])
+_t_sd_mut = _wake_text(plg.replace('if (kind === "submit_died") {',
+                                   'if (kind !== "submit_died") {', 1), _sd_item, "sdmut")
+check("SD10 反向对照：把分支条件反着写 ⇒ 这一格只能拿到兜底文案（红才说明 SD9 真在测这个分支）",
+      ["提交腿半路死了" in _t_sd_mut, "表单已提交" in _t_sd_mut], [False, True])
+check("SD11 两张死牌子共用同一份 ack 载荷规则（各写一份迟早漂）",
+      ['(item.kind === "compile_died" || item.kind === "submit_died")' in plg,
+       "{ kind: item.kind, session: item.session, pid: item.pid }" in plg], [True, True])
+
+# ── U 组：无控制台入口的【子进程也不许出窗】兜底（gateway 导入时装的那层壳）──
+#    为什么不能只修点火那一条：引擎里 96 个 subprocess 调用点只有 2 个自己带隐藏标志，
+#    而入口不止 8100 一个（agent 手敲、别的常驻服务、还没重启的旧版 8100 点起来的那台）。
+#    判据不吹全覆盖：os.system / C 层直接起的进程这层管不到（全仓 os.system 调用点由 U4 数出来告知）。
+def _quiet_probe(gw_mod, force):
+    """把 subprocess.Popen 换成【只记账不起进程】的假壳（只换传输层），再调被测函数看它给了什么 flag。"""
+    import subprocess as _sp
+    rec = []
+    saved = _sp.Popen
+
+    class _Recorder:
+        """假壳：只记账、不起进程（真起 ffmpeg 会白烧一次外部调用，没必要）。"""
+
+        def __init__(self, args=None, *a, **kw):
+            self.args = args
+            rec.append(dict(kw))
+
+        def communicate(self, input=None, timeout=None):
+            return (b"", b"")
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+        @property
+        def returncode(self):
+            return 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    _sp.Popen = _Recorder
+    try:
+        r1 = gw_mod._quiet_child_windows(force=force)
+        _sp.run(["ffmpeg", "-version"])
+        gave = int((rec[-1] or {}).get("creationflags") or 0) if rec else -1
+        _sp.run(["ffmpeg", "-version"], creationflags=0x00000010)
+        kept = int((rec[-1] or {}).get("creationflags") or 0)
+        r2 = gw_mod._quiet_child_windows(force=force)      # 幂等：第二次不该再叠一层
+        return {"installed": r1, "again": r2, "added": gave, "kept": kept,
+                "wrapped": bool(getattr(_sp.Popen, "_weeksir_quiet", False)),
+                "spawned": len(rec)}
+    finally:
+        _sp.Popen = saved
+
+
+import importlib as _il                                             # noqa: E402
+_gwmod = _il.import_module("backend.gateway")
+_u = _quiet_probe(_gwmod, True)
+check("U1 无控制台时装上壳：subprocess.run 起的子进程自动带 CREATE_NO_WINDOW",
+      [_u["installed"], _u["wrapped"], _u["added"] & 0x08000000 == 0x08000000, _u["spawned"]],
+      [1, True, True, 2])
+check("U2 调用方自己指定过控制台形态 ⇒ 一律不动（不许把 CREATE_NEW_CONSOLE 改掉别人的意图）",
+      _u["kept"], 0x00000010)
+check("U3 幂等：装过再调回 0（重复 import 不许叠两层壳，叠两层后 flag 判断就各说各话）",
+      _u["again"], 0)
+check("U4 覆盖对照：不许出现【行首的】 `from subprocess import ... Popen`（那样会绕过这层壳）",
+      [bool(__import__("re").search(r"^\s*from subprocess import [^\n]*\bPopen\b",
+        _strip_comments(io.open(os.path.join(BACKEND, r"gateway.py"), encoding="utf-8", errors="replace").read()),
+        __import__("re").M)),
+       _u["installed"] in (0, 1)], [False, True])
+_u2 = _quiet_probe(_gwmod, False)
+check("U5 反向对照：force=False（有控制台的那条路）⇒ 不装壳、也不动 flag（人在终端里跑的那遍必须看得见输出）",
+      [_u2["installed"], _u2["added"] == 0], [0, True])
+
+
+# ── Z3 现网唤醒队列的覆盖对照：整条闸跑完，那两份真文件必须一个字节都没变 ──
+#    上面每条断言都在证明"临时目录里行为对"，这一条证明的是【闸本身没往生产状态里写东西】。
+#    判据故意只看字节：闸要真该碰生产队列，改的就是这两份文件，字节级最不会漏。
+def _wake_intact(now, snap):
+    bad = []
+    for p, was in (snap or {}).items():
+        try:
+            now_b = open(p, "rb").read() if os.path.exists(p) else None
+        except OSError as e:
+            bad.append("%s 读不到：%s" % (os.path.basename(p), e.__class__.__name__))
+            continue
+        if now_b != was:
+            keys = []
+            try:
+                keys = sorted(json.loads((now_b or b"{}").decode("utf-8", "replace")).keys())
+            except ValueError:
+                pass
+            old_keys = []
+            try:
+                old_keys = sorted(json.loads((was or b"{}").decode("utf-8", "replace")).keys())
+            except ValueError:
+                pass
+            bad.append("%s 被写过（+%s -%s）" % (
+                os.path.basename(p), sorted(set(keys) - set(old_keys)), sorted(set(old_keys) - set(keys))))
+    return bad
+
+
+_live_now = {}
+for _p in _LIVE_WAKE:
+    _live_now[_p] = open(_p, "rb").read() if os.path.exists(_p) else None
+check("Z3 🔴 闸跑到最后，现网 .dsh/approval_wake.json + .dsh/compile_wake.json 一个字节都没多"
+      "（新 exec 出来的那份 model_admin 会拿出厂默认路径，这是唯一能看见它的地方）",
+      _wake_intact(_live_now, _LIVE_WAKE), [])
+_muted = dict(_LIVE_WAKE)
+for _k in list(_muted)[:1]:
+    _muted[_k] = (_muted[_k] or b"") + b'{"ok_K11":{}}'
+check("Z3b 反向对照：往快照里凭空加一格 ⇒ 这条必须报出问题（不然 Z3 是空跑的绿）",
+      len(_wake_intact(_live_now, _muted)) >= 1, True)
 
 print(_safe("\n=== 表单唤醒闸：%d 条断言，失败 %d ===" % (TOTAL[0], len(fails))))
 if fails:

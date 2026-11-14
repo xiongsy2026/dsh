@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""给官方交付卡加【下载视频】菜单项（copy-on-write 补丁，两份副本一起打）。
+
+分工（🔴 官方那份里不许出现第二份业务规则）：
+  官方 client.js  = 只长 UI：原生 Menu 组件、原生图标 IconDownloadOutline16、原生 CSS 类、原生字典位
+  super-clone-ui = 策略：window.__weeksirDownloadUrl(absPath) 决定"哪个文件能下载、URL 怎么拼"
+                   window.__weeksirDownload(url) 决定"怎么触发"
+⇒ 钩子缺席 / 返回 null ⇒ concat 空数组 ⇒ 菜单与原生逐字节一致，不会画一个点了没反应的项。
+
+按【行】定位而不是按整段字符串拼：这份文件是 tab 缩进的打包产物，缩进层级手数一次错一次。
+每条锚点都断言唯一，任何一条不唯一就整份不落盘（不写半份补丁）。
+"""
+import io
+import os
+import shutil
+import sys
+
+COPIES = [
+    r"C:\Users\Administrator\AppData\Roaming\dsh-desktop\harness\profiles\node_modules"
+    r"\@deepseek-ai\dsh-client-ui-deliverables\lib\client.js",
+    r"C:\Users\Administrator\AppData\Local\Programs\DSH Desktop\resources\app\node_modules"
+    r"\@deepseek-ai\dsh-client-ui-deliverables\lib\client.js",
+]
+BAK = ".bak-weeksir-download-20261008"
+REV = "weeksir-dl-20261008a"
+
+T = "\t"
+HELPER = [
+    T * 2 + "// ==== weeksir 补丁 %s：交付卡【下载视频】（策略在 super-clone-ui，这里只有 UI）====" % REV,
+    T * 2 + "// 回退：还原同目录 client.js%s，或删掉本块 + 下面两处 weeksir 标记。" % BAK,
+    T * 2 + "// 🔴 钩子缺席 ⇒ concat 空数组 ⇒ 菜单与原生一致，绝不画一个点了没反应的项。",
+    T * 2 + "function weeksirDownloadUrl(absPath) {",
+    T * 3 + "try {",
+    T * 4 + 'const fn = typeof window !== "undefined" && window.__weeksirDownloadUrl;',
+    T * 4 + 'return typeof fn === "function" ? fn(absPath) || null : null;',
+    T * 3 + "} catch (e) {",
+    T * 4 + "return null;",
+    T * 3 + "}",
+    T * 2 + "}",
+    T * 2 + "function weeksirTriggerDownload(url) {",
+    T * 3 + "try {",
+    T * 4 + 'const fn = typeof window !== "undefined" && window.__weeksirDownload;',
+    T * 4 + "if (typeof fn === \"function\") fn(url);",
+    T * 3 + "} catch (e) {}",
+    T * 2 + "}",
+    T * 2 + "// ==== end weeksir 补丁 ====",
+    "",
+]
+
+ANCHOR_FN = T * 2 + "/** File identity and explicit default-app or file-manager actions for one delivery. */"
+ANCHOR_STATUS = T * 3 + "const status = phase === void 0 ? cardDescription("
+CONST_LINES = [T * 3 + "const weeksirDl = weeksirDownloadUrl(resolveWorkspacePath(cwd, file.path));"]
+
+ITEMS_TAIL = T * 8 + "}],"
+ONSELECT = [
+    T * 8 + "onSelect: (id) => {",
+    T * 9 + 'act(id === "reveal" ? "reveal" : "open");',
+    T * 8 + "}",
+]
+ITEMS_NEW = [
+    T * 8 + "}].concat(weeksirDl ? [{",
+    T * 9 + 'id: "weeksir-download",',
+    T * 9 + "icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconDownloadOutline16, {",
+    T * 10 + "size: 16,",
+    T * 10 + "className: Deliverables_module_css_default.menuActionIcon",
+    T * 9 + "}),",
+    T * 9 + 'label: t("presented.download")',
+    T * 8 + "}] : []),",
+]
+ONSELECT_NEW = [
+    T * 8 + "onSelect: (id) => {",
+    T * 9 + 'if (id === "weeksir-download") {',
+    T * 10 + "setMenuOpen(false);",
+    T * 10 + "previewRef.current?.focus();",
+    T * 10 + "weeksirTriggerDownload(weeksirDl);",
+    T * 10 + "return;",
+    T * 9 + "}",
+] + ONSELECT[1:]          # [:1] 是 "onSelect: (id) => {"，已在上面写过，别再抄一遍
+
+ZH = T * 3 + '"presented.defaultApp": "用默认应用打开",'
+ZH_NEW = T * 3 + '"presented.download": "下载视频",'
+EN = T * 3 + '"presented.defaultApp": "Open in default app",'
+EN_NEW = T * 3 + '"presented.download": "Download",'
+
+
+def one(lines, needle, startswith=False):
+    hits = [i for i, l in enumerate(lines) if (l.startswith(needle) if startswith else l == needle)]
+    return hits
+
+
+def patch(path):
+    raw = io.open(path, "rb").read()
+    # 🔴 这份打包产物是 CRLF：按 "\n" 切行会让每行末尾挂着一个 \r，锚点就永远匹配不上
+    #    （第一版就栽在这，报"块 0 处"）。按探测到的行尾原样写回，不悄悄换行风格。
+    crlf = raw.count(b"\r\n") == raw.count(b"\n") and raw.count(b"\r\n") > 0
+    src = raw.decode("utf-8").replace("\r\n", "\n") if crlf else raw.decode("utf-8")
+    if REV in src:
+        print("SKIP 已打过:", path)
+        return True
+    lines = src.split("\n")
+
+    # 1) 辅助函数块
+    h = one(lines, ANCHOR_FN)
+    if len(h) != 1:
+        print("FAIL 辅助函数锚点 %d 处" % len(h), path)
+        return False
+    lines[h[0]:h[0]] = HELPER
+
+    # 2) 卡片内算一次 URL（items 与 onSelect 共用同一个值）
+    h = one(lines, ANCHOR_STATUS, startswith=True)
+    if len(h) != 1:
+        print("FAIL status 锚点 %d 处" % len(h))
+        return False
+    lines[h[0]:h[0]] = CONST_LINES
+
+    # 3) items 数组尾 + onSelect（四行连续块，唯一性由整块匹配保证）
+    block = [ITEMS_TAIL] + ONSELECT
+    idxs = [i for i in range(len(lines) - 3) if lines[i:i + 4] == block]
+    if len(idxs) != 1:
+        print("FAIL items+onSelect 块 %d 处" % len(idxs))
+        return False
+    lines[idxs[0]:idxs[0] + 4] = ITEMS_NEW + ONSELECT_NEW
+
+    # 4) 中英文案各加一条（挂在官方字典的同一族里）
+    for old, new in ((ZH, ZH_NEW), (EN, EN_NEW)):
+        h = one(lines, old)
+        if len(h) != 1:
+            print("FAIL 字典锚点 %d 处: %s" % (len(h), old.strip()))
+            return False
+        lines.insert(h[0] + 1, new)
+
+    out = "\n".join(lines)
+    if out == src:
+        print("FAIL 锚点全中却没改动")
+        return False
+    shutil.copy2(path, path + BAK)
+    tmp = path + ".weeksir-tmp"
+    with io.open(tmp, "wb") as f:
+        f.write((out.replace("\n", "\r\n") if crlf else out).encode("utf-8"))
+    os.replace(tmp, path)          # copy-on-write：绝不原地改硬链接（会污染内容寻址存储）
+    print("OK  %s  %d → %d 字节  备份=%s" % (
+        "profiles层" if "Roaming" in path else "app资源", len(src), len(out), BAK))
+    return True
+
+
+def main():
+    missing = [p for p in COPIES if not os.path.exists(p)]
+    if missing:
+        print("FAIL 找不到副本:", missing)
+        return 1
+    ok = all(patch(p) for p in COPIES)
+    print("\n=== 交付卡下载补丁：%s ===" % ("两份都落盘" if ok else "有失败（失败的那份保持原样）"))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

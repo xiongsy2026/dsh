@@ -9,9 +9,9 @@ import os
 import shutil
 import sys
 
-SCRATCH = r"C:\dsh\_scratch_b"
+SCRATCH = os.path.join(WS, r"_scratch_b")
 DB = os.path.join(SCRATCH, "progress_selftest.sqlite")
-WS = r"C:\dsh\hypit_runs"        # 用真工作区根：_project_key 只做 realpath/relpath，不写盘
+WS = os.path.join(WS, r"hypit_runs")        # 用真工作区根：_project_key 只做 realpath/relpath，不写盘
 os.makedirs(SCRATCH, exist_ok=True)
 assert os.path.isdir(os.path.join(WS, "productions", "nose-cream")), "工作区根/工程目录得真实存在"
 if os.path.exists(DB):
@@ -26,11 +26,14 @@ os.environ["HYPIT_INTENT_MARK"] = os.path.join(SCRATCH, "progress_intent.json")
 os.environ["HYPIT_STUDIO_MARK"] = os.path.join(SCRATCH, "progress_studio.json")
 # 账本路径在 gateway 导入时就定死了 ⇒ 必须在 import 之前设好，测试一笔真钱都不碰生产账本
 os.environ["GATEWAY_LEDGER"] = os.path.join(SCRATCH, "progress_ledger.sqlite")
-sys.path.insert(0, r"D:\video-skill")
-sys.path.insert(0, r"D:\video-skill\backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 import hypit_bridge as hb                                       # noqa: E402
 import subprocess                                               # noqa: E402
 import time                                                     # noqa: E402
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
 SID = "session-PROGRESS-1"
 NEED = ("need:author%3AC%3A%5Cdsh%5Chypit_runs%5Cproductions%5Cnose-cream%5Cnose.svml"
@@ -170,6 +173,7 @@ shutil.rmtree(os.path.join(WS, "productions", "demo-a"), ignore_errors=True)
 
 # ── ⑤ 孤儿预扣：只列 + 指名回收（绝不自动退，自动退会伤到别的进程在途的花费）────────
 LEDGER = os.environ["GATEWAY_LEDGER"]
+NOFL = os.path.join(SCRATCH, "inflight_none")      # preflight 的 8090 扫描根：闸只许指这里
 if os.path.exists(LEDGER):
     os.remove(LEDGER)
 import gateway as gw                                            # noqa: E402  （已带隔离路径）
@@ -192,22 +196,138 @@ con = hb._db()
 con.execute("INSERT INTO jobs(id,model,state,route,created,updated)"
             " VALUES('j-live','seedance-2-mini','running','x/y',?,?)", (time.time(), time.time()))
 con.commit(); con.close()
-out = subprocess.run([sys.executable, r"D:\video-skill\backend\hypit_bridge.py", "preflight"],
+os.makedirs(NOFL, exist_ok=True)                              # 空目录：闸不许扫真盘（真机上有没有在途腿会随机翻红/翻绿）
+out = subprocess.run([sys.executable, os.path.join(BACKEND, r"hypit_bridge.py"), "preflight"],
                      capture_output=True, text=True, encoding="utf-8", errors="replace",
-                     cwd=r"D:\video-skill", env={**os.environ, "HYPIT_JOBS_DB": DB,
-                                                 "GATEWAY_LEDGER": LEDGER}).stdout
+                     cwd=BACKEND, env={**os.environ, "HYPIT_JOBS_DB": DB,
+                                                 "GATEWAY_LEDGER": LEDGER,
+                                                 "PREFLIGHT_8090_ROOTS": NOFL}).stdout
 check("6 有在途腿 ⇒ preflight 说不许重启", json.loads(out)["safe_to_restart"], False)
 con = hb._db(); con.execute("DELETE FROM jobs WHERE id='j-live'")
 con.execute("DELETE FROM jobs WHERE state IN ('queued','running')")   # 前面步骤留下的排队行也清掉
 con.commit(); con.close()
-out2 = json.loads(subprocess.run([sys.executable, r"D:\video-skill\backend\hypit_bridge.py", "preflight"],
+out2 = json.loads(subprocess.run([sys.executable, os.path.join(BACKEND, r"hypit_bridge.py"), "preflight"],
                                  capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                 cwd=r"D:\video-skill", env={**os.environ, "HYPIT_JOBS_DB": DB,
-                                                             "GATEWAY_LEDGER": LEDGER}).stdout)
+                                 cwd=BACKEND, env={**os.environ, "HYPIT_JOBS_DB": DB,
+                                                             "GATEWAY_LEDGER": LEDGER,
+                                                             "PREFLIGHT_8090_ROOTS": NOFL}).stdout)
 check("6b 清空后放行，且把遗留预扣数也报出来", [out2["active_jobs"], out2["safe_to_restart"]], [0, True])
 
+# ── 6c-6j 8090 自己进程里的流水线（tvc / structural-replica / super-clone 等）：不进网关 jobs 表 ──
+FL = os.path.join(SCRATCH, "inflight_fixture")
+shutil.rmtree(FL, ignore_errors=True)
+
+
+def mkjob(name, state, age_sec=5.0, broken=False, parent_old=False):
+    """造一个任务目录。真实形状是 <根>/<线>/<任务>/_state.json（多套一层，防"只看顶层目录"那种漏）。"""
+    d = os.path.join(FL, name, "seg1")
+    os.makedirs(d, exist_ok=True)
+    body = "{oops not json" if broken else json.dumps({"status": state, "step": "selftest"})
+    fp = os.path.join(d, "_state.json")
+    io.open(fp, "w", encoding="utf-8").write(body)
+    os.utime(fp, (time.time() - age_sec, time.time() - age_sec))
+    if parent_old:                       # 作业反复重写状态文件时，父目录 mtime 是不动的
+        os.utime(d, (time.time() - 7200, time.time() - 7200))
+        os.utime(os.path.join(FL, name), (time.time() - 7200, time.time() - 7200))
+    return fp
+
+
+mkjob("stale-running", "running", age_sec=3000)          # 3000 秒没动 = 死腿，不该拦重启
+fp_run = mkjob("live-run", "running", parent_old=True)   # 🔴 事故形状：状态文件新鲜 + 父目录旧
+mkjob("finished", "succeeded")                            # 终态：不该拦
+fp_wait = mkjob("wait-rev", "awaiting_review")            # 等人点头：拦，但原因要和"在烧钱"分开
+mkjob("corrupt", "running", broken=True)                  # 坏 JSON：探针不许当成"没在途"
+
+f = hb.inflight_8090(roots=[FL])
+check("6c 只有【新鲜且非终态】算在途；死腿与终态不拦（防永远红）", [f["busy"], f["awaiting"]], [1, 1])
+check("6d 🔴 判据看状态文件自己的 mtime，不看父目录（上一版在这里把真在跑的腿报成 0）",
+      [x["dir"].split(os.sep)[0] for x in f["sample"]], ["live-run", "wait-rev"])
+check("6e 坏 JSON ⇒ ok=False 且 count 多算一个（探针坏了 = 不许重启，不等于没在途）",
+      [f["ok"], f["error"] != "", f["count"]], [False, True, 3])
+
+os.utime(fp_run, (time.time() - 4000, time.time() - 4000))        # 唯一变量：新鲜度
+f2 = hb.inflight_8090(roots=[FL])
+check("6f 反向对照：把跑着那条放凉 ⇒ busy 必须掉下来（证明真在判新鲜度，不是恒红）",
+      [f2["busy"], f2["awaiting"], f2["count"]], [0, 1, 2])
+os.utime(fp_wait, (time.time() - 30000, time.time() - 30000))     # 放到超过等人上限（21600s）才算死档
+f3 = hb.inflight_8090(roots=[FL])
+check("6g 跑的那条凉了、等人的那条超过等人上限 ⇒ 只剩坏文件也在拦（两个方向都对）",
+      [f3["busy"], f3["awaiting"], f3["count"]], [0, 0, 1])
+os.utime(fp_wait, (time.time(), time.time()))
+os.utime(fp_run, (time.time(), time.time()))            # 恢复到真机形状：一条在跑 + 一条等人审
+
+env3 = {**os.environ, "HYPIT_JOBS_DB": DB,
+        "GATEWAY_LEDGER": os.path.join(SCRATCH, "progress_ledger.sqlite"),
+        "PREFLIGHT_8090_ROOTS": FL}
+
+
+def _pf(env):
+    return json.loads(subprocess.run([sys.executable, os.path.join(BACKEND, r"hypit_bridge.py"), "preflight"],
+                                     capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                     cwd=BACKEND, env=env).stdout)
+
+
+j4 = _pf(env3)
+check("6h preflight 把它吃进 safe_to_restart（判据在函数里，不写在文档里）",
+      [j4["busy_8090"], j4["awaiting_8090"], j4["safe_to_restart"]], [1, 1, False])
+os.utime(fp_run, (time.time() - 4000, time.time() - 4000))
+j5 = _pf(env3)
+check("6i 没有真在跑、只有等人审 + 坏文件 ⇒ 仍不许重启，且两个数分开报（别让人以为在烧钱）",
+      [j5["busy_8090"], j5["awaiting_8090"], j5["safe_to_restart"]], [0, 1, False])
+_hb = io.open(os.path.join(BACKEND, r"hypit_bridge.py"), encoding="utf-8", errors="replace").read()
+_pre = _hb.split('elif cmd == "preflight"')[1].split("elif cmd ==")[0] if 'elif cmd == "preflight"' in _hb else ""
+check("6j 扫盘判据只有一份：preflight 里只调 inflight_8090()，不许自己再抄一份 glob/状态判断",
+      ["inflight_8090()" in _pre, "glob" in _pre, "**" in _pre], [True, False, False])
+# ── 6k-6p 🔴 三档判活 + 放行名单的合法性（2026-10-09 实测：awaiting_review 不再写文件，
+#       拿 240 秒窗口判它 = 把真在等人审的腿报成"没在途"；一律拦它 = preflight 永远红）──
+FL2 = os.path.join(SCRATCH, "inflight_tiers")
+shutil.rmtree(FL2, ignore_errors=True)
+
+
+def mk2(root, name, state, age_sec=5.0):
+    d = os.path.join(root, name, "seg1")
+    os.makedirs(d, exist_ok=True)
+    fp = os.path.join(d, "_state.json")
+    io.open(fp, "w", encoding="utf-8").write(json.dumps({"status": state, "task_id": name}))
+    os.utime(fp, (time.time() - age_sec, time.time() - age_sec))
+    return fp
+
+
+mk2(FL2, "tvc", "awaiting_review", 600)            # 有恢复路径的线 + 过了跑腿窗口
+mk2(FL2, "otherline", "awaiting_review", 600)      # 没恢复路径的线 ⇒ 必须拦
+mk2(FL2, "tvcold", "awaiting_review", 30000)       # 太老的等审档 ⇒ 当弃档，别永远红
+mk2(FL2, "live", "running", 60)                    # 在跑 ⇒ 拦
+mk2(FL2, "dead", "running", 900)                   # 凉了 ⇒ 不拦（那是死档）
+mk2(FL2, "fin", "completed", 10)                   # 终态 ⇒ 多新鲜都不拦
+mk2(FL2, "odd", "phase_2_writing", 10)             # 认不出的非终态 ⇒ 当在跑
+f6 = hb.inflight_8090(roots=[FL2])
+lines_hit = sorted(x.get("line", x["dir"].split(os.sep)[0]) for x in f6["sample"])
+check("6k 🔴 有恢复路径的线（tvc）等审档【不拦】，没恢复路径的线等审档【拦】——按证据分，不一刀切",
+      lines_hit, ["live", "odd", "otherline"])   # live=在跑的也在表里（我先前漏数了它）
+check("6l 认不出的非终态按「还在跑」算（宁可多拦一次，不拿没见过当终态）",
+      [x["state"] for x in f6["sample"] if x["dir"].split(os.sep)[0] == "odd"], ["phase_2_writing"])
+check("6m 凉了的不拦、终态的不拦、太老的等审档降成弃档 ⇒ 只拦该拦的（永远红的判据=没有判据）",
+      [f6["busy"], f6["awaiting"], f6["parked"]], [2, 1, 1])
+check("6p parked 只报数不进 count（放行就是真放行，不是报两个数看着安心）",
+      [f6["count"], f6["busy"] + f6["awaiting"]], [3, 3])
+
+_tvc = io.open(os.path.join(BACKEND, "services", "tvc_agent.py"),
+               encoding="utf-8", errors="replace").read()
+check("6o 🔴 放行名单的合法性：名单里每条线都得在自己那端有【启动即恢复】的代码（现只有 tvc）",
+      [hb.RESTART_SAFE_AWAITING_LINES, "\n_load_all_persisted()" in _tvc,
+       "awaiting_review: 直接恢复" in _tvc], [("tvc",), True, True])
+os.utime(os.path.join(FL2, "live", "seg1", "_state.json"), (time.time() - 900, time.time() - 900))
+os.utime(os.path.join(FL2, "odd", "seg1", "_state.json"), (time.time() - 900, time.time() - 900))
+os.utime(os.path.join(FL2, "otherline", "seg1", "_state.json"), (time.time() - 30000, time.time() - 30000))
+f7 = hb.inflight_8090(roots=[FL2])
+check("6q 反向对照：同一批 fixture 全放凉 ⇒ count 必须归 0（证明这些数字真由档位算出来，不是恒红）",
+      [f7["busy"], f7["awaiting"], f7["count"]], [0, 0, 0])
+shutil.rmtree(FL2, ignore_errors=True)
+
+shutil.rmtree(FL, ignore_errors=True)
+
 # ── ⑦ 回落链：腿没带 session（agent 起 build 前没导出 HYPIT_SESSION_ID）也要能捞到 ──
-hb.studio_claim("session-CLAIM-ONLY", r"C:\dsh\hypit_runs\productions\nose-cream\nose.svrun", 5179)
+hb.studio_claim("session-CLAIM-ONLY", os.path.join(WS, r"hypit_runs\productions\nose-cream\nose.svrun"), 5179)
 p7 = hb.jobs_progress("session-CLAIM-ONLY")
 check("7 无会话标 ⇒ 按 claim 的工程回落，且标明是这么匹配上的",
       [p7["known"], p7["matched_by"], p7["summary"]["total"]], [True, "project", 2])

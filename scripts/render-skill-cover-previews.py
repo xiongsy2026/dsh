@@ -7,8 +7,9 @@ import os
 import sys
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-OUT = r"C:\dsh\assets\skill_covers"
+OUT = os.path.join(WS, r"assets\skill_covers")
 W, H = 944, 528
 TITLES = [("super-clone", "超级复刻", "原片换产品 · 可选换脸换背景"),
           ("hypit-pipeline", "Hypit 视频裂变", "video-as-code 工程化出片"),

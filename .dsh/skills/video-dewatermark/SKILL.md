@@ -9,7 +9,7 @@ whenToUse: 用户给一条已生成的视频（多为 Sora / Seedance / 我们�
 一条**基础工具 skill**：输入一个本地视频文件，输出一个干净版本。引擎不是本 skill —— 生成腿统一在**网关**里，本文件只写命令契约和关口。
 
 ```
-python D:\video-skill\backend\gateway.py call video.edit dewatermark --account <LOOP.member> --json '<params>'
+python backend/gateway.py call video.edit dewatermark --account <LOOP.member> --json '<params>'
 ```
 
 - `capability=purpose` = `video.edit` / `dewatermark`，上游 = RunningHub AI App `2012077432525824001`（清 Sora / Seedance 的文字与图标）。
@@ -39,7 +39,7 @@ python D:\video-skill\backend\gateway.py call video.edit dewatermark --account <
 **① 找水印：找视频里哪些位置有文字/图标，这步交给 mimo（video.analyze 的 mimo purpose，按 token 结算，不花 GPU 分）**：
 
 ```
-python D:\video-skill\backend\gateway.py call video.analyze mimo --account <LOOP.member> \
+python backend/gateway.py call video.analyze mimo --account <LOOP.member> \
   --json '{"path":"<in>","question":"逐帧扫这条片，找出所有出现文字或图标的位置：每处给 位置(左上/右上/左下/右下/中下…)、形态(平台 logo/生成标识/文字条/数字角标)、出现时段(全程/前 n 秒)。没有就明说没有。"}'
 ```
 
@@ -57,9 +57,9 @@ python D:\video-skill\backend\gateway.py call video.analyze mimo --account <LOOP
 **③ 报价并等确认**（AGENTS.md 铁律，按条计费能力一律要先报）。数字**从命令里读，禁止凭记忆写价**：
 
 ```
-python D:\video-skill\backend\gateway.py resolve video.edit      # 路由：provider / base_url / AI App 号（不含密钥）
-python D:\video-skill\backend\gateway.py quote  video.edit --json '{"duration":<秒>}'
-python D:\video-skill\backend\gateway.py credits                 # 余额
+python backend/gateway.py resolve video.edit      # 路由：provider / base_url / AI App 号（不含密钥）
+python backend/gateway.py quote  video.edit --json '{"duration":<秒>}'
+python backend/gateway.py credits                 # 余额
 ```
 
 `quote` **只算不花钱**（不建预扣、不提交），回 `unit_price`（分/10 秒档）与 `credits_estimate`（这条的预计总扣分）。
@@ -100,4 +100,4 @@ python D:\video-skill\backend\gateway.py credits                 # 余额
 python C:\dsh\scripts\check-dewatermark-lane.py     # 47 条
 ```
 
-四张表（`CAPABILITIES` / `ROUTES` / `DEFAULT_PURPOSE` / `PRICE_ROUTES`+`PRICE_BY_CAP` / `_ADAPTED`）改任何一张都要重跑它。节点号只住 `D:\video-skill\config.py`（`.env` 可覆盖），**代码里不留字面量兜底**。
+四张表（`CAPABILITIES` / `ROUTES` / `DEFAULT_PURPOSE` / `PRICE_ROUTES`+`PRICE_BY_CAP` / `_ADAPTED`）改任何一张都要重跑它。节点号只住 `backend/config.py`（`.env` 可覆盖），**代码里不留字面量兜底**。

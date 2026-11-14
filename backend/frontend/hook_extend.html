@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>钩子延展 · Omni 续接</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f1a; color: #e0e0e0; min-height: 100vh;
+        }
+        /* Topbar */
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px; background: #16162a;
+            border-bottom: 1px solid #2a2a5c; position: sticky; top: 0; z-index: 10;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .topbar a {
+            color: #888; text-decoration: none; font-size: .85em;
+            padding: 6px 12px; border: 1px solid #2a2a5c; border-radius: 8px;
+        }
+        .topbar a:hover { color: #fff; border-color: #6c3ce0; }
+        .topbar-title {
+            font-size: 1.1em; color: #fff; font-weight: 600;
+            letter-spacing: 1px; text-transform: uppercase;
+        }
+        .topbar-tag {
+            font-size: .7em; color: #a855f7; padding: 3px 8px;
+            background: rgba(168, 85, 247, .1); border: 1px solid rgba(168, 85, 247, .3);
+            border-radius: 4px; letter-spacing: 1px;
+        }
+
+        /* Main 双栏布局 */
+        .main {
+            display: grid;
+            grid-template-columns: 440px 1fr;
+            gap: 20px; padding: 20px;
+            max-width: 1600px; margin: 0 auto;
+        }
+        @media (max-width: 1100px) {
+            .main { grid-template-columns: 1fr; }
+        }
+
+        /* 通用面板 */
+        .panel-card {
+            background: #16162a; border: 1px solid #2a2a5c;
+            border-radius: 12px; padding: 16px; margin-bottom: 16px;
+        }
+        .section-title {
+            font-size: .9em; color: #aaa; margin-bottom: 10px;
+            display: flex; align-items: center; gap: 8px;
+            text-transform: uppercase; letter-spacing: .5px;
+        }
+        .dot { width: 6px; height: 6px; border-radius: 50%; background: #555; }
+        .dot-required { background: #f87171; }
+        .dot-optional { background: #fbbf24; }
+
+        /* 上传卡 */
+        .upload-card {
+            border: 2px dashed #2a2a5c; border-radius: 10px;
+            padding: 16px; text-align: center; cursor: pointer;
+            transition: all .2s; background: #0f0f1a;
+            margin-bottom: 8px; position: relative;
+        }
+        .upload-card:hover { border-color: #6c3ce0; background: rgba(108, 60, 224, .05); }
+        .upload-card.has-file { border-color: #22d3ee; border-style: solid; }
+        .upload-card .icon { font-size: 1.8em; margin-bottom: 4px; }
+        .upload-card .label { font-size: .85em; color: #aaa; }
+        .upload-card.has-file .label { color: #22d3ee; }
+        .upload-card .filename {
+            font-size: .75em; color: #666; margin-top: 4px;
+            word-break: break-all;
+        }
+        .upload-card input[type=file] { display: none; }
+        .upload-card .preview {
+            margin-top: 8px; max-width: 100%; max-height: 120px;
+            border-radius: 6px; border: 1px solid #2a2a5c;
+        }
+
+        /* 表单控件 */
+        .text-field, textarea.text-field {
+            width: 100%; padding: 10px 12px; background: #0f0f1a;
+            border: 1px solid #2a2a5c; border-radius: 8px; color: #e0e0e0;
+            font-family: inherit; font-size: .85em;
+        }
+        textarea.text-field {
+            min-height: 100px; resize: vertical;
+            font-family: "Cascadia Code", Consolas, monospace;
+        }
+        .text-field:focus { outline: none; border-color: #6c3ce0; }
+
+        /* 参数行 */
+        .param-row {
+            display: flex; gap: 10px; margin-bottom: 12px;
+        }
+        .param-row > * { flex: 1; }
+        .param-label {
+            font-size: .8em; color: #888; margin-bottom: 4px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .param-label .hint {
+            font-size: .85em; color: #666; font-weight: normal;
+        }
+        .param-value {
+            background: #0f0f1a; border: 1px solid #2a2a5c; border-radius: 6px;
+            padding: 8px 10px; color: #22d3ee;
+            font-family: "Cascadia Code", Consolas, monospace;
+            font-size: .85em; text-align: center;
+        }
+        input[type=range] {
+            width: 100%; accent-color: #6c3ce0;
+        }
+        .range-display {
+            display: flex; justify-content: space-between;
+            font-size: .75em; color: #888; margin-top: 4px;
+        }
+
+        /* Run 按钮 */
+        .run-btn {
+            width: 100%; padding: 12px; border: none; border-radius: 10px;
+            font-size: 1em; font-weight: 600; cursor: pointer; color: #fff;
+            background: linear-gradient(90deg, #a855f7, #6c3ce0);
+            transition: all .2s; margin-top: 8px;
+        }
+        .run-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(168, 85, 247, .3); }
+        .run-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+        /* 状态面板 */
+        .status-panel { margin-bottom: 16px; }
+        .status-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 14px; padding-bottom: 10px;
+            border-bottom: 1px solid #2a2a5c;
+        }
+        .status-header > span:first-child { font-size: .95em; color: #fff; font-weight: 600; }
+        .status-badge {
+            font-size: .75em; padding: 4px 10px; border-radius: 12px;
+            font-weight: 500; letter-spacing: .5px;
+        }
+        .badge-idle { background: #2a2a5c; color: #888; }
+        .badge-pending { background: rgba(100,100,100,.2); color: #aaa; }
+        .badge-running { background: rgba(251, 191, 36, .15); color: #fbbf24; }
+        .badge-completed { background: rgba(52, 211, 153, .15); color: #34d399; }
+        .badge-failed { background: rgba(248, 113, 113, .15); color: #f87171; }
+
+        /* 步骤条（5 步） */
+        .steps-bar {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+            margin-bottom: 8px;
+        }
+        .step-item {
+            height: 4px; background: #2a2a5c; border-radius: 2px;
+            transition: all .3s;
+        }
+        .step-item.active { background: #fbbf24; }
+        .step-item.done { background: #34d399; }
+        .step-labels {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+            font-size: .68em; color: #888; text-align: center;
+            margin-bottom: 14px;
+        }
+        .step-labels span.active { color: #fbbf24; font-weight: 600; }
+        .step-labels span.done { color: #34d399; }
+
+        /* 日志框 */
+        .log-box {
+            background: #0a0a14; border: 1px solid #2a2a5c; border-radius: 8px;
+            padding: 10px; max-height: 240px; overflow-y: auto;
+            font-family: "Cascadia Code", Consolas, monospace; font-size: .75em;
+            color: #aaa; line-height: 1.6;
+        }
+        .log-line { padding: 2px 0; word-break: break-word; white-space: pre-wrap; }
+        .log-line.success { color: #34d399; }
+        .log-line.error { color: #f87171; }
+        .log-line.warn { color: #fbbf24; }
+        .log-line.info { color: #22d3ee; }
+        .log-line .ts { color: #555; margin-right: 8px; }
+
+        /* 结果区 */
+        .result-block { margin-top: 16px; }
+        .result-block h3 { font-size: .95em; color: #fff; margin-bottom: 12px; }
+        .video-placeholder {
+            padding: 60px 20px; text-align: center;
+            background: #0a0a14; border: 1px dashed #2a2a5c;
+            border-radius: 8px; color: #555; font-size: .85em;
+        }
+        #videoArea video { max-width: 100%; border-radius: 8px; border: 1px solid #2a2a5c; }
+        .result-links { margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-links a {
+            font-size: .8em; color: #a855f7; text-decoration: none;
+            padding: 6px 12px; border: 1px solid rgba(168, 85, 247, .3);
+            border-radius: 6px;
+        }
+        .result-links a:hover { background: rgba(168, 85, 247, .1); }
+
+        /* 钩子段预览区 */
+        .hook-preview {
+            margin-top: 12px;
+            padding: 10px;
+            background: #0a0a14; border: 1px solid #2a2a5c; border-radius: 8px;
+        }
+        .hook-preview video {
+            max-width: 100%; max-height: 160px; border-radius: 6px;
+        }
+        .hook-preview .label {
+            font-size: .75em; color: #888; margin-bottom: 6px;
+        }
+
+        /* 历史记录 */
+        .history-list { max-height: 200px; overflow-y: auto; }
+        .history-item {
+            padding: 8px 10px; border: 1px solid #2a2a5c; border-radius: 6px;
+            margin-bottom: 6px; font-size: .78em; cursor: pointer;
+            transition: all .15s;
+        }
+        .history-item:hover { border-color: #6c3ce0; background: rgba(108, 60, 224, .05); }
+        .history-item .h-row { display: flex; justify-content: space-between; align-items: center; }
+        .history-item .h-id { color: #a855f7; font-family: "Cascadia Code", Consolas, monospace; }
+        .history-item .h-status { font-size: .9em; }
+        .history-item .h-meta { color: #666; margin-top: 4px; font-size: .9em; }
+        .history-empty { color: #555; font-size: .8em; text-align: center; padding: 20px; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-left">
+            <a href="/">← 首页</a>
+            <span class="topbar-title">钩子延展</span>
+            <span class="topbar-tag">OMNI · 续接 10s</span>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- ───── 左侧：输入面板 ───── -->
+        <div class="input-panel">
+            <!-- 原视频（任意时长，取前 N 秒作为钩子段） -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot dot-required"></span> 原视频（必选，任意时长）</div>
+                <div class="upload-card" id="videoCard" onclick="document.getElementById('videoInput').click()">
+                    <div class="icon">🎬</div>
+                    <div class="label" id="videoLabel">点击上传爆款视频（任意时长，自动取前 N 秒作钩子）</div>
+                    <input type="file" id="videoInput" accept="video/*">
+                    <div class="filename" id="videoFilename"></div>
+                    <video class="preview" id="videoPreview" style="display:none;" controls onclick="event.stopPropagation()"></video>
+                </div>
+            </div>
+
+            <!-- 钩子段参数 -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot dot-optional"></span> 钩子段参数</div>
+                <div class="param-row">
+                    <div>
+                        <div class="param-label">起点 <span class="hint">秒（默认 0）</span></div>
+                        <input class="text-field" type="number" id="hookStart" value="0" min="0" step="0.5">
+                    </div>
+                    <div>
+                        <div class="param-label">时长 <span class="hint">秒（默认 5，最大 10）</span></div>
+                        <input class="text-field" type="number" id="hookDuration" value="5" min="1" max="10" step="0.5">
+                    </div>
+                </div>
+                <div class="hook-preview" id="hookPreview" style="display:none;">
+                    <div class="label">钩子段预览（裁剪后）</div>
+                    <video id="hookPreviewVideo" controls></video>
+                </div>
+            </div>
+
+            <!-- 延展 prompt -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot dot-required"></span> 延展 Prompt（必填）</div>
+                <textarea class="text-field" id="extendPrompt" placeholder="描述钩子之后发生什么。例如：&#10;A product showcase video continuing from the hook: close-up of a white ceramic cup on a wooden table, soft warm lighting, slow camera push-in, the cup is centered, no people visible, cinematic, 10 seconds"></textarea>
+                <div style="font-size:.75em; color:#666; margin-top:6px;">
+                    描述钩子段之后的延展内容（产品展示、场景延展、动作衔接等），omni 会生成 10 秒视频（前段衔接钩子，后段为延展）
+                </div>
+            </div>
+
+            <button class="run-btn" id="submitBtn" onclick="submitTask()">开始延展</button>
+        </div>
+
+        <!-- ───── 右侧：状态和结果 ───── -->
+        <div class="output-panel">
+            <!-- 状态面板 -->
+            <div class="panel-card">
+                <div class="status-header">
+                    <span>任务状态</span>
+                    <span class="status-badge badge-idle" id="statusBadge">IDLE</span>
+                </div>
+                <div class="steps-bar" id="stepsBar">
+                    <div class="step-item" data-step="1"></div>
+                    <div class="step-item" data-step="2"></div>
+                    <div class="step-item" data-step="3"></div>
+                    <div class="step-item" data-step="4"></div>
+                    <div class="step-item" data-step="5"></div>
+                </div>
+                <div class="step-labels" id="stepLabels">
+                    <span>① 裁剪钩子</span>
+                    <span>② 上传 CDN</span>
+                    <span>③ 提交 Omni</span>
+                    <span>④ 生成中</span>
+                    <span>⑤ 下载</span>
+                </div>
+                <div class="log-box" id="logBox">
+                    <div class="log-line">等待开始任务...</div>
+                </div>
+            </div>
+
+            <!-- 结果区 -->
+            <div class="panel-card result-block">
+                <h3>延展结果</h3>
+                <div id="videoArea">
+                    <div class="video-placeholder">尚未生成延展视频</div>
+                </div>
+                <div class="result-links" id="resultLinks"></div>
+            </div>
+
+            <!-- 历史记录 -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot dot-optional"></span> 历史任务</div>
+                <div class="history-list" id="historyList">
+                    <div class="history-empty">暂无历史任务</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pollTimer = null;
+        let lastTaskId = null;
+        let lastStartedAt = null;
+        let currentVideoPath = null;
+
+        const $ = (id) => document.getElementById(id);
+
+        // 视频上传预览
+        $('videoInput').addEventListener('change', (e) => {
+            const f = e.target.files[0];
+            if (f) {
+                $('videoFilename').textContent = '✓ ' + f.name;
+                $('videoCard').classList.add('has-file');
+                const url = URL.createObjectURL(f);
+                $('videoPreview').src = url;
+                $('videoPreview').style.display = 'block';
+            }
+        });
+
+        // 钩子段长度变化时更新预览
+        $('hookDuration').addEventListener('change', () => {
+            updateHookPreview();
+        });
+        $('hookStart').addEventListener('change', () => {
+            updateHookPreview();
+        });
+
+        function updateHookPreview() {
+            const video = $('videoPreview');
+            if (!video.src) return;
+            const start = parseFloat($('hookStart').value) || 0;
+            const dur = parseFloat($('hookDuration').value) || 5;
+            const end = Math.min(start + dur, video.duration || start + dur);
+            $('hookPreview').style.display = 'block';
+            const previewVideo = $('hookPreviewVideo');
+            previewVideo.src = video.src;
+            // 尝试 seek 到起点（仅预览，实际裁剪在后端）
+            setTimeout(() => {
+                try { previewVideo.currentTime = start; } catch (e) {}
+            }, 200);
+            previewVideo.ontimeupdate = () => {
+                if (previewVideo.currentTime >= end) {
+                    previewVideo.pause();
+                }
+            };
+        }
+
+        function setStatus(text, cls) {
+            const el = $('statusBadge');
+            el.textContent = text;
+            el.className = 'status-badge ' + (cls || 'badge-idle');
+        }
+
+        function addLog(msg, level) {
+            const box = $('logBox');
+            const line = document.createElement('div');
+            line.className = 'log-line ' + (level || 'info');
+            const ts = new Date().toLocaleTimeString();
+            line.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+            box.appendChild(line);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function clearLogs() {
+            $('logBox').innerHTML = '';
+        }
+
+        function updateSteps(currentPhase) {
+            // 简单实现：根据 phase 字符串前缀判断步骤
+            const stepMap = {
+                'step1': 1, 'step1_done': 1,
+                'step2': 2, 'step2_done': 2,
+                'step3': 3, 'step3_done': 3,
+                'step4': 4, 'step4_progress': 4, 'step4_done': 4,
+                'step5': 5, 'step5_done': 5,
+            };
+            const currentStep = stepMap[currentPhase] || 0;
+            const items = document.querySelectorAll('.step-item');
+            const labels = document.querySelectorAll('#stepLabels span');
+            items.forEach((item, idx) => {
+                const stepNum = idx + 1;
+                item.classList.remove('active', 'done');
+                if (stepNum < currentStep) {
+                    item.classList.add('done');
+                    if (labels[idx]) labels[idx].classList.add('done');
+                } else if (stepNum === currentStep) {
+                    item.classList.add('active');
+                    if (labels[idx]) labels[idx].classList.add('active');
+                }
+            });
+        }
+
+        async function submitTask() {
+            const fileInput = $('videoInput');
+            if (!fileInput.files.length) {
+                alert('请先选择视频文件');
+                return;
+            }
+            const extendPrompt = $('extendPrompt').value.trim();
+            if (!extendPrompt) {
+                alert('请输入延展 prompt');
+                return;
+            }
+
+            const btn = $('submitBtn');
+            btn.disabled = true;
+            btn.textContent = '上传视频中...';
+            setStatus('UPLOADING', 'badge-running');
+            clearLogs();
+            addLog('上传原视频到服务器...');
+
+            // 1. 上传视频到后端
+            const fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+            let upResp, upData;
+            try {
+                upResp = await fetch('/api/upload/video', { method: 'POST', body: fd });
+                upData = await upResp.json();
+            } catch (e) {
+                addLog('✗ 网络错误: ' + e.message, 'error');
+                setStatus('FAILED', 'badge-failed');
+                btn.disabled = false; btn.textContent = '开始延展';
+                return;
+            }
+            if (!upData.success) {
+                addLog('✗ 上传失败: ' + (upData.detail || '未知错误'), 'error');
+                setStatus('FAILED', 'badge-failed');
+                btn.disabled = false; btn.textContent = '开始延展';
+                return;
+            }
+            currentVideoPath = upData.file_path;
+            addLog('✓ 原视频已上传: ' + currentVideoPath, 'success');
+
+            // 2. 提交任务
+            setStatus('SUBMITTING', 'badge-running');
+            btn.textContent = '提交任务中...';
+            addLog('提交钩子延展任务...');
+            const hookStart = parseFloat($('hookStart').value) || 0;
+            const hookDuration = parseFloat($('hookDuration').value) || 5;
+
+            let resp, data;
+            try {
+                resp = await fetch('/api/hook-extend/submit', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        video_path: currentVideoPath,
+                        extend_prompt: extendPrompt,
+                        hook_duration: hookDuration,
+                        hook_start: hookStart,
+                    }),
+                });
+                data = await resp.json();
+            } catch (e) {
+                addLog('✗ 提交失败: ' + e.message, 'error');
+                setStatus('FAILED', 'badge-failed');
+                btn.disabled = false; btn.textContent = '开始延展';
+                return;
+            }
+            if (!data.success) {
+                addLog('✗ 提交失败: ' + (data.detail || '未知错误'), 'error');
+                setStatus('FAILED', 'badge-failed');
+                btn.disabled = false; btn.textContent = '开始延展';
+                return;
+            }
+            lastTaskId = data.task_id;
+            lastStartedAt = Date.now();
+            addLog('✓ 任务已提交: ' + lastTaskId, 'success');
+            setStatus('RUNNING', 'badge-running');
+            btn.textContent = '生成中...';
+            startPolling();
+        }
+
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(pollOnce, 2500);
+            // 立即查一次
+            pollOnce();
+        }
+
+        async function pollOnce() {
+            if (!lastTaskId) return;
+            try {
+                const resp = await fetch('/api/hook-extend/status/' + lastTaskId);
+                const data = await resp.json();
+                const elapsed = lastStartedAt ? Math.floor((Date.now() - lastStartedAt) / 1000) : 0;
+                if (data.status === 'RUNNING' || data.status === 'INIT') {
+                    setStatus(`RUNNING (${elapsed}s)`, 'badge-running');
+                    // 同步 phases 日志
+                    if (data.logs && data.logs.length) {
+                        // 增量打印新日志
+                        const box = $('logBox');
+                        const existingLines = box.children.length;
+                        for (let i = existingLines; i < data.logs.length; i++) {
+                            const msg = data.logs[i];
+                            // 提取 [LEVEL] 前缀
+                            const m = msg.match(/^\[(\w+)\]\s*(.*)$/);
+                            if (m) {
+                                addLog(m[2], m[1].toLowerCase());
+                            } else {
+                                addLog(msg);
+                            }
+                        }
+                    }
+                    // 同步步骤
+                    if (data.phases) {
+                        const lastPhase = Object.keys(data.phases).slice(-1)[0];
+                        if (lastPhase) updateSteps(lastPhase);
+                    }
+                    return;
+                }
+                clearInterval(pollTimer);
+                pollTimer = null;
+                const btn = $('submitBtn');
+                btn.disabled = false;
+                btn.textContent = '开始延展';
+                if (data.status === 'SUCCESS' && data.result) {
+                    setStatus(`✓ 成功（耗时 ${elapsed}s）`, 'badge-completed');
+                    // 打印剩余日志
+                    if (data.logs) {
+                        const box = $('logBox');
+                        const existingLines = box.children.length;
+                        for (let i = existingLines; i < data.logs.length; i++) {
+                            const msg = data.logs[i];
+                            const m = msg.match(/^\[(\w+)\]\s*(.*)$/);
+                            if (m) {
+                                addLog(m[2], m[1].toLowerCase());
+                            } else {
+                                addLog(msg);
+                            }
+                        }
+                    }
+                    renderResult(data.result);
+                } else {
+                    setStatus('✗ 失败', 'badge-failed');
+                    addLog('✗ 失败: ' + (data.error || '未知错误'), 'error');
+                }
+                loadHistory();
+            } catch (e) {
+                console.error('poll error', e);
+            }
+        }
+
+        function renderResult(result) {
+            const area = $('videoArea');
+            const resultPath = result.result_path || '';
+            const resultUrl = result.result_url || '';
+            // 后端 FileResponse 路由
+            const downloadUrl = `/api/hook-extend/result/${lastTaskId}`;
+            area.innerHTML = `<video src="${downloadUrl}" controls autoplay></video>`;
+            const links = $('resultLinks');
+            links.innerHTML = '';
+            // 钩子段预览
+            const hookLink = document.createElement('a');
+            hookLink.href = '#';
+            hookLink.textContent = '🎬 查看钩子段（已裁剪）';
+            hookLink.onclick = (e) => {
+                e.preventDefault();
+                alert('钩子段路径: ' + (result.hook_path || ''));
+            };
+            // 下载按钮
+            const dlLink = document.createElement('a');
+            dlLink.href = downloadUrl;
+            dlLink.download = '';
+            dlLink.textContent = '⬇ 下载延展视频';
+            // omni task id
+            const omniLink = document.createElement('a');
+            omniLink.href = '#';
+            omniLink.textContent = '🏷 Omni Task: ' + (result.omni_task_id || '').slice(0, 20) + '...';
+            omniLink.onclick = (e) => {
+                e.preventDefault();
+                alert('Omni 任务 ID: ' + result.omni_task_id);
+            };
+            links.appendChild(dlLink);
+            links.appendChild(hookLink);
+            links.appendChild(omniLink);
+        }
+
+        async function loadHistory() {
+            try {
+                const r = await fetch('/api/hook-extend/tasks');
+                const d = await r.json();
+                if (!d.success || !d.tasks.length) {
+                    $('historyList').innerHTML = '<div class="history-empty">暂无历史任务</div>';
+                    return;
+                }
+                const list = $('historyList');
+                list.innerHTML = '';
+                d.tasks.forEach(t => {
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    const badgeCls = 'badge-' + (t.status || 'idle').toLowerCase();
+                    const created = new Date((t.created_at || 0) * 1000).toLocaleString();
+                    const duration = t.result_duration ? t.result_duration.toFixed(1) + 's' : '-';
+                    div.innerHTML = `
+                        <div class="h-row">
+                            <span class="h-id">${t.task_id}</span>
+                            <span class="h-status status-badge ${badgeCls}">${t.status}</span>
+                        </div>
+                        <div class="h-meta">${created} | 钩子 ${t.hook_duration}s → 输出 ${duration} | ${(t.extend_prompt || '').substring(0, 50)}...</div>
+                    `;
+                    div.onclick = () => {
+                        lastTaskId = t.task_id;
+                        if (t.status === 'SUCCESS') {
+                            renderResult({ result_path: '', omni_task_id: '', result_url: '' });
+                            const area = $('videoArea');
+                            area.innerHTML = `<video src="/api/hook-extend/result/${t.task_id}" controls></video>`;
+                        }
+                    };
+                    list.appendChild(div);
+                });
+            } catch (e) {
+                console.error('history error', e);
+            }
+        }
+
+        // 初始化：加载历史
+        loadHistory();
+    </script>
+</body>
+</html>

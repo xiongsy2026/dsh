@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>首尾帧无限生成</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 460px; min-width: 380px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        /* 模式切换 tabs */
+        .mode-tabs { display: flex; gap: 8px; margin-bottom: 16px; background: #1e1e36; border-radius: 10px; padding: 4px; }
+        .mode-tab { flex: 1; padding: 10px 12px; text-align: center; border-radius: 8px; cursor: pointer; font-size: .9em; color: #a5a5c8; transition: all .2s; border: none; background: transparent; }
+        .mode-tab.active { background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; font-weight: 600; }
+        .mode-tab:hover:not(.active) { color: #e0e0e0; background: rgba(108,60,224,.15); }
+        /* 上传卡片 */
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .upload-card .preview-img { max-width: 100%; max-height: 120px; border-radius: 8px; margin-top: 8px; object-fit: cover; }
+        /* 多图预览网格 */
+        .preview-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+        .preview-grid .preview-item { position: relative; padding-top: 100%; border-radius: 6px; overflow: hidden; background: #0e0e1e; }
+        .preview-grid .preview-item img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+        .preview-grid .preview-item .remove-btn { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.7); color: #fff; width: 18px; height: 18px; border-radius: 50%; font-size: .7em; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; }
+        /* 输入框 */
+        .text-field { width: 100%; box-sizing: border-box; margin-bottom: 16px; padding: 12px 14px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .95em; outline: none; font-family: inherit; }
+        .text-field:focus { border-color: #6c3ce0; }
+        textarea.text-field { resize: vertical; min-height: 70px; line-height: 1.5; }
+        select.text-field { cursor: pointer; appearance: none; background-image: linear-gradient(45deg, transparent 50%, #a5a5c8 50%), linear-gradient(135deg, #a5a5c8 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 36px; }
+        /* 参数行 */
+        .param-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .param-row > div { flex: 1; }
+        .param-row .section-title { font-size: .82em; font-weight: 500; margin-bottom: 6px; color: #a5a5c8; }
+        /* 按钮 */
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; transition: all .2s; letter-spacing: 1px; margin-top: 8px; }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+        /* 输出面板 */
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: .75em; font-weight: 600; }
+        .badge-running { background: rgba(245,158,11,.2); color: #fbbf24; }
+        .badge-completed { background: rgba(34,197,94,.2); color: #4ade80; }
+        .badge-failed { background: rgba(239,68,68,.2); color: #f87171; }
+        .status-line { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .step-name { color: #e0e0e0; font-weight: 500; }
+        .log-box { background: #0e0e1e; border: 1px solid #2a2a44; border-radius: 10px; padding: 14px; height: 320px; overflow-y: auto; font-family: "Cascadia Code", Consolas, monospace; font-size: .82em; margin-bottom: 16px; }
+        .log-line { color: #a5a5c8; margin-bottom: 4px; line-height: 1.5; word-break: break-all; white-space: pre-wrap; }
+        .log-line.running { color: #fbbf24; }
+        .log-line.error { color: #f87171; }
+        .log-line.success { color: #4ade80; }
+        .result-box { background: #1e1e36; border: 1px solid #2a2a5c; border-radius: 12px; padding: 20px; }
+        .result-box video { width: 100%; max-width: 480px; border-radius: 8px; display: block; margin: 12px auto; }
+        .result-meta { color: #a5a5c8; font-size: .85em; line-height: 1.6; }
+        .result-meta a { color: #60a5fa; text-decoration: none; }
+        .result-meta a:hover { text-decoration: underline; }
+        .empty-state { text-align: center; color: #555; padding: 80px 20px; font-size: .95em; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div style="display:flex;align-items:center;gap:14px;">
+            <a class="back-btn" href="/">← 首页</a>
+            <h1>🎬 首尾帧无限生成</h1>
+            <span class="tag">FL2VA 双帧拼接 · H3 并发生成</span>
+        </div>
+    </div>
+    <div class="main">
+        <!-- 输入面板 -->
+        <div class="input-panel">
+            <!-- 模式切换 -->
+            <div class="mode-tabs">
+                <button class="mode-tab active" id="tabReplica" onclick="switchMode('replica')">🎬 复刻模式</button>
+                <button class="mode-tab" id="tabOriginal" onclick="switchMode('original')">✨ 原创模式</button>
+            </div>
+
+            <!-- 共用：产品名 -->
+            <div class="section-title"><span class="dot dot-required"></span> 产品名称（必填）</div>
+            <input class="text-field" id="productNameInput" type="text" maxlength="100" placeholder="例如：有机山楂糕500g" autocomplete="off">
+
+            <!-- 复刻模式专属：参考视频 -->
+            <div id="replicaFields">
+                <div class="section-title"><span class="dot dot-required"></span> 参考视频（必传）</div>
+                <div class="upload-card" id="videoCard" onclick="document.getElementById('videoInput').click()">
+                    <div class="icon">🎞️</div><div class="label">点击上传参考视频（mp4/mov）</div>
+                    <input type="file" id="videoInput" accept="video/*">
+                    <div class="filename" id="videoFilename"></div>
+                </div>
+                <div class="section-title"><span class="dot dot-optional"></span> 模特图（可选）</div>
+                <div class="upload-card" id="modelCard" onclick="document.getElementById('modelInput').click()">
+                    <div class="icon">👤</div><div class="label">点击上传模特参考图</div>
+                    <input type="file" id="modelInput" accept="image/*">
+                    <div class="filename" id="modelFilename"></div>
+                </div>
+                <div class="section-title"><span class="dot dot-optional"></span> 场景图（可选）</div>
+                <div class="upload-card" id="sceneCard" onclick="document.getElementById('sceneInput').click()">
+                    <div class="icon">🌄</div><div class="label">点击上传场景参考图</div>
+                    <input type="file" id="sceneInput" accept="image/*">
+                    <div class="filename" id="sceneFilename"></div>
+                </div>
+            </div>
+
+            <!-- 原创模式专属：创意字段 -->
+            <div id="originalFields" class="hidden">
+                <div class="section-title"><span class="dot dot-optional"></span> 卖点 / 创意描述</div>
+                <textarea class="text-field" id="sellingPointsInput" rows="3" placeholder="例如：突出登山场景下的防滑耐磨特性"></textarea>
+                <div class="section-title"><span class="dot dot-optional"></span> 目标人群</div>
+                <input class="text-field" id="audienceInput" type="text" placeholder="例如：25-40岁户外爱好者" autocomplete="off">
+                <div class="section-title"><span class="dot dot-optional"></span> 场景要求</div>
+                <textarea class="text-field" id="sceneReqInput" rows="2" placeholder="例如：户外山林、自然光"></textarea>
+            </div>
+
+            <!-- 共用：产品图 -->
+            <div class="section-title"><span class="dot dot-required"></span> <span id="productLabel">参考图（必选，最多5张）</span></div>
+            <div class="upload-card" id="productCard" onclick="document.getElementById('productInput').click()">
+                <div class="icon">📦</div><div class="label" id="productLabelInner">点击上传参考图（可多选）</div>
+                <input type="file" id="productInput" accept="image/*" multiple>
+                <div class="filename" id="productFilename"></div>
+                <div class="preview-grid" id="productPreviewGrid"></div>
+            </div>
+
+            <!-- 共用：参数 -->
+            <div class="param-row">
+                <div>
+                    <div class="section-title">画面比例</div>
+                    <select class="text-field" id="aspectRatioSelect">
+                        <option value="9:16" selected>9:16（竖版）</option>
+                        <option value="16:9">16:9（横版）</option>
+                        <option value="1:1">1:1（方形）</option>
+                    </select>
+                </div>
+                <div>
+                    <div class="section-title">生成引擎</div>
+                    <select class="text-field" id="engineSelect" onchange="onEngineChange()">
+                        <option value="director" selected>Director 满血版（任意秒数，无转场）</option>
+                        <option value="fl2va">FL2VA 拼接版（5/10/15秒，有转场）</option>
+                    </select>
+                </div>
+                <div>
+                    <div class="section-title">每片段时长</div>
+                    <input class="text-field" id="segDurationInput" type="number" value="4" min="1" max="15" step="1">
+                    <small id="segDurHint" style="color:#888;font-size:12px;">Director 支持 1-15 秒任意整数</small>
+                </div>
+                <div>
+                    <div class="section-title">总时长目标</div>
+                    <input class="text-field" id="totalDurationInput" type="number" value="30" min="10" max="120" step="1">
+                </div>
+            </div>
+
+            <button class="run-btn" id="runBtn" onclick="startWorkflow(this)">🚀 开始生成</button>
+        </div>
+
+        <!-- 输出面板 -->
+        <div class="output-panel">
+            <div class="status-line">
+                <span class="badge badge-running" id="statusBadge">待启动</span>
+                <span class="step-name" id="stepName">请在左侧填写参数后点击「开始生成」</span>
+            </div>
+            <div class="log-box" id="logBox">
+                <div class="log-line">[等待启动]</div>
+            </div>
+            <div class="result-box hidden" id="resultBox">
+                <div class="result-meta" id="resultMeta"></div>
+                <video id="resultVideo" controls></video>
+            </div>
+            <div class="empty-state" id="emptyState">任务完成后视频将在此处展示</div>
+        </div>
+    </div>
+
+<script>
+// ─── 状态 ───
+const state = {
+    mode: 'replica',  // 'replica' | 'original'
+    engine: 'director',  // 'director' | 'fl2va'
+    videoPath: null,
+    productPaths: [],
+    modelPath: null,
+    scenePath: null,
+    taskId: null,
+    polling: null,
+    isOriginal: false,
+};
+
+// ─── 模式切换 ───
+function switchMode(mode) {
+    state.mode = mode;
+    document.getElementById('tabReplica').classList.toggle('active', mode === 'replica');
+    document.getElementById('tabOriginal').classList.toggle('active', mode === 'original');
+    document.getElementById('replicaFields').classList.toggle('hidden', mode !== 'replica');
+    document.getElementById('originalFields').classList.toggle('hidden', mode !== 'original');
+    // 产品图文案切换
+    const isOrig = (mode === 'original');
+    document.getElementById('productLabel').innerText = isOrig ? '产品图（必传，1-N张）' : '参考图（必选，最多5张）';
+    document.getElementById('productLabelInner').innerText = isOrig ? '点击上传产品图（可多选）' : '点击上传参考图（可多选）';
+}
+
+// ─── 引擎切换 ───
+function onEngineChange() {
+    const engine = document.getElementById('engineSelect').value;
+    state.engine = engine;
+    const segInput = document.getElementById('segDurationInput');
+    const hint = document.getElementById('segDurHint');
+    if (engine === 'fl2va') {
+        // FL2VA 限制 5/10/15
+        const cur = parseInt(segInput.value);
+        if (![5, 10, 15].includes(cur)) segInput.value = 5;
+        segInput.min = 5; segInput.max = 15; segInput.step = 5;
+        hint.textContent = 'FL2VA 仅支持 5/10/15 秒';
+        hint.style.color = '#c0392b';
+    } else {
+        // Director 支持 1-15 任意整数
+        segInput.min = 1; segInput.max = 15; segInput.step = 1;
+        if (parseInt(segInput.value) % 5 !== 0 && parseInt(segInput.value) < 1) segInput.value = 4;
+        hint.textContent = 'Director 支持 1-15 秒任意整数';
+        hint.style.color = '#888';
+    }
+}
+
+// ─── 文件上传 ───
+async function uploadFile(file, type) {
+    // 复刻管线下游期望绝对路径，统一取 file_path 字段（两个端点都返回）
+    const endpoint = (type === 'video') ? '/api/upload/video' : '/api/upload/image';
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch(endpoint, { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error('上传失败: ' + resp.status);
+    const data = await resp.json();
+    if (!data.success) throw new Error('上传失败: ' + (data.detail || '未知错误'));
+    // 统一返回绝对路径（file_path 字段两个端点都返回）
+    return data.file_path;
+}
+
+function setupSingleUpload(inputId, cardId, filenameId, stateKey, type) {
+    const input = document.getElementById(inputId);
+    const card = document.getElementById(cardId);
+    const filename = document.getElementById(filenameId);
+    input.addEventListener('change', async () => {
+        if (!input.files.length) return;
+        const file = input.files[0];
+        try {
+            card.style.opacity = '.6';
+            const path = await uploadFile(file, type);
+            state[stateKey] = path;
+            filename.textContent = file.name;
+            card.classList.add('has-file');
+            // 图片预览
+            if (type === 'image') {
+                const existing = card.querySelector('.preview-img');
+                if (existing) existing.remove();
+                const img = document.createElement('img');
+                img.className = 'preview-img';
+                img.src = URL.createObjectURL(file);
+                card.appendChild(img);
+            }
+        } catch (e) {
+            alert('上传失败: ' + e.message);
+        } finally {
+            card.style.opacity = '';
+            input.value = '';
+        }
+    });
+}
+
+function setupProductUpload() {
+    const input = document.getElementById('productInput');
+    const card = document.getElementById('productCard');
+    const filename = document.getElementById('productFilename');
+    const grid = document.getElementById('productPreviewGrid');
+    input.addEventListener('change', async () => {
+        if (!input.files.length) return;
+        const files = Array.from(input.files);
+        try {
+            card.style.opacity = '.6';
+            const paths = await Promise.all(files.map(f => uploadFile(f, 'image')));
+            state.productPaths.push(...paths);
+            filename.textContent = `已上传 ${state.productPaths.length} 张`;
+            card.classList.add('has-file');
+            // 渲染预览网格
+            renderProductPreview(files, paths);
+        } catch (e) {
+            alert('上传失败: ' + e.message);
+        } finally {
+            card.style.opacity = '';
+            input.value = '';
+        }
+    });
+
+    function renderProductPreview(files, paths) {
+        files.forEach((file, i) => {
+            const path = paths[i];
+            const item = document.createElement('div');
+            item.className = 'preview-item';
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(file);
+            item.appendChild(img);
+            const rm = document.createElement('button');
+            rm.className = 'remove-btn';
+            rm.textContent = '✕';
+            rm.onclick = (e) => {
+                e.stopPropagation();
+                const idx = state.productPaths.indexOf(path);
+                if (idx >= 0) state.productPaths.splice(idx, 1);
+                item.remove();
+                filename.textContent = state.productPaths.length ? `已上传 ${state.productPaths.length} 张` : '';
+                if (!state.productPaths.length) card.classList.remove('has-file');
+            };
+            item.appendChild(rm);
+            grid.appendChild(item);
+        });
+    }
+}
+
+// 初始化上传
+setupSingleUpload('videoInput', 'videoCard', 'videoFilename', 'videoPath', 'video');
+setupSingleUpload('modelInput', 'modelCard', 'modelFilename', 'modelPath', 'image');
+setupSingleUpload('sceneInput', 'sceneCard', 'sceneFilename', 'scenePath', 'image');
+setupProductUpload();
+
+// ─── 启动工作流 ───
+async function startWorkflow(runBtnEl) {
+    if (state.taskId && state.polling) {
+        // 两步确认：宿主浏览器 confirm 是桥接 Promise 弹窗（触发 Trae 层 React #185 崩溃），不用 confirm()
+        if (runBtnEl && runBtnEl.dataset.armed !== '1') {
+            runBtnEl.dataset.armed = '1';
+            const orig = runBtnEl.textContent;
+            runBtnEl.textContent = '停止旧任务并开始？';
+            runBtnEl.style.opacity = '0.75';
+            setTimeout(() => {
+                if (!runBtnEl.isConnected) return;
+                runBtnEl.textContent = orig; runBtnEl.style.opacity = '';
+                delete runBtnEl.dataset.armed;
+            }, 4000);
+            return;
+        }
+        if (runBtnEl) { runBtnEl.style.opacity = ''; delete runBtnEl.dataset.armed; runBtnEl.textContent = '🚀 开始生成'; }
+        stopPolling();
+        state.taskId = null;
+    }
+    const productName = document.getElementById('productNameInput').value.trim();
+    if (!productName) { alert('请输入产品名称'); return; }
+    if (state.productPaths.length === 0) { alert(state.mode === 'original' ? '请上传至少1张产品图' : '请上传至少1张参考图'); return; }
+    if (state.mode === 'replica' && !state.videoPath) { alert('请上传参考视频'); return; }
+
+    const segDur = parseInt(document.getElementById('segDurationInput').value);
+    const totalDur = parseInt(document.getElementById('totalDurationInput').value);
+    const engine = document.getElementById('engineSelect').value;
+    state.engine = engine;
+    // 引擎校验
+    if (engine === 'fl2va' && ![5, 10, 15].includes(segDur)) {
+        alert('FL2VA 引擎每片段时长仅支持 5/10/15 秒'); return;
+    }
+    if (engine === 'director' && (segDur < 1 || segDur > 15)) {
+        alert('Director 引擎每片段时长必须在 1-15 秒之间'); return;
+    }
+    if (totalDur < segDur * 2) { alert(`总时长(${totalDur}s) 至少为每片段时长(${segDur}s)的2倍`); return; }
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true; btn.classList.add('running'); btn.textContent = '⏳ 执行中...';
+    setBadge('running', '执行中');
+    const engineLabel = engine === 'director' ? 'Director 满血版' : 'FL2VA 拼接版';
+    addLog(state.mode === 'original'
+        ? `启动首尾帧无限生成·原创管线（${engineLabel}，一气呵成）...`
+        : `启动首尾帧无限生成·复刻管线（${engineLabel}，含审核点）...`, 'running');
+    document.getElementById('resultBox').classList.add('hidden');
+    document.getElementById('emptyState').classList.add('hidden');
+
+    try {
+        let resp;
+        if (state.mode === 'original') {
+            // 原创管线：根据引擎选择路由
+            const route = (engine === 'director') ? '/api/replica/run-original-director' : '/api/replica/run-original';
+            resp = await fetch(route, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    product_image_paths: state.productPaths,
+                    product_name: productName,
+                    selling_points: document.getElementById('sellingPointsInput').value,
+                    audience: document.getElementById('audienceInput').value,
+                    scene_requirement: document.getElementById('sceneReqInput').value,
+                    aspect_ratio: document.getElementById('aspectRatioSelect').value,
+                    segment_duration: segDur,
+                    total_duration: totalDur,
+                })
+            });
+            state.isOriginal = true;
+        } else {
+            // 复刻管线：分阶段审核 API（video_model=multi_replica 或 multi_replica_director）
+            // 注意：复刻模式 Director 暂仍走 phased 流程（multi_replica），Director 分支由后端 replica_approve 内部判断
+            // 这里仍用 multi_replica 标签，后端可基于 engine 字段决定 step5 走 Director 还是 FL2VA
+            // 当前实现：复刻模式暂只支持 FL2VA（Director 复刻需要扩展 replica_approve 的 video_model 选项）
+            const videoModel = (engine === 'director') ? 'multi_replica_director' : 'multi_replica';
+            resp = await fetch('/api/replica/run-phased', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    video_path: state.videoPath,
+                    product_name: productName,
+                    product_image_path: state.productPaths[0],
+                    product_image_paths: state.productPaths,
+                    model_image_path: state.modelPath || null,
+                    scene_image_path: state.scenePath || null,
+                    video_model: videoModel,
+                    h3_duration: 15,
+                })
+            });
+            state.isOriginal = false;
+        }
+        const result = await resp.json();
+        if (result.success) {
+            state.taskId = result.task_id;
+            addLog('任务已创建: ' + result.task_id, 'running');
+            startPolling();
+        } else {
+            throw new Error(result.detail || '启动失败');
+        }
+    } catch (err) {
+        addLog('启动失败: ' + err.message, 'error');
+        setBadge('failed', '启动失败');
+        resetBtn();
+    }
+}
+
+// ─── 轮询 ───
+function startPolling() {
+    if (state.polling) clearInterval(state.polling);
+    state.polling = setInterval(async () => {
+        try {
+            // 根据模式 + 引擎选择状态查询接口
+            let url;
+            if (state.isOriginal) {
+                url = (state.engine === 'director')
+                    ? '/api/replica/original-director-status/' + state.taskId
+                    : '/api/replica/original-status/' + state.taskId;
+            } else {
+                url = '/api/replica/status/' + state.taskId;
+            }
+            const resp = await fetch(url);
+            if (resp.status === 404) {
+                clearInterval(state.polling); state.polling = null;
+                if (state.isOriginal) {
+                    setBadge('failed', '任务丢失');
+                    resetBtn();
+                    addLog('❌ 原创管线任务 ' + state.taskId + ' 在后端已丢失（可能后端重启），请重新创建', 'error');
+                } else {
+                    addLog('⚠ 复刻任务 ' + state.taskId + ' 在后端已丢失，请前往爆款复刻页面恢复', 'error');
+                    setBadge('failed', '任务丢失');
+                    resetBtn();
+                }
+                return;
+            }
+            const data = await resp.json();
+            updateUI(data);
+        } catch (err) {
+            console.error('轮询错误:', err);
+        }
+    }, 2000);
+}
+
+function stopPolling() {
+    if (state.polling) { clearInterval(state.polling); state.polling = null; }
+}
+
+function updateUI(data) {
+    if (data.status === 'running') {
+        setBadge('running', data.step_name || '执行中');
+        document.getElementById('stepName').textContent = data.step_name || '执行中';
+        document.getElementById('runBtn').textContent = '⏳ ' + (data.step_name || '执行中');
+    } else if (data.status === 'awaiting_review') {
+        setBadge('running', '待审核: ' + (data.step_name || ''));
+        document.getElementById('stepName').textContent = '⏸ 待审核: ' + (data.step_name || '');
+        stopPolling();
+        addLog('⚠ 复刻模式进入审核阶段，请前往「爆款复刻」页面完成审核后继续', 'running');
+    } else if (data.status === 'completed' || data.status === 'success') {
+        setBadge('completed', '已完成');
+        document.getElementById('stepName').textContent = '✓ 已完成';
+        stopPolling();
+        resetBtn();
+        showResult(data);
+    } else if (data.status === 'failed') {
+        setBadge('failed', '失败');
+        document.getElementById('stepName').textContent = '✗ 失败';
+        stopPolling();
+        resetBtn();
+        addLog('工作流失败: ' + (data.error || '未知错误'), 'error');
+    }
+    // 增量日志
+    if (data.logs && data.logs.length > 0) {
+        const logBox = document.getElementById('logBox');
+        const existingLines = logBox.querySelectorAll('.log-line').length;
+        for (let i = existingLines; i < data.logs.length; i++) {
+            addLog(data.logs[i], data.status === 'failed' ? 'error' : 'running');
+        }
+    }
+}
+
+function showResult(data) {
+    const box = document.getElementById('resultBox');
+    const meta = document.getElementById('resultMeta');
+    const video = document.getElementById('resultVideo');
+    let videoUrl = data.video_url || (data.result && data.result.video) || '';
+    let runDir = data.run_dir || (data.result && data.result.run_dir) || '';
+    if (videoUrl) {
+        video.src = videoUrl;
+        meta.innerHTML = `📁 运行目录: <a href="${runDir}" target="_blank">${runDir}</a><br>🎬 视频地址: <a href="${videoUrl}" target="_blank">${videoUrl}</a>`;
+        box.classList.remove('hidden');
+        document.getElementById('emptyState').classList.add('hidden');
+        addLog('✓ 视频生成完成: ' + videoUrl, 'success');
+    } else {
+        meta.innerHTML = '⚠ 未获取到视频地址，请检查运行目录: ' + runDir;
+        box.classList.remove('hidden');
+    }
+}
+
+// ─── 辅助函数 ───
+function setBadge(status, text) {
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'badge badge-' + status;
+    badge.textContent = text;
+}
+
+function addLog(msg, type) {
+    const logBox = document.getElementById('logBox');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + (type || '');
+    line.textContent = msg;
+    logBox.appendChild(line);
+    logBox.scrollTop = logBox.scrollHeight;
+}
+
+function resetBtn() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.classList.remove('running');
+    btn.textContent = '🚀 开始生成';
+}
+
+// 初始化
+switchMode('replica');
+</script>
+</body>
+</html>

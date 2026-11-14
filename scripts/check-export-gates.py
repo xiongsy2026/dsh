@@ -4,7 +4,10 @@
 import os
 import sys
 
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import hypit_bridge as hb   # noqa: E402
 
 fails, total = [], [0]
@@ -29,7 +32,7 @@ def json_safe(v):
 # ② 路径白名单：run 只能是 hypit_runs 下的相对 .svrun
 check("run 合法", bool(hb.resolve_run("productions/hypit-e2e/assemble.svrun")[0]), True)
 check("run 穿越(..)拒", bool(hb.resolve_run("../etc/passwd.svrun")[0]), False)
-check("run 绝对路径拒", bool(hb.resolve_run(r"C:\dsh\hypit_runs\productions\hypit-e2e\assemble.svrun")[0]), False)
+check("run 绝对路径拒", bool(hb.resolve_run(os.path.join(WS, r"hypit_runs\productions\hypit-e2e\assemble.svrun"))[0]), False)
 check("run 非 .svrun 拒", bool(hb.resolve_run("productions/hypit-e2e/assemble.svml")[0]), False)
 check("run 不存在拒", bool(hb.resolve_run("productions/nope/x.svrun")[0]), False)
 check("run 空拒", bool(hb.resolve_run("")[0]), False)
@@ -61,7 +64,7 @@ check("无 origin 无 token 拒", hb.export_authorized(None, None), False)
 check("origin 解析不吃 scheme 冒充", hb.export_authorized(None, "http://127.0.0.1.evil.com"), False)
 
 # ③ 免费闸：真跑一遍判定（假 hypit + 临时 sqlite，绝不碰生产库、也不真 build）
-hb.DB_PATH = r"C:\dsh\_scratch_b\exp_gates.sqlite"
+hb.DB_PATH = os.path.join(WS, r"_scratch_b\exp_gates.sqlite")
 if os.path.exists(hb.DB_PATH):
     os.remove(hb.DB_PATH)
 

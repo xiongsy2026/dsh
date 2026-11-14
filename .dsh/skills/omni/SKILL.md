@@ -33,7 +33,7 @@ whenToUse: >
 ## 先决（每次开工先确认）
 1. video-ui 起着：`GET http://127.0.0.1:8765/api/bootstrap` 返回 200。没起就用
    `VIDEO_UI_RUNS=C:\dsh\video_runs VIDEO_UI_PORT=8765 python app.py` 起（scratch 目录）。
-2. `key_present=true`（zexapi 与 agnes 的 key 由 video-ui 从 `D:\video-skill\.env` 兜底，不用你填）。
+2. `key_present=true`（zexapi 与 agnes 的 key 由 video-ui 从 `backend/.env` 兜底，不用你填）。
 3. `dry_run=false`（真跑）。`image_backend` 默认 zexapi·nano_banana_2，要 gflow 先确保已 `auth login` + `gflow_project` 是本账号自有项目。
 4. 生图/出片经 `POST`；**每次异步提交前先读 `state.job.active`**——单 worker 串行，active 时提交会被拒。
 
@@ -44,7 +44,7 @@ whenToUse: >
 **建 run 必须带 `session=$DSH_SESSION_ID`**（form 字段，Bash 里读环境变量）：这条 run 就绑到当前会话，右栏流水线页签只显示本会话的 run、不串台。⚠️ **omni 必须在主会话驱动**——subagent 是子会话 id，run 会打子 id、跟主会话页签对不上。
 
 🔴 **本 skill 被显式调用后的第一个动作**（早于建 run、早于任何引擎调用；铁律见 `AGENTS.md`「右栏 UI 铁律」）：
-`python D:\video-skill\backend\hypit_bridge.py intent "$DSH_SESSION_ID" omni <任务名>`
+`python scripts/intent.py omni <任务名>`
 —— 新会话不登记就不该出现任何 UI；登记 omni 是**排他**的（hypit 台同时不再挂）。回归：`scripts/check-intent-rule.py`。
 
 ## 驱动序列（细节见 monitor-contract §2/§3/§5）

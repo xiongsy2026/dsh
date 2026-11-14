@@ -112,15 +112,53 @@ export function wakeText(item) {
       + "4) 编译出来才走报价那一刀：approve 建条子 ⇒ 人在批准窗点一次 ⇒ 你提交、盯终态、交付。\n"
       + "（本条由 8100 的「死牌子」判据触发 —— 它读的是盘上事实，不是谁的自述。）";
   }
+  if (kind === "submit_died") {
+    const skillSd = String((item && item.skill) || "该技能");
+    // 🔴 批准即点火的回程那一半：人已经点过一次批准了，那台被服务端起来的提交腿却半路死了 ⇒
+    //    没有这一格，盘上零条红、没人被叫醒，最后变成客户来问"我批了怎么没片"（2026-10-15 09:05 现网：
+    //    三段全死在 NameError，agent 醒来只看到"没人提交"，于是自己重跑并回头问人"批了吗"）。
+    return "【批准之后那台提交腿半路死了 · 客户已经点过一次批准 · 该你出声了】\n"
+      + "客户在批准窗点了【批准，开始跑】（技能：" + skillSd + "），服务端在同一次请求里起了提交腿"
+      + "（`--stage submit`，pid " + item.pid + "）—— 现在那个进程没了，而盘上【既没有任务号、也没有成片】"
+      + "⇒ 那一次批准没换来任何一次提交，人还在等片。\n"
+      + "1) 先读 " + item.log + " 找死因，原样说给人（这次现网是代码 NameError，不是上游忙 —— 别归因成排队）。\n"
+      + "2) 🔴 不要重新报价、不要重新建条子：批准已经签出、条子还在。先跑 `gateway.py approvals`【只读】"
+      + "确认剩余段数，再用同一条 `--stage submit` 补跑；入口自己防撞牌，别绕开它手搓提交脚本。\n"
+      + "   必须 `run_in_background: true` + `job_output` 收：一条 wan3-prime 实测 5–17 分钟，前台 10 分钟被强杀。\n"
+      + "3) 只要盘上已经出现任务号（哪怕崩在下载之前）⇒ 一律改跑 `--stage wait` 只捞不重投，重投 = 双花。\n"
+      + "4) 同一死因最多试 3 次，然后停下报证据（submit.log 尾部 + 账本 error），别死磕。\n"
+      + "（本条由 8100 的「死掉的提交牌子」判据触发 —— 读的是盘上事实，不是谁的自述。）";
+  }
   if (kind === "approval") {
     const lane = String(item.capability || "?") + (item.purpose ? "/" + item.purpose : "");
+    // 🔴 2026-10-14 批准即点火：人在批准窗点那一下，8100 已经自己把提交腿起起来了。
+    //    这条唤醒从此只派【盯终态 + 交付】的活 —— 文案必须明说别再自己起/别再 call 一次，
+    //    否则 agent 醒来又敲一遍 runner（2026-10-12 那台并发就是这么来的）。
+    if (item.kicked_off) {
+      return "【批准已生效 · 服务端已替你提交，这一轮你只做交付】\n"
+        + "客户刚点了【批准，开始跑】：" + lane + " · " + item.count + " 段 · 上限 "
+        + item.credits + " 分 · 条子 " + item.grant_id + "。\n"
+        + "1) 🔴 8100 在同一刻已经把提交腿起起来了（pid " + (item.kickoff_pid || "?")
+        + "，日志 <任务目录>/submit.log）—— 你【不要再 gateway call 一次】，也不要再敲 "
+        + "`run.py --from-form --stage submit`：两台并发会互相覆盖同名产物，"
+        + "而第二遍的段数已经被这张条子花完 ⇒ 只会拿到 approval_required。\n"
+        + "2) 你要做的：读 submit.log 盯到终态（长命令一律 "
+        + "run_in_background + job_output，前台 10 分钟被工具强杀）→ 出片后 present → "
+        + "deliver_pack → 原样贴 markdown；一批里失败几段就只补跑那几段。\n"
+        + "   这条腿现在【有没有在跑】只许问 8100 的只读口 GET /api/skills/obligation?session=<会话id> —— "
+        + "判据在服务器那一份，插件（和你）都不许自己翻盘上的号文件去算，两份迟早漂。\n"
+        + "3) 范围一变（换路由、加段数、超分数、扩片型）⇒ 这张条子花不出去，回来重新报价再批。\n"
+        + "（本条由 8100 的批准核销事件触发，不是客户手打的。）";
+    }
+    const why = item.kickoff_why ? ("\n（服务端没替你点火的原因：" + item.kickoff_why
+      + " ⇒ 这一条仍由你发起提交。）") : "";
     return "【批准已生效 · 接着往下跑，不要再问“点了没有”】\n"
       + "客户刚在批准窗/批准页点了【批准，开始跑】：" + lane
       + " · " + item.count + " 段 · 上限 " + item.credits + " 分 · 条子 " + item.grant_id + "。\n"
       + "1) 直接继续跑那条已批的方案 —— 不要再等一句确认，也不要重新报价（这一刀已经批了）。\n"
       + "2) 提交前照旧核验 skill 合同回执；自己盯到终态，出片后 present → deliver_pack → 原样贴 markdown。\n"
       + "3) 🔴 这张条子只覆盖上面写明的范围：换路由、加段数、超分数、扩片型 ⇒ 仍要重新报价并等下一次点击。\n"
-      + "（本条由 8100 的批准核销事件触发，不是客户手打的。）";
+      + "（本条由 8100 的批准核销事件触发，不是客户手打的。）" + why;
   }
   const skill = String((item && item.skill) || "该技能");
   return "【表单已提交 · 请接着往下做】\n"
@@ -208,10 +246,11 @@ async function tick(ctx) {
       //    按会话清会把后批那条一起抹掉 = 人明明点了，agent 却永远不被叫。
       const ackBody = item.kind === "approval"
         ? { kind: "approval", grant_id: item.grant_id, at: item.at }
-        : item.kind === "compile_died"
-          // 🔴 死牌子那一格按 pid 销账（不是 at）：服务端只删【报上来的那台】的牌子，
+        : (item.kind === "compile_died" || item.kind === "submit_died")
+          // 🔴 两张死牌子都按 pid 销账：服务端只删【报上来的那台】的牌子，
           //    万一这一秒又点火起了新的一台，pid 对不上就不删 —— 免得把新那台的留痕摘了。
-          ? { kind: "compile_died", session: item.session, pid: item.pid }
+          //    （服务端那份 ack 判据两格共用，所以这里也必须共用，别各写一份。）
+          ? { kind: item.kind, session: item.session, pid: item.pid }
           : { kind: (item.kind || "form"), session: item.session, at: item.at };
       await fetchJson(ACK_URL, ackBody);
       done++;

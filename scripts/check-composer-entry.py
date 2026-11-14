@@ -15,9 +15,10 @@ import pathlib
 import re
 import subprocess
 import sys
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-CLIENT = pathlib.Path(r"C:\dsh\plugins\super-clone-ui\lib\client.js")
-SKILLS_DIR = pathlib.Path(r"C:\dsh\.dsh\skills")
+CLIENT = pathlib.Path(os.path.join(WS, r"plugins\super-clone-ui\lib\client.js"))
+SKILLS_DIR = pathlib.Path(os.path.join(WS, r".dsh\skills"))
 TOTAL = 0
 fails = []
 
@@ -58,8 +59,14 @@ check("A3 旧的空炮命令不再出现在源码里（/hypit 带尾空格）",
 
 meta = re.search(r"const SKILL_DOCK_META = \{(.*?)\n    \};", src, re.S)
 ids = re.findall(r'^\s*"?([\w-]+)"?:\s*\{', meta.group(1), re.M) if meta else []
-check("A4 dock 白名单 5 条齐全（客户可见面 = SKILL_DOCK_ALLOW）",
-      sorted(ids), sorted(["super-clone", "hypit-pipeline", "omni", "short-drama", "video-dewatermark"]))
+# A4：名单**只有一个源** = check-skill-dock.py 的 APPROVED。
+#    🔴 这里以前抄了一份写死的名单（5 条→6 条），结果另一会话加 video-enhance 时本闸红在"名单对不上"上——
+#    两条闸各拿一份客户可见名单 = 必然漂移，所以改成【去读那份权威名单】，加技能只改一处。
+DOCK_GATE = pathlib.Path(os.path.join(WS, r"scripts\check-skill-dock.py"))
+_ap = re.search(r"^APPROVED = \[(.*?)\]", DOCK_GATE.read_text(encoding="utf-8"), re.M)
+APPROVED = [x.strip().strip('"\'') for x in (_ap.group(1).split(",") if _ap else []) if x.strip()]
+check("A4 dock 名单 = check-skill-dock.py 的 APPROVED（单一源，两份闸不许各写一份）",
+      [sorted(ids), sorted(APPROVED), bool(APPROVED)], [sorted(APPROVED), sorted(APPROVED), True])
 
 # 每条 id 必须真能在技能目录里找到、且 SKILL.md 的 name 字段就是它
 missing, mismatched = [], []
@@ -98,17 +105,18 @@ check("B5 下拉行仍由 SKILLS 单源生成（没有另写一份菜单项）",
 # ⚠️ 这个仓库有并发写入者：`.dsh/skills/**` 里那批改动是【另一个会话】的在途工作（删 hypit 重复技能等），
 #    拿"全量 diff 里不许出现 SKILL.md"当判据 = 一条永远红的假保险。所以这里只钉本任务真正能越界的两条硬边界，
 #    SKILL.md 的实质风险（命令指向不存在的技能）已经由 A5/A6 从内容侧钉住了。
-# 🔴 必须读 `git diff HEAD`（= 已暂存 + 未暂存）：只读未暂存的话，`git add` 之后 C2/C3 会凭空变红
-#    —— 那是闸的毛病不是代码的毛病（2026-10-05 实测踩过一次）。断言一律写成"禁集为空"，不写"集合必须恰好等于 X"。
-r = subprocess.run(["git", "-C", r"C:\dsh", "diff", "HEAD", "--name-only"],
+# 🔴 2026-10-05：ops-gateway 也进了允许集 —— dock 名单派生的技能下拉与右栏工作台分属这两个 UI 插件，
+#    加一条客户可见技能本来就要同时动两处（prompt-reverse 第 6 档）。规则仍是"只许动我们自己的 UI 插件、内核零改动"。
+r = subprocess.run(["git", "-C", WS, "diff", "HEAD", "--name-only"],
                    capture_output=True, text=True, encoding="utf-8")
 changed = [l.strip().replace("\\", "/") for l in (r.stdout or "").splitlines() if l.strip()]
+OURS = {"super-clone-ui", "ops-gateway"}
 check("C0 diff 真读到了（git 成功 + 非空集），防止拿空集真空判绿",
       [r.returncode == 0, bool(changed)], [True, True])
 check("C1 内核包零改动（node_modules / @deepseek-ai 一律不碰）",
       [f for f in changed if "node_modules" in f or "@deepseek-ai" in f], [])
-check("C2 plugins/ 下的越界改动为空（只允许 super-clone-ui 这个插件被改）",
-      sorted({f.split("/")[1] for f in changed if f.startswith("plugins/")} - {"super-clone-ui"}), [])
+check("C2 plugins/ 下的越界改动为空（只允许我们自己的 UI 插件：super-clone-ui / ops-gateway）",
+      sorted({f.split("/")[1] for f in changed if f.startswith("plugins/")} - OURS), [])
 check("C3 本任务确实落在 client.js 上（不是只写了文档）",
       "plugins/super-clone-ui/lib/client.js" in changed, True)
 

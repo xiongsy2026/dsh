@@ -39,6 +39,8 @@ C:\dsh\
     super-clone/                     视频共用工具（下一批实现）
     hypit/
     omni/
+    short-drama/                     短剧带货总工作流（剧情设计为主要带货，含 RAG 知识库）
+    ai-film-router/ + film-*/         AI STUDIO 洋子 11 Skill（剧情创作 01-08 阶段 Skill，short-drama 编排调用）
     …其余环节按需加目录
   accounts/                          本机账号档案（无网站登录）
     <account_id>/                    一号一份，记忆互不串
@@ -137,7 +139,7 @@ DSH 默认按 **项目目录** 隔离会话（工作区文件、productions、sk
 | collect | `viral-collect` | 后做 | 采对标，落 references/ |
 | review | `competitor-review` | 后做 | AI 草案 + 人改 ANALYSIS |
 | scheme | `scheme-select` | 后做 | 写 SCHEME.md，同意后才能 produce |
-| produce | `super-clone` `hypit` `omni` | **视频第一批，共用工具** | jobs 调 `D:\video-skill` Python |
+| produce | `super-clone` `hypit` `omni` | **视频第一批，共用工具** | jobs 调 `backend` Python |
 | ads | `qianchuan-upload` `publish-douyin` | 后做 | **折中：官方 API 发布/上传；浏览器只拿授权、补缺口** |
 | feedback | `performance-feedback` | 后做 | 写回策划可检索的效果仓库 |
 | cs | `cs-inbox` `cs-reply` | **合同已立，通道后接** | 抖音店铺消息；接口优先，否则 CU。回复无 AI 感；开源只作原料 |
@@ -181,7 +183,7 @@ DSH 默认按 **项目目录** 隔离会话（工作区文件、productions、sk
 skill 要调模型不各接厂商、不靠 agent 记忆串——统一走一条 `tool-jobs` 命令（对齐 §1 的"jobs 调 Python"、§6 的"不另写 Agent 内核"）：
 
 ```
-python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <LOOP.member> --json '<params>'
+python backend/gateway.py call <capability> [purpose] --account <LOOP.member> --json '<params>'
 ```
 
 - **能力名**：`text.complete` / `image.generate` / `video.generate` / `video.analyze`（purpose 见 `gateway.py caps`）。凭证/选模型/计价全在 `gateway.py` 的 ROUTES 注册表，skill 只给"能力 + purpose + 参数"。

@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import time
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(HERE)
@@ -137,7 +138,7 @@ def intent_records() -> dict:
     只读工作区那份会漏掉"agent 直接写了网关簿"的会话 ⇒ 把走通了流程的单判成静默单。"""
     out = {}
     for path in (os.path.join(WORKSPACE, ".dsh", "intent.json"),
-                 r"D:\video-skill\.gateway_intent.json"):
+                 os.path.join(BACKEND, r".gateway_intent.json")):
         try:
             j = json.load(io.open(path, encoding="utf-8", errors="replace"))
         except Exception:
@@ -327,7 +328,7 @@ def selftest() -> int:
     ck("S10 配了表单的档必须都在 LANES 里（有表却没登记口=表永远不弹的静默洞）",
        bool(fl) and fl.issubset(set(lanes())), True)
     merged = intent_records()
-    only_outer = set((json.load(io.open(r"D:\video-skill\.gateway_intent.json",
+    only_outer = set((json.load(io.open(os.path.join(BACKEND, r".gateway_intent.json"),
                                         encoding="utf-8", errors="replace")) or {})) - set(
         (json.load(io.open(os.path.join(WORKSPACE, ".dsh", "intent.json"),
                            encoding="utf-8", errors="replace")) or {}))

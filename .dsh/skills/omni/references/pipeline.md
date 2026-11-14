@@ -1,6 +1,6 @@
-# Omni 管线（基于 D:\video-skill 现成 Python）
+# Omni 管线（基于 backend 现成 Python）
 
-源码：`D:\video-skill\backend\services\omni_generate.py`（按 AGENTS.md 约定，不打开 8090）  
+源码：`backend/services\omni_generate.py`（按 AGENTS.md 约定，不打开 8090）  
 API：`https://zexapi.com/v1` 的 `omni_flash-10s`
 
 ## 步骤

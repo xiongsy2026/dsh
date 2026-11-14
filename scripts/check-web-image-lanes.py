@@ -16,10 +16,13 @@ import sys
 import time
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import gateway as g  # noqa: E402
 
-SRC = open(r"D:\video-skill\backend\gateway.py", encoding="utf-8").read()
+SRC = open(os.path.join(BACKEND, r"gateway.py"), encoding="utf-8").read()
 out = []
 
 
@@ -66,7 +69,7 @@ check("D5 豆包默认仍有头（新版无头能不能过要等实测，默认�
       "timeout=300.0, headless=False," in SRC, True)
 check("D5b doubao.py 那条硬编码已放开（headless 照传给 chromium.launch）",
       "p.chromium.launch(headless=headless, **launch_kw)" in
-      open(r"C:\dsh\scratch\video-ui\video-ui\doubao.py", encoding="utf-8").read(), True)
+      open(os.path.join(WS, r"scratch\video-ui\video-ui\doubao.py"), encoding="utf-8").read(), True)
 check("D6 空文件不落假成功（>1024 字节才算出图）", bool(re.search(r"getsize\(out_path\) > 1024", SRC)), True)
 check("D7 探活分支排在'没密钥就 no-creds'之前",
       SRC.index('if r["provider"] == "gflow-cli":') < SRC.index('if not r["api_key"] or not r["base_url"]:'), True)

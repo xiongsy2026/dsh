@@ -13,9 +13,10 @@ import os
 import pathlib
 import re
 import sys
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-SRC = pathlib.Path(r"C:\dsh\plugins\super-clone-ui\lib\client.js")
+SRC = pathlib.Path(os.path.join(WS, r"plugins\super-clone-ui\lib\client.js"))
 CHAT = pathlib.Path(
     r"C:\Users\Administrator\AppData\Local\Programs\DSH Desktop\resources\app\node_modules"
     r"\@deepseek-ai\dsh-client-ui-chat\lib\client.js")

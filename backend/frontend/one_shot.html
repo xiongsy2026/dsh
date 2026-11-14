@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>爆款复刻 One-Shot - MiMo 反推 → Seedance 生成</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .topbar-right { display: flex; align-items: center; gap: 12px; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 440px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card.dragover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .upload-card video.preview-video { max-width: 100%; max-height: 220px; border-radius: 8px; margin-top: 8px; display: block; background: #000; }
+        .text-field { width:100%;box-sizing:border-box;margin-bottom:16px;padding:12px 14px;background:#1e1e36;border:1px solid #3a3a5c;border-radius:8px;color:#fff;font-size:.95em;outline:none; font-family: inherit; }
+        .text-field:focus { border-color:#6c3ce0; }
+        textarea.text-field { min-height: 80px; resize: vertical; line-height: 1.5; font-family: ui-monospace, SFMono-Regular, monospace; font-size: .82em; }
+        .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+        .row-2 .text-field { margin-bottom: 0; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; transition: all .2s; letter-spacing: 1px; margin-top: 8px; }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+        .run-btn.success { background: linear-gradient(90deg, #10b981, #22c55e); }
+        .history-section { margin-top: 20px; }
+        .history-list { max-height: 300px; overflow-y: auto; }
+        .history-item { display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1a1a30;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s;border:1px solid transparent; }
+        .history-item:hover { border-color:#6c3ce0; }
+        .history-item .h-info { flex:1;min-width:0; }
+        .history-item .h-title { font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+        .history-item .h-meta { font-size:.7em;color:#666;margin-top:2px; }
+        .history-item .h-status { font-size:.7em;padding:2px 8px;border-radius:10px;white-space:nowrap; }
+        .h-status.ok { background:#065f46;color:#6ee7b7; }
+        .h-status.run { background:#1e3a5f;color:#60a5fa; }
+        .h-status.fail { background:#7f1d1d;color:#fca5a5; }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 1.05em; font-weight: 600; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+        .steps-bar { display: flex; gap: 4px; margin-bottom: 12px; }
+        .step-item { flex: 1; height: 6px; border-radius: 3px; background: #2a2a44; transition: background .3s; }
+        .step-item.active { background: #3b82f6; }
+        .step-item.done { background: #22c55e; }
+        .step-labels { display: flex; gap: 4px; margin-bottom: 16px; font-size: .7em; color: #666; }
+        .step-labels span { flex: 1; text-align: center; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 220px; overflow-y: auto; line-height: 1.7; }
+        .log-line.running { color: #60a5fa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .result-block { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; }
+        .result-block h3 { margin-bottom: 16px; font-size: 1.1em; }
+        .video-player { width: 100%; border-radius: 10px; background: #000; max-height: 520px; }
+        .video-placeholder { width: 100%; height: 280px; border-radius: 10px; background: #1e1e36; display: flex; align-items: center; justify-content: center; color: #555; font-size: 1.2em; }
+        .result-links { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: #1e1e36; color: #60a5fa; text-decoration: none; font-size: .9em; transition: background .2s; }
+        .result-link:hover { background: #2a2a5c; }
+        .storyboard-section { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; }
+        .storyboard-section h3 { margin-bottom: 16px; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }
+        .storyboard-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        .storyboard-item { background: #1e1e36; border-radius: 12px; overflow: hidden; border: 1px solid #2a2a5c; }
+        .storyboard-item .sb-label { padding: 10px 16px; background: #1e1e36; color: #a5a5c8; font-size: .9em; font-weight: 600; border-bottom: 1px solid #2a2a5c; display: flex; justify-content: space-between; align-items: center; }
+        .storyboard-item .sb-label .pill { background: #2a2a5c; color: #ccc; padding: 2px 10px; border-radius: 12px; font-size: .85em; font-weight: 400; }
+        .pill.grok { background: #4a3a1a; color: #fbbf24; }
+        .pill.gpt  { background: #1a3a4a; color: #60d8e8; }
+        .storyboard-item .sb-img-wrap { padding: 16px; display: block; font-size: .85em; color: #c8c8e0; }
+        .storyboard-item .sb-img-wrap pre { font-family: ui-monospace, SFMono-Regular, monospace; font-size: .82em; color: #a0d0a0; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto; }
+        .storyboard-item .sb-caption { padding: 8px 16px 12px; font-size: .78em; color: #888; text-align: center; }
+        .storyboard-item textarea.sb-textarea { width: 100%; box-sizing: border-box; min-height: 220px; padding: 14px; background: #0e0e1e; border: none; color: #e0e0e0; font-family: ui-monospace, SFMono-Regular, monospace; font-size: .82em; line-height: 1.6; resize: vertical; outline: none; }
+        .footer { text-align: center; color: #555; font-size: 12px; padding: 18px 0; border-top: 1px solid #1a1a2e; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>ONE-SHOT REPLICA</h1>
+        <span class="tag">爆款视频 → MiMo 反推 → Seedance 生成</span>
+    </div>
+    <div class="topbar-right">
+        <button class="back-btn" onclick="resetAll()" title="清空当前状态">➕ 新建任务</button>
+    </div>
+</div>
+<div class="main">
+    <!-- 左侧：输入面板 -->
+    <div class="input-panel">
+        <div class="section-title"><span class="dot dot-required"></span> 爆款视频（必选）</div>
+        <div class="upload-card" id="videoCard" onclick="document.getElementById('videoInput').click()">
+            <div class="icon">🎬</div>
+            <div class="label" id="videoLabel">点击或拖拽上传爆款视频</div>
+            <input type="file" id="videoInput" accept="video/*">
+            <div class="filename" id="videoFilename"></div>
+            <video class="preview-video" id="videoPreview" style="display:none;" controls onclick="event.stopPropagation()"></video>
+        </div>
+
+        <div class="section-title"><span class="dot dot-required"></span> 目标时长</div>
+        <select class="text-field" id="duration">
+            <option value="5">5 秒</option>
+            <option value="8">8 秒</option>
+            <option value="10">10 秒</option>
+            <option value="15" selected>15 秒</option>
+        </select>
+
+        <div class="row-2">
+            <div>
+                <div class="section-title"><span class="dot dot-optional"></span> 比例</div>
+                <select class="text-field" id="aspectRatio">
+                    <option value="9:16" selected>9:16</option>
+                    <option value="16:9">16:9</option>
+                    <option value="1:1">1:1</option>
+                </select>
+            </div>
+            <div>
+                <div class="section-title"><span class="dot dot-optional"></span> 分辨率</div>
+                <select class="text-field" id="resolution">
+                    <option value="720p" selected>720p</option>
+                    <option value="1080p">1080p</option>
+                    <option value="4k">4k</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> Seedance 版本</div>
+        <select class="text-field" id="version">
+            <option value="2.0" selected>Seedance 2.0（sparkvideo）</option>
+            <option value="2.0-fast">2.0-fast</option>
+            <option value="2.0-mini">2.0-mini</option>
+            <option value="2.5">Seedance 2.5（预留）</option>
+        </select>
+
+        <div class="section-title"><span class="dot dot-optional"></span> LLM 反推引擎</div>
+        <select class="text-field" id="engine">
+            <option value="grok" selected>Grok（优先，失败自动降级 GPT）</option>
+            <option value="gpt">GPT（备用）</option>
+        </select>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 附加提示（可选）</div>
+        <textarea class="text-field" id="extraHint" placeholder="例如：保留原视频的快速切镜节奏，旁白语气更激动"></textarea>
+
+        <button class="run-btn" id="btnReverse" onclick="startReverse()" disabled>🚀 开始反推 + 生成</button>
+
+        <div class="history-section">
+            <div class="section-title">📋 历史记录</div>
+            <div class="history-list" id="historyList">
+                <div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：输出面板 -->
+    <div class="output-panel">
+        <div class="status-panel">
+            <div class="status-header"><span>工作流状态</span><span class="status-badge badge-idle" id="statusBadge">等待输入</span></div>
+            <div class="steps-bar">
+                <div class="step-item" id="step1"></div>
+                <div class="step-item" id="step2"></div>
+                <div class="step-item" id="step3"></div>
+            </div>
+            <div class="step-labels"><span>MiMo 解析</span><span>LLM 反推</span><span>Seedance 生成</span></div>
+            <div class="log-box" id="logBox"><div class="log-line">等待启动工作流...</div></div>
+        </div>
+
+        <div class="result-block">
+            <h3>📺 视频输出</h3>
+            <div id="videoArea"><div class="video-placeholder">视频生成后将在此展示</div></div>
+            <div class="result-links" id="resultLinks" style="display:none;"></div>
+        </div>
+
+        <div class="storyboard-section" id="storyboardArea" style="display:none;">
+            <h3>🎬 工作流中间产品</h3>
+            <div class="storyboard-grid">
+                <div class="storyboard-item" id="sb_step1" style="display:none;">
+                    <div class="sb-label">📋 Step1 · MiMo 分镜解析<span class="pill" id="sb_step1_pill">待运行</span></div>
+                    <div class="sb-img-wrap"><pre id="sb_step1_text"></pre></div>
+                    <div class="sb-caption">MiMo 同时解析画面（镜头/动作/产品）和音频（口播/声音语气）</div>
+                </div>
+                <div class="storyboard-item" id="sb_step2" style="display:none;">
+                    <div class="sb-label">🤖 Step2 · LLM 反推 Seedance Prompt<span class="pill" id="sb_step2_pill">待运行</span></div>
+                    <div class="sb-img-wrap"><textarea class="sb-textarea" id="compiledPrompt" placeholder="反推后的 Seedance compiled prompt（可编辑后再生）"></textarea></div>
+                    <div class="sb-caption">Grok 优先 / GPT 备用，学习原视频结构并反推新脚本</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="footer">One-Shot Replica · MiMo + Grok/GPT + Seedance · 全链路本地化</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let currentTaskId = null;
+let reverseTimer = null, generateTimer = null;
+
+// ── 上传 ──
+const videoCard = $('videoCard'), videoInput = $('videoInput');
+videoCard.addEventListener('dragover', e => { e.preventDefault(); videoCard.classList.add('dragover'); });
+videoCard.addEventListener('dragleave', () => videoCard.classList.remove('dragover'));
+videoCard.addEventListener('drop', e => {
+    e.preventDefault();
+    videoCard.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+videoInput.addEventListener('change', () => { if (videoInput.files.length) handleFile(videoInput.files[0]); });
+
+async function handleFile(file) {
+    if (!file.type.startsWith('video/')) { alert('请上传视频文件'); return; }
+    $('btnReverse').disabled = true;
+    videoCard.classList.add('has-file');
+    const url = URL.createObjectURL(file);
+    $('videoPreview').src = url;
+    $('videoPreview').style.display = 'block';
+    $('videoFilename').textContent = `${file.name} · ${(file.size/1024/1024).toFixed(2)} MB · 上传中…`;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const r = await fetch('/api/upload/video', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (!j.success) throw new Error('上传失败');
+        window._uploadedVideoPath = j.file_path;
+        $('videoFilename').textContent = `${file.name} · ${(file.size/1024/1024).toFixed(2)} MB · 已上传`;
+        $('btnReverse').disabled = false;
+        addLog(`视频已上传：${file.name}`, 'done');
+    } catch (e) {
+        $('videoFilename').textContent = '上传失败：' + e.message;
+        addLog(`上传失败：${e.message}`, 'error');
+    }
+}
+
+// ── 日志 ──
+function addLog(text, cls='') {
+    const box = $('logBox');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+}
+
+function setStep(n, state) {
+    // state: '' | active | done
+    for (let i = 1; i <= 3; i++) {
+        const el = $(`step${i}`);
+        el.classList.remove('active', 'done');
+        if (i < n) el.classList.add('done');
+        else if (i === n) el.classList.add(state);
+    }
+}
+
+function setBadge(cls, text) {
+    const b = $('statusBadge');
+    b.className = 'status-badge badge-' + cls;
+    b.textContent = text;
+}
+
+// ── 启动反推 + 生成 ──
+async function startReverse() {
+    if (!window._uploadedVideoPath) { alert('请先上传视频'); return; }
+    const body = {
+        video_path: window._uploadedVideoPath,
+        duration: $('duration').value,
+        aspect_ratio: $('aspectRatio').value,
+        resolution: $('resolution').value,
+        version: $('version').value,
+        engine: $('engine').value,
+        extra_hint: $('extraHint').value,
+    };
+    $('btnReverse').disabled = true;
+    $('btnReverse').classList.add('running');
+    $('btnReverse').textContent = '⏳ 反推中…';
+    setBadge('running', 'MiMo 解析中');
+    setStep(1, 'active');
+    addLog('提交反推任务…', 'running');
+    const r = await fetch('/api/one-shot-replica/submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+        $('btnReverse').disabled = false;
+        $('btnReverse').classList.remove('running');
+        $('btnReverse').textContent = '🚀 开始反推 + 生成';
+        setBadge('failed', '提交失败');
+        addLog(`提交失败：${j.detail || r.status}`, 'error');
+        return;
+    }
+    currentTaskId = j.task_id;
+    addLog(`任务已提交，task_id=${currentTaskId}`, 'done');
+    $('storyboardArea').style.display = 'block';
+    $('sb_step1').style.display = 'block';
+    $('sb_step2').style.display = 'block';
+    pollReverse();
+}
+
+function pollReverse() {
+    if (reverseTimer) clearInterval(reverseTimer);
+    reverseTimer = setInterval(async () => {
+        if (!currentTaskId) return;
+        const r = await fetch('/api/one-shot-replica/status/' + currentTaskId);
+        const j = await r.json();
+        const phase = j.phase, status = j.status;
+        if (phase === 'reverse' && status === 'running') {
+            setBadge('running', 'MiMo 解析中');
+            setStep(1, 'active');
+            addLog('MiMo 解析画面+音频中…', 'running');
+        } else if (phase === 'reverse_done' && status === 'completed') {
+            setBadge('running', 'LLM 反推完成');
+            setStep(2, 'done');
+            addLog(`反推完成 · engine=${j.engine_used} · 原视频 ${j.video_duration?.toFixed(1)}s → 目标 ${$('duration').value}s`, 'done');
+            $('sb_step1_pill').textContent = `${j.storyboard?.length || 0} 个 Shot`;
+            $('sb_step1_pill').className = `pill ${(j.engine_used||'').toLowerCase()}`;
+            $('sb_step1_text').textContent = JSON.stringify(j.storyboard, null, 2);
+            $('sb_step2_pill').textContent = j.engine_used || '';
+            $('sb_step2_pill').className = `pill ${(j.engine_used||'').toLowerCase()}`;
+            $('compiledPrompt').value = j.compiled_prompt || '';
+            clearInterval(reverseTimer);
+            // 自动启动 Seedance 生成
+            setTimeout(() => startGenerate(), 600);
+        } else if (status === 'failed') {
+            setBadge('failed', '反推失败');
+            $('btnReverse').disabled = false;
+            $('btnReverse').classList.remove('running');
+            $('btnReverse').textContent = '🚀 开始反推 + 生成';
+            addLog(`反推失败：${j.error || ''}`, 'error');
+            clearInterval(reverseTimer);
+        }
+    }, 2500);
+}
+
+async function startGenerate() {
+    if (!currentTaskId) return;
+    setBadge('running', 'Seedance 生成中');
+    setStep(3, 'active');
+    $('btnReverse').textContent = '🎬 Seedance 生成中…';
+    addLog('提交 Seedance 生成任务…', 'running');
+    const body = {
+        task_id: currentTaskId,
+        compiled_prompt: $('compiledPrompt').value,
+    };
+    const r = await fetch('/api/one-shot-replica/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+        setBadge('failed', '生成提交失败');
+        $('btnReverse').disabled = false;
+        $('btnReverse').classList.remove('running');
+        $('btnReverse').textContent = '🚀 开始反推 + 生成';
+        addLog(`生成提交失败：${j.detail || r.status}`, 'error');
+        return;
+    }
+    addLog(`Seedance 已提交 · endpoint=${j.endpoint} · rh_task_id=${j.rh_task_id}`, 'done');
+    pollGenerate();
+}
+
+function pollGenerate() {
+    if (generateTimer) clearInterval(generateTimer);
+    generateTimer = setInterval(async () => {
+        if (!currentTaskId) return;
+        const r = await fetch('/api/one-shot-replica/status/' + currentTaskId);
+        const j = await r.json();
+        const phase = j.phase, status = j.status;
+        if (phase === 'generating' && status === 'pending') {
+            addLog(`RH 轮询中… task_id=${j.rh_task_id || ''}`, 'running');
+        } else if (phase === 'generating' && status === 'completed') {
+            setBadge('completed', '生成完成');
+            setStep(3, 'done');
+            $('btnReverse').classList.remove('running');
+            $('btnReverse').classList.add('success');
+            $('btnReverse').textContent = '✅ 完成，可新建任务';
+            $('btnReverse').disabled = false;
+            addLog(`生成完成 · 耗时 ${j.duration_actual || '?'}s · 成本 ¥${j.cost || '?'}`, 'done');
+            if (j.video_url) {
+                $('videoArea').innerHTML = `<video class="video-player" src="${j.video_url}" controls></video>`;
+                $('resultLinks').style.display = 'flex';
+                $('resultLinks').innerHTML = `<a class="result-link" href="${j.video_url}" download>⬇ 下载视频</a>`;
+            }
+            clearInterval(generateTimer);
+            loadHistory();
+        } else if (status === 'failed') {
+            setBadge('failed', '生成失败');
+            $('btnReverse').disabled = false;
+            $('btnReverse').classList.remove('running');
+            $('btnReverse').textContent = '🚀 开始反推 + 生成';
+            addLog(`生成失败：${j.error || ''}`, 'error');
+            clearInterval(generateTimer);
+        }
+    }, 3000);
+}
+
+// ── 历史记录 ──
+async function loadHistory() {
+    try {
+        const r = await fetch('/api/one-shot-replica/tasks');
+        const j = await r.json();
+        const list = $('historyList');
+        if (!j.tasks || !j.tasks.length) {
+            list.innerHTML = '<div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>';
+            return;
+        }
+        list.innerHTML = j.tasks.map(t => {
+            const cls = t.status === 'completed' ? 'ok' : (t.status === 'failed' ? 'fail' : 'run');
+            const label = t.status === 'completed' ? '完成' : (t.status === 'failed' ? '失败' : '运行中');
+            return `<div class="history-item" onclick="loadTask('${t.task_id}')">
+                <div class="h-info">
+                    <div class="h-title">${t.phase}/${t.status} · ${(t.video_duration||0).toFixed(1)}s</div>
+                    <div class="h-meta">${t.created_at} · ${t.engine_used||'-'}</div>
+                </div>
+                <div class="h-status ${cls}">${label}</div>
+            </div>`;
+        }).join('');
+    } catch (e) {}
+}
+
+async function loadTask(tid) {
+    currentTaskId = tid;
+    const r = await fetch('/api/one-shot-replica/status/' + tid);
+    const j = await r.json();
+    $('storyboardArea').style.display = 'block';
+    $('sb_step1').style.display = 'block';
+    $('sb_step2').style.display = 'block';
+    $('sb_step1_text').textContent = JSON.stringify(j.storyboard, null, 2);
+    $('compiledPrompt').value = j.compiled_prompt || '';
+    if (j.video_url) {
+        $('videoArea').innerHTML = `<video class="video-player" src="${j.video_url}" controls></video>`;
+        $('resultLinks').style.display = 'flex';
+        $('resultLinks').innerHTML = `<a class="result-link" href="${j.video_url}" download>⬇ 下载视频</a>`;
+    }
+    setBadge(j.status === 'completed' ? 'completed' : (j.status === 'failed' ? 'failed' : 'running'),
+             j.status === 'completed' ? '已完成' : (j.status === 'failed' ? '失败' : '运行中'));
+}
+
+// ── 重置 ──
+function resetAll() {
+    if (reverseTimer) clearInterval(reverseTimer);
+    if (generateTimer) clearInterval(generateTimer);
+    currentTaskId = null;
+    window._uploadedVideoPath = null;
+    videoInput.value = '';
+    videoCard.classList.remove('has-file');
+    $('videoPreview').style.display = 'none';
+    $('videoPreview').src = '';
+    $('videoFilename').textContent = '';
+    $('compiledPrompt').value = '';
+    $('storyboardArea').style.display = 'none';
+    $('sb_step1').style.display = 'none';
+    $('sb_step2').style.display = 'none';
+    $('videoArea').innerHTML = '<div class="video-placeholder">视频生成后将在此展示</div>';
+    $('resultLinks').style.display = 'none';
+    $('logBox').innerHTML = '<div class="log-line">等待启动工作流...</div>';
+    setBadge('idle', '等待输入');
+    setStep(0, '');
+    $('btnReverse').disabled = true;
+    $('btnReverse').classList.remove('running', 'success');
+    $('btnReverse').textContent = '🚀 开始反推 + 生成';
+}
+
+// 初始加载历史
+loadHistory();
+</script>
+</body>
+</html>

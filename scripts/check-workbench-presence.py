@@ -22,14 +22,17 @@ import time
 import urllib.error
 import urllib.request
 
-SCRATCH = r"C:\dsh\_scratch_b"
+SCRATCH = os.path.join(WS, r"_scratch_b")
 os.makedirs(SCRATCH, exist_ok=True)
 os.environ["HYPIT_STUDIO_MARK"] = os.path.join(SCRATCH, "mark_selftest.json")
 os.environ["HYPIT_JOBS_DB"] = os.path.join(SCRATCH, "presence_selftest.sqlite")   # studio_status 现在会读腿数，绝不能碰线上账本
 # ⚠️ 意图文件也必须隔离：studio_claim 会顺手写意图，早先没隔离时把 5 条假会话写进了线上
 #    .gateway_intent.json（就是"绝不往生产状态写假数据"那条老坑）。
 os.environ["HYPIT_INTENT_MARK"] = os.path.join(SCRATCH, "intent_selftest.json")
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import hypit_bridge as hb   # noqa: E402
 
 RUN = "productions/hypit-e2e/assemble.svrun"
@@ -298,8 +301,9 @@ check("A16t5 有表的线【还没回填】也照弹（改判），prefilled=Fal
        tv5["form"].get("has_input"),
        tv5["prompt-reverse"]["intent"], tv5["prompt-reverse"].get("reason")],
       [True, True, False, True, False, "form-is-input"])
-_gw = open("D:/video-skill/backend/gateway.py", encoding="utf-8", errors="replace").read()
-_ma = open("D:/video-skill/backend/model_admin.py", encoding="utf-8", errors="replace").read()
+_base = os.path.join(os.path.dirname(__file__), "..", "backend")
+_gw = open(os.path.join(_base, "gateway.py"), encoding="utf-8", errors="replace").read()
+_ma = open(os.path.join(_base, "model_admin.py"), encoding="utf-8", errors="replace").read()
 _ai = _gw.find("本来就不需要批准（免批类")   # approve 分支里唯一的一行，拿它当锚点比猜分支写法稳
 _ab = _gw[_ai:_ai + 2000] if _ai >= 0 else ""
 check("A16t6 🔴 压力只是换位置、没消失：判定口不再拿回填当弹表前置，但 approve 仍必须问回填",
@@ -392,14 +396,14 @@ finally:
 
 # ══ B HTTP 层（真 8100 + 真 studio）═══════════════════════════════════════════════
 # ⚠️ 这段会真写线上登记文件（8100 读的就是它），用完只摘自己那一条。
-REAL_MARK = r"D:\video-skill\.gateway_studio.json"
+REAL_MARK = os.path.join(BACKEND, r".gateway_studio.json")
 
 
 def cli(*args):
     drop = ("HYPIT_STUDIO_MARK", "HYPIT_INTENT_MARK")
     env = {k: v for k, v in os.environ.items() if k not in drop}   # CLI 要写 8100 读的那两份
-    return subprocess.run([sys.executable, r"D:\video-skill\backend\hypit_bridge.py", *args],
-                          capture_output=True, text=True, cwd=r"D:\video-skill", env=env)
+    return subprocess.run([sys.executable, os.path.join(BACKEND, r"hypit_bridge.py"), *args],
+                          capture_output=True, text=True, cwd=BACKEND, env=env)
 
 
 def http(url):

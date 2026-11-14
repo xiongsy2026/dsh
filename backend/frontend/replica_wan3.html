@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>爆款复刻 Wan3.0 Pipeline</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f1a; color: #e0e0e0; min-height: 100vh;
+        }
+        /* Topbar */
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px; background: #16162a;
+            border-bottom: 1px solid #2a2a5c; position: sticky; top: 0; z-index: 10;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .topbar a {
+            color: #888; text-decoration: none; font-size: .85em;
+            padding: 6px 12px; border: 1px solid #2a2a5c; border-radius: 8px;
+        }
+        .topbar a:hover { color: #fff; border-color: #6c3ce0; }
+        .topbar-title {
+            font-size: 1.1em; color: #fff; font-weight: 600;
+            letter-spacing: 1px; text-transform: uppercase;
+        }
+        .topbar-tag {
+            font-size: .7em; color: #22d3ee; padding: 3px 8px;
+            background: rgba(34, 211, 238, .1); border: 1px solid rgba(34, 211, 238, .3);
+            border-radius: 4px; letter-spacing: 1px;
+        }
+
+        /* Main 双栏布局 */
+        .main {
+            display: grid;
+            grid-template-columns: 440px 1fr;
+            gap: 20px; padding: 20px;
+            max-width: 1600px; margin: 0 auto;
+        }
+        @media (max-width: 1100px) {
+            .main { grid-template-columns: 1fr; }
+        }
+
+        /* 通用面板 */
+        .panel-card {
+            background: #16162a; border: 1px solid #2a2a5c;
+            border-radius: 12px; padding: 16px; margin-bottom: 16px;
+        }
+        .section-title {
+            font-size: .9em; color: #aaa; margin-bottom: 10px;
+            display: flex; align-items: center; gap: 8px;
+            text-transform: uppercase; letter-spacing: .5px;
+        }
+        .dot { width: 6px; height: 6px; border-radius: 50%; background: #555; }
+        .dot-required { background: #f87171; }
+
+        /* 上传卡 */
+        .upload-card {
+            border: 2px dashed #2a2a5c; border-radius: 10px;
+            padding: 16px; text-align: center; cursor: pointer;
+            transition: all .2s; background: #0f0f1a;
+            margin-bottom: 8px; position: relative;
+        }
+        .upload-card:hover { border-color: #6c3ce0; background: rgba(108, 60, 224, .05); }
+        .upload-card.has-file { border-color: #22d3ee; border-style: solid; }
+        .upload-card .icon { font-size: 1.8em; margin-bottom: 4px; }
+        .upload-card .label { font-size: .85em; color: #aaa; }
+        .upload-card.has-file .label { color: #22d3ee; }
+        .upload-card .filename {
+            font-size: .75em; color: #666; margin-top: 4px;
+            word-break: break-all;
+        }
+        .upload-card input[type=file] { display: none; }
+        .upload-card .preview {
+            margin-top: 8px; max-width: 100%; max-height: 100px;
+            border-radius: 6px; border: 1px solid #2a2a5c;
+        }
+        .upload-card .multi-list {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            margin-top: 8px; justify-content: center;
+        }
+        .upload-card .multi-list img {
+            width: 50px; height: 50px; object-fit: cover;
+            border-radius: 4px; border: 1px solid #2a2a5c;
+        }
+
+        /* 表单控件 */
+        .text-field, textarea.text-field, select.text-field {
+            width: 100%; padding: 10px 12px; background: #0f0f1a;
+            border: 1px solid #2a2a5c; border-radius: 8px; color: #e0e0e0;
+            font-family: inherit; font-size: .85em;
+        }
+        textarea.text-field { min-height: 80px; resize: vertical; font-family: "Cascadia Code", Consolas, monospace; }
+        .text-field:focus { outline: none; border-color: #6c3ce0; }
+
+        /* 复选框组 */
+        .checkbox-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .checkbox-item {
+            display: flex; align-items: center; gap: 6px;
+            padding: 8px 12px; background: #0f0f1a;
+            border: 1px solid #2a2a5c; border-radius: 8px;
+            cursor: pointer; font-size: .85em; user-select: none;
+            transition: all .15s;
+        }
+        .checkbox-item:hover { border-color: #6c3ce0; }
+        .checkbox-item input[type=checkbox] {
+            width: 14px; height: 14px; accent-color: #6c3ce0; cursor: pointer;
+        }
+        .checkbox-item.checked { border-color: #22d3ee; background: rgba(34, 211, 238, .05); }
+
+        /* Run 按钮 */
+        .run-btn {
+            width: 100%; padding: 12px; border: none; border-radius: 10px;
+            font-size: 1em; font-weight: 600; cursor: pointer; color: #fff;
+            background: linear-gradient(90deg, #6c3ce0, #3b82f6);
+            transition: all .2s; margin-top: 8px;
+        }
+        .run-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(108, 60, 224, .3); }
+        .run-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+        /* 状态面板 */
+        .status-panel { margin-bottom: 16px; }
+        .status-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 14px; padding-bottom: 10px;
+            border-bottom: 1px solid #2a2a5c;
+        }
+        .status-header > span:first-child { font-size: .95em; color: #fff; font-weight: 600; }
+        .status-badge {
+            font-size: .75em; padding: 4px 10px; border-radius: 12px;
+            font-weight: 500; letter-spacing: .5px;
+        }
+        .badge-idle { background: #2a2a5c; color: #888; }
+        .badge-running { background: rgba(251, 191, 36, .15); color: #fbbf24; }
+        .badge-completed { background: rgba(52, 211, 153, .15); color: #34d399; }
+        .badge-failed { background: rgba(248, 113, 113, .15); color: #f87171; }
+
+        /* 步骤条 */
+        .steps-bar {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+            margin-bottom: 8px;
+        }
+        .step-item {
+            height: 4px; background: #2a2a5c; border-radius: 2px;
+            transition: all .3s;
+        }
+        .step-item.active { background: #fbbf24; }
+        .step-item.done { background: #34d399; }
+        .step-labels {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+            font-size: .7em; color: #888; text-align: center;
+            margin-bottom: 14px;
+        }
+        .step-labels span.active { color: #fbbf24; font-weight: 600; }
+        .step-labels span.done { color: #34d399; }
+
+        /* 日志框 */
+        .log-box {
+            background: #0a0a14; border: 1px solid #2a2a5c; border-radius: 8px;
+            padding: 10px; max-height: 240px; overflow-y: auto;
+            font-family: "Cascadia Code", Consolas, monospace; font-size: .75em;
+            color: #aaa; line-height: 1.6;
+        }
+        .log-line { padding: 2px 0; word-break: break-word; white-space: pre-wrap; }
+        .log-line.success { color: #34d399; }
+        .log-line.error { color: #f87171; }
+        .log-line.warn { color: #fbbf24; }
+        .log-line.info { color: #22d3ee; }
+        .log-line .ts { color: #555; margin-right: 8px; }
+
+        /* 结果区 */
+        .result-block { margin-top: 16px; }
+        .result-block h3 { font-size: .95em; color: #fff; margin-bottom: 12px; }
+        .video-placeholder {
+            padding: 60px 20px; text-align: center;
+            background: #0a0a14; border: 1px dashed #2a2a5c;
+            border-radius: 8px; color: #555; font-size: .85em;
+        }
+        #videoArea video { max-width: 100%; border-radius: 8px; border: 1px solid #2a2a5c; }
+        .result-links { margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-links a {
+            font-size: .8em; color: #22d3ee; text-decoration: none;
+            padding: 6px 12px; border: 1px solid rgba(34, 211, 238, .3);
+            border-radius: 6px;
+        }
+        .result-links a:hover { background: rgba(34, 211, 238, .1); }
+
+        /* 分镜/中间产品区 */
+        .storyboard-section { margin-top: 16px; }
+        .storyboard-section h3 { font-size: .95em; color: #fff; margin-bottom: 12px; }
+        .storyboard-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+        }
+        @media (max-width: 700px) {
+            .storyboard-grid { grid-template-columns: 1fr; }
+        }
+        .storyboard-item {
+            background: #0a0a14; border: 1px solid #2a2a5c;
+            border-radius: 8px; padding: 12px;
+        }
+        .sb-label {
+            font-size: .8em; color: #aaa; margin-bottom: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .pill {
+            font-size: .7em; padding: 2px 8px; border-radius: 10px;
+            background: #2a2a5c; color: #888;
+        }
+        .pill.active { background: rgba(251, 191, 36, .15); color: #fbbf24; }
+        .pill.done { background: rgba(52, 211, 153, .15); color: #34d399; }
+        .storyboard-item pre {
+            font-family: "Cascadia Code", Consolas, monospace;
+            font-size: .72em; color: #ccc; white-space: pre-wrap;
+            max-height: 320px; overflow-y: auto; word-break: break-word;
+        }
+        .storyboard-item textarea {
+            width: 100%; min-height: 200px; padding: 8px;
+            background: #0f0f1a; border: 1px solid #2a2a5c;
+            border-radius: 6px; color: #e0e0e0;
+            font-family: "Cascadia Code", Consolas, monospace; font-size: .72em;
+            resize: vertical;
+        }
+
+        /* 段进度列表 */
+        .segment-progress { margin-top: 12px; }
+        .seg-row {
+            display: grid; grid-template-columns: 40px 1fr 80px 80px;
+            gap: 8px; padding: 8px 10px; background: #0a0a14;
+            border: 1px solid #2a2a5c; border-radius: 6px;
+            margin-bottom: 6px; font-size: .75em; align-items: center;
+        }
+        .seg-row .seg-idx { color: #22d3ee; font-weight: 600; }
+        .seg-row .seg-status { color: #aaa; text-align: right; }
+        .seg-row .seg-status.success { color: #34d399; }
+        .seg-row .seg-status.failed { color: #f87171; }
+        .seg-row .seg-status.running { color: #fbbf24; }
+
+        /* 历史记录 */
+        .history-list { max-height: 200px; overflow-y: auto; }
+        .history-item {
+            padding: 8px 10px; background: #0a0a14;
+            border: 1px solid #2a2a5c; border-radius: 6px;
+            margin-bottom: 6px; cursor: pointer; font-size: .78em;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .history-item:hover { border-color: #6c3ce0; }
+        .history-empty { color: #555; font-size: .8em; text-align: center; padding: 20px; }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0a0a14; }
+        ::-webkit-scrollbar-thumb { background: #2a2a5c; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3a3a7c; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-left">
+            <a href="/">← 首页</a>
+            <span class="topbar-title">爆款复刻 Wan3.0 Pipeline</span>
+            <span class="topbar-tag">REPLICA · WAN3.0 · v3.1</span>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- ───── 左侧：输入面板 ───── -->
+        <div class="input-panel">
+            <!-- 爆款视频 -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot dot-required"></span> 爆款视频（必选）</div>
+                <div class="upload-card" id="videoCard" onclick="document.getElementById('videoInput').click()">
+                    <div class="icon">🎬</div>
+                    <div class="label" id="videoLabel">点击上传爆款视频（1 分钟以上长视频）</div>
+                    <input type="file" id="videoInput" accept="video/*">
+                    <div class="filename" id="videoFilename"></div>
+                    <video class="preview" id="videoPreview" style="display:none;" controls onclick="event.stopPropagation()"></video>
+                </div>
+            </div>
+
+            <!-- 产品图（多张） -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot"></span> 产品图（多张，可选，最多 5 张）</div>
+                <div class="upload-card" id="productCard" onclick="document.getElementById('productInput').click()">
+                    <div class="icon">📦</div>
+                    <div class="label" id="productLabel">点击添加产品图（可多次点击，逐张或批量选）</div>
+                    <input type="file" id="productInput" accept="image/*" multiple>
+                    <div class="multi-list" id="productPreview"></div>
+                </div>
+            </div>
+
+            <!-- 模特图（1 张） -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot"></span> 模特图（1 张，可选）</div>
+                <div class="upload-card" id="modelCard" onclick="document.getElementById('modelInput').click()">
+                    <div class="icon">👤</div>
+                    <div class="label" id="modelLabel">点击上传模特图</div>
+                    <input type="file" id="modelInput" accept="image/*">
+                    <img class="preview" id="modelPreview" style="display:none;" onclick="event.stopPropagation()">
+                </div>
+            </div>
+
+            <!-- 场景图（1 张） -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot"></span> 场景图（1 张，可选）</div>
+                <div class="upload-card" id="sceneCard" onclick="document.getElementById('sceneInput').click()">
+                    <div class="icon">🏞</div>
+                    <div class="label" id="sceneLabel">点击上传场景/背景图</div>
+                    <input type="file" id="sceneInput" accept="image/*">
+                    <img class="preview" id="scenePreview" style="display:none;" onclick="event.stopPropagation()">
+                </div>
+            </div>
+
+            <!-- 客户需求说明 -->
+            <div class="panel-card">
+                <div class="section-title"><span class="dot"></span> 客户需求说明</div>
+                <textarea class="text-field" id="customerRequest" placeholder="替换目标由上传图自动决定（产品图→换产品 / 模特图→换模特 / 场景图→换背景）。这里填写额外要求，如：保持原视频节奏、画面暖光、镜头缓慢推近..."></textarea>
+            </div>
+
+            <button class="run-btn" id="btnRun" onclick="startPipeline()" disabled>🚀 开始爆款复刻</button>
+
+            <!-- 历史记录 -->
+            <div class="panel-card" style="margin-top: 16px;">
+                <div class="section-title">📋 历史记录</div>
+                <div class="history-list" id="historyList">
+                    <div class="history-empty">暂无任务</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ───── 右侧：输出面板 ───── -->
+        <div class="output-panel">
+            <!-- 状态面板 -->
+            <div class="panel-card status-panel">
+                <div class="status-header">
+                    <span>工作流状态</span>
+                    <span class="status-badge badge-idle" id="statusBadge">等待输入</span>
+                </div>
+                <div class="steps-bar">
+                    <div class="step-item" id="step1"></div>
+                    <div class="step-item" id="step2"></div>
+                    <div class="step-item" id="step3"></div>
+                </div>
+                <div class="step-labels">
+                    <span id="label1">MiMo 解析+反推</span>
+                    <span id="label2">Wan3.0 生成</span>
+                    <span id="label3">ffmpeg 合并</span>
+                </div>
+                <div class="log-box" id="logBox">
+                    <div class="log-line">等待启动工作流...</div>
+                </div>
+                <!-- 段进度列表 -->
+                <div class="segment-progress" id="segmentProgress" style="display:none;"></div>
+            </div>
+
+            <!-- 视频输出 -->
+            <div class="panel-card result-block">
+                <h3>📺 成品视频</h3>
+                <div id="videoArea">
+                    <div class="video-placeholder">工作流完成后视频将在此展示</div>
+                </div>
+                <div class="result-links" id="resultLinks" style="display:none;"></div>
+            </div>
+
+            <!-- 中间产品 -->
+            <div class="panel-card storyboard-section" id="storyboardArea" style="display:none;">
+                <h3>🎬 工作流中间产品</h3>
+                <div class="storyboard-grid">
+                    <div class="storyboard-item">
+                        <div class="sb-label">
+                            📋 Step1 · MiMo 分镜解析
+                            <span class="pill" id="sb1Pill">待运行</span>
+                        </div>
+                        <pre id="sb1Text"></pre>
+                    </div>
+                    <div class="storyboard-item">
+                        <div class="sb-label">
+                            🤖 MiMo 一站式输出（storyboard + wan3_plans）
+                            <span class="pill" id="sb2Pill">待运行</span>
+                        </div>
+                        <pre id="sb2Text"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ─────────────────────────────────────
+// 全局状态
+// ─────────────────────────────────────
+let currentTaskId = null;
+let pollTimer = null;
+let lastLogCount = 0;
+let selectedProductFiles = [];   // 产品图累积数组（支持多次添加）
+
+// 文件选择
+const videoInput = document.getElementById('videoInput');
+const productInput = document.getElementById('productInput');
+const modelInput = document.getElementById('modelInput');
+const sceneInput = document.getElementById('sceneInput');
+
+videoInput.addEventListener('change', e => handleVideoSelect(e.target.files[0]));
+productInput.addEventListener('change', e => handleProductSelect(e.target.files));
+modelInput.addEventListener('change', e => handleImageSelect(e.target.files[0], 'model'));
+sceneInput.addEventListener('change', e => handleImageSelect(e.target.files[0], 'scene'));
+
+// 替换目标由上传图自动推断（无需多选框）：
+//   产品图存在 → replace_product=true
+//   模特图存在 → replace_model=true
+//   场景图存在 → replace_background=true
+
+function handleVideoSelect(file) {
+    if (!file) return;
+    document.getElementById('videoFilename').textContent = file.name + ' (' + (file.size/1024/1024).toFixed(1) + ' MB)';
+    document.getElementById('videoLabel').textContent = '已选择：' + file.name;
+    document.getElementById('videoCard').classList.add('has-file');
+    const url = URL.createObjectURL(file);
+    const v = document.getElementById('videoPreview');
+    v.src = url; v.style.display = 'block';
+    updateRunButton();
+}
+
+function handleProductSelect(files) {
+    if (!files || !files.length) return;
+    // 累积到全局数组（按 name+size 去重）
+    Array.from(files).forEach(f => {
+        const dup = selectedProductFiles.some(x => x.name === f.name && x.size === f.size);
+        if (!dup) selectedProductFiles.push(f);
+    });
+    // 上限 5 张
+    if (selectedProductFiles.length > 5) {
+        selectedProductFiles = selectedProductFiles.slice(-5);
+    }
+    // 清空 input.value，允许同名再次选择
+    document.getElementById('productInput').value = '';
+    renderProductPreview();
+}
+
+function renderProductPreview() {
+    const list = document.getElementById('productPreview');
+    list.innerHTML = '';
+    selectedProductFiles.forEach((f, idx) => {
+        const wrap = document.createElement('div');
+        wrap.style.position = 'relative';
+        wrap.style.display = 'inline-block';
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.title = `产品图 ${idx + 1}: ${f.name}`;
+        const del = document.createElement('span');
+        del.textContent = '×';
+        del.style.cssText = 'position:absolute;top:-4px;right:-4px;width:16px;height:16px;background:#f87171;color:#fff;border-radius:50%;font-size:12px;line-height:14px;text-align:center;cursor:pointer;border:1px solid #0f0f1a;';
+        del.onclick = (ev) => {
+            ev.stopPropagation();
+            selectedProductFiles.splice(idx, 1);
+            renderProductPreview();
+        };
+        wrap.appendChild(img);
+        wrap.appendChild(del);
+        list.appendChild(wrap);
+    });
+    const n = selectedProductFiles.length;
+    document.getElementById('productLabel').textContent = n ? `已添加 ${n} 张产品图（点击继续添加）` : '点击添加产品图（可多次点击，逐张或批量选）';
+    document.getElementById('productCard').classList.toggle('has-file', n > 0);
+    updateRunButton();
+}
+
+function handleImageSelect(file, type) {
+    if (!file) return;
+    const label = document.getElementById(type + 'Label');
+    const preview = document.getElementById(type + 'Preview');
+    const card = document.getElementById(type + 'Card');
+    label.textContent = '已选择：' + file.name;
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+    card.classList.add('has-file');
+    updateRunButton();
+}
+
+function updateRunButton() {
+    const hasVideo = videoInput.files && videoInput.files.length > 0;
+    document.getElementById('btnRun').disabled = !hasVideo || currentTaskId;
+}
+
+// ─────────────────────────────────────
+// 启动 pipeline
+// ─────────────────────────────────────
+async function startPipeline() {
+    const videoFile = videoInput.files[0];
+    if (!videoFile) { alert('请上传爆款视频'); return; }
+
+    setRunButtonLoading(true);
+    appendLog('info', '开始上传文件到服务器...');
+
+    try {
+        // 上传爆款视频
+        const videoPath = await uploadFile(videoFile, 'video');
+        appendLog('success', `✓ 爆款视频已上传: ${videoPath}`);
+
+        // 上传产品图（多张，使用累积数组）
+        const productPaths = [];
+        for (const f of selectedProductFiles.slice(0, 5)) {
+            const p = await uploadFile(f, 'image');
+            productPaths.push(p);
+            appendLog('success', `✓ 产品图已上传: ${p}`);
+        }
+
+        // 上传模特图
+        let modelPath = null;
+        if (modelInput.files && modelInput.files[0]) {
+            modelPath = await uploadFile(modelInput.files[0], 'image');
+            appendLog('success', `✓ 模特图已上传: ${modelPath}`);
+        }
+
+        // 上传场景图
+        let scenePath = null;
+        if (sceneInput.files && sceneInput.files[0]) {
+            scenePath = await uploadFile(sceneInput.files[0], 'image');
+            appendLog('success', `✓ 场景图已上传: ${scenePath}`);
+        }
+
+        // 提交 pipeline（replace_* 字段由后端按上传图自动推断，前端只传路径）
+        const body = {
+            video_path: videoPath,
+            product_image_paths: productPaths,
+            model_image_path: modelPath,
+            scene_image_path: scenePath,
+            customer_request: document.getElementById('customerRequest').value.trim(),
+        };
+
+        // 提示用户推断结果
+        const tips = [];
+        if (productPaths.length) tips.push(`换产品(${productPaths.length}张)`);
+        if (modelPath) tips.push("换模特");
+        if (scenePath) tips.push("换背景");
+        appendLog('info', `自动推断替换目标: ${tips.length ? tips.join(' / ') : '无替换（仅复刻原视频）'}`);
+
+        appendLog('info', '提交 pipeline 任务...');
+        const resp = await fetch('/api/replica-wan3-pipeline/submit', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        const result = await resp.json();
+        if (!result.success) throw new Error(result.detail || '提交失败');
+
+        currentTaskId = result.task_id;
+        appendLog('success', `✓ 任务已提交: ${currentTaskId}`);
+        updateStatusBadge('running');
+        document.getElementById('storyboardArea').style.display = 'block';
+        startPolling();
+    } catch (e) {
+        appendLog('error', `✗ 启动失败: ${e.message}`);
+        setRunButtonLoading(false);
+    }
+}
+
+async function uploadFile(file, type) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const endpoint = type === 'video' ? '/api/upload/video' : '/api/upload/image';
+    const resp = await fetch(endpoint, {method: 'POST', body: fd});
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `上传失败 HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    return data.file_path;
+}
+
+// ─────────────────────────────────────
+// 轮询
+// ─────────────────────────────────────
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(pollStatus, 2000);
+    pollStatus();
+}
+
+async function pollStatus() {
+    if (!currentTaskId) return;
+    try {
+        const resp = await fetch(`/api/replica-wan3-pipeline/status/${currentTaskId}`);
+        const data = await resp.json();
+        renderStatus(data);
+        if (data.status === 'SUCCESS' || data.status === 'FAILED') {
+            stopPolling();
+            setRunButtonLoading(false);
+            if (data.status === 'SUCCESS') {
+                updateStatusBadge('completed');
+                renderVideo(data);
+            } else {
+                updateStatusBadge('failed');
+                appendLog('error', `任务失败: ${data.error || '未知错误'}`);
+            }
+            refreshHistory();
+        }
+    } catch (e) {
+        appendLog('warn', `状态查询异常: ${e.message}`);
+    }
+}
+
+function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ─────────────────────────────────────
+// 渲染
+// ─────────────────────────────────────
+function renderStatus(data) {
+    // 阶段 → 步骤条（3 步流程）
+    const phaseMap = {
+        'init': {s1: 'idle', s2: 'idle', s3: 'idle'},
+        'cutting': {s1: 'active', s2: 'idle', s3: 'idle'},
+        'generating': {s1: 'done', s2: 'active', s3: 'idle'},
+        'merging': {s1: 'done', s2: 'done', s3: 'active'},
+        'completed': {s1: 'done', s2: 'done', s3: 'done'},
+    };
+    const phases = phaseMap[data.phase] || phaseMap.init;
+    [1, 2, 3].forEach(i => {
+        const el = document.getElementById('step' + i);
+        const lbl = document.getElementById('label' + i);
+        const state = phases['s' + i];
+        el.classList.remove('active', 'done');
+        lbl.classList.remove('active', 'done');
+        if (state === 'active') { el.classList.add('active'); lbl.classList.add('active'); }
+        if (state === 'done') { el.classList.add('done'); lbl.classList.add('done'); }
+    });
+
+    // 日志（增量）
+    const logs = data.logs || [];
+    for (let i = lastLogCount; i < logs.length; i++) {
+        const item = logs[i];
+        let cls = 'info';
+        const msg = item.msg || '';
+        if (/✓|成功|完成/.test(msg)) cls = 'success';
+        else if (/✗|失败|错误/.test(msg)) cls = 'error';
+        else if (/⚠|警告/.test(msg)) cls = 'warn';
+        appendLog(cls, msg, item.ts);
+    }
+    lastLogCount = logs.length;
+
+    // 中间产品
+    if (data.storyboard) {
+        document.getElementById('sb1Text').textContent = JSON.stringify(data.storyboard, null, 2);
+        document.getElementById('sb1Pill').textContent = '已完成';
+        document.getElementById('sb1Pill').className = 'pill done';
+    }
+    if (data.segment_plans) {
+        document.getElementById('sb2Text').textContent = JSON.stringify(data.segment_plans, null, 2);
+        document.getElementById('sb2Pill').textContent = '已完成';
+        document.getElementById('sb2Pill').className = 'pill done';
+    }
+    // 阶段 pill 状态
+    if (data.phase === 'cutting' || data.phase === 'reversing') {
+        document.getElementById('sb1Pill').className = 'pill active';
+        document.getElementById('sb1Pill').textContent = '运行中';
+    }
+    if (data.phase === 'reversing' || data.phase === 'generating') {
+        document.getElementById('sb2Pill').className = 'pill active';
+        document.getElementById('sb2Pill').textContent = '运行中';
+    }
+
+    // 段进度
+    if (data.segment_results && data.segment_results.length) {
+        renderSegmentProgress(data.segment_results);
+    }
+}
+
+function renderSegmentProgress(results) {
+    const box = document.getElementById('segmentProgress');
+    box.style.display = 'block';
+    box.innerHTML = '<div style="font-size:.8em;color:#aaa;margin-bottom:6px;">段进度</div>';
+    results.forEach(r => {
+        const idx = r.segment_index;
+        const status = r.error ? 'failed' : (r.local_path ? 'success' : 'running');
+        const statusText = r.error ? '失败' : (r.local_path ? '完成' : '运行中');
+        const dur = r.duration ? r.duration + 's' : '-';
+        const rh = r.rh_task_id ? r.rh_task_id.slice(-6) : '-';
+        const row = document.createElement('div');
+        row.className = 'seg-row';
+        row.innerHTML = `
+            <span class="seg-idx">段${idx}</span>
+            <span class="seg-info">${rh}</span>
+            <span class="seg-dur">${dur}</span>
+            <span class="seg-status ${status}">${statusText}</span>
+        `;
+        box.appendChild(row);
+    });
+}
+
+function renderVideo(data) {
+    const area = document.getElementById('videoArea');
+    const links = document.getElementById('resultLinks');
+    area.innerHTML = '';
+    links.innerHTML = '';
+    links.style.display = 'none';
+
+    if (data.merged_path) {
+        const v = document.createElement('video');
+        v.src = `/api/replica-wan3-pipeline/result/${currentTaskId}`;
+        v.controls = true;
+        v.style.maxWidth = '100%';
+        area.appendChild(v);
+
+        const dl = document.createElement('a');
+        dl.href = `/api/replica-wan3-pipeline/result/${currentTaskId}`;
+        dl.download = `replica_wan3_${currentTaskId}.mp4`;
+        dl.textContent = '⬇ 下载成品视频';
+        links.appendChild(dl);
+        links.style.display = 'flex';
+
+        appendLog('success', `✓ 成品视频时长: ${data.duration || 0}s`);
+    } else {
+        area.innerHTML = '<div class="video-placeholder">无成品视频</div>';
+    }
+}
+
+function appendLog(cls, msg, ts) {
+    const box = document.getElementById('logBox');
+    if (box.children.length === 1 && box.children[0].textContent === '等待启动工作流...') {
+        box.innerHTML = '';
+    }
+    const line = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    const tsStr = ts ? new Date(ts).toLocaleTimeString() : new Date().toLocaleTimeString();
+    line.innerHTML = `<span class="ts">[${tsStr}]</span>${msg}`;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+}
+
+function updateStatusBadge(state) {
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'status-badge badge-' + state;
+    const text = {idle: '等待输入', running: '运行中', completed: '已完成', failed: '失败'}[state] || state;
+    badge.textContent = text;
+}
+
+function setRunButtonLoading(loading) {
+    const btn = document.getElementById('btnRun');
+    btn.disabled = loading;
+    btn.textContent = loading ? '⏳ 工作流运行中...' : '🚀 开始爆款复刻';
+}
+
+// ─────────────────────────────────────
+// 历史记录
+// ─────────────────────────────────────
+async function refreshHistory() {
+    try {
+        const resp = await fetch('/api/replica-wan3-pipeline/tasks');
+        const data = await resp.json();
+        const list = document.getElementById('historyList');
+        list.innerHTML = '';
+        if (!data.tasks || !data.tasks.length) {
+            list.innerHTML = '<div class="history-empty">暂无任务</div>';
+            return;
+        }
+        data.tasks.forEach(t => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            const time = t.created_at ? new Date(t.created_at).toLocaleString() : '-';
+            const statusColor = t.status === 'SUCCESS' ? '#34d399' : (t.status === 'FAILED' ? '#f87171' : '#fbbf24');
+            item.innerHTML = `
+                <span>${t.task_id.slice(0, 16)}... · ${t.phase || t.status}</span>
+                <span style="color:${statusColor};font-size:.9em;">${t.status}</span>
+            `;
+            item.onclick = () => loadHistoryTask(t.task_id);
+            list.appendChild(item);
+        });
+    } catch (e) {
+        console.error('刷新历史失败', e);
+    }
+}
+
+async function loadHistoryTask(taskId) {
+    currentTaskId = taskId;
+    lastLogCount = 0;
+    document.getElementById('storyboardArea').style.display = 'block';
+    document.getElementById('segmentProgress').style.display = 'none';
+    document.getElementById('segmentProgress').innerHTML = '';
+    setRunButtonLoading(true);
+    startPolling();
+}
+
+// 初始化
+updateRunButton();
+refreshHistory();
+</script>
+</body>
+</html>

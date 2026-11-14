@@ -14,9 +14,13 @@ import sys
 import threading
 from http.server import ThreadingHTTPServer
 
-os.environ.setdefault("HYPIT_JOBS_DB", r"C:\dsh\_scratch_b\assets_range_selftest.sqlite")
-sys.path.insert(0, r"D:\video-skill")
-sys.path.insert(0, r"D:\video-skill\backend")
+os.environ.setdefault("HYPIT_JOBS_DB", os.path.join(WS, r"_scratch_b\assets_range_selftest.sqlite"))
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 
 import model_admin as ma          # noqa: E402
 
@@ -118,6 +122,63 @@ check("8 JSON 口：404 + 正文可解析 + 中文没坏", [r.status, json.loads
 check("8b 同一条连接连打两次 JSON 都完整（Content-Length 没漏）", [r2.status, b2 == b], [404, True])
 
 srv.shutdown()
+
+# ══ 9 看板文件直链（/api/film/file）：交付三件套里的"可点直链"就走这条路 ════════════
+# 2026-10-06 实测踩到的：扩展名查表拿 ".mp4" 去查键为 "mp4" 的表 ⇒ 永远查不中 ⇒
+# 所有直链都回 application/octet-stream ⇒ 浏览器把视频当附件下载、图片也不内联显示。
+# 🔴 判据必须落在【路由层】而不是 _send/_send_file（上面已钉死那两个）：查表中不中时它们照样回 200，
+#    只看状态码会全绿漏网 —— 这里钉的就是 Content-Type 本身。
+import shutil
+import tempfile
+
+PROD = tempfile.mkdtemp(prefix="film-file-gate-")
+os.makedirs(os.path.join(PROD, "t1", "outputs"), exist_ok=True)
+with open(os.path.join(PROD, "t1", "outputs", "clip.mp4"), "wb") as f:
+    f.write(b"\x00\x00\x00\x18ftypmp42" + DATA)
+with open(os.path.join(PROD, "t1", "outputs", "frame.jpg"), "wb") as f:
+    f.write(b"\xff\xd8\xff" + DATA)
+os.environ["DSH_PROD_ROOT"] = PROD        # 处理函数每次请求都现读它，不污染真 productions
+
+
+class ServeRoutes(ma.H):                  # 直接挂真路由类，不在闸里重抄一遍逻辑
+    def log_message(self, *a):
+        pass
+
+
+srv2 = ThreadingHTTPServer(("127.0.0.1", 0), ServeRoutes)
+port2 = srv2.server_address[1]
+threading.Thread(target=srv2.serve_forever, daemon=True).start()
+
+
+def film(rel, rng=None):
+    c = http.client.HTTPConnection("127.0.0.1", port2, timeout=5)
+    try:
+        c.request("GET", "/api/film/file?task=t1&rel=" + rel,
+                  headers=({"Range": rng} if rng else {}))
+        r = c.getresponse()
+        r.read()
+        return r.status, dict(r.getheaders()).get("Content-Type", "")
+    finally:
+        c.close()
+
+
+# 🔴 期望值 2026-10-09 更正：二进制【不带 charset】才是对的（`image/png; charset=utf-8` 本身就是错的类型，
+#    而且 _send_file 的注释与 hypit_bridge 的 content-type 判定都依赖这一点）。
+#    旧期望写的是"带 charset"，那是当年那条 bug 的形状被固化进了闸 ⇒ 码修对了、闸反而红。
+check("9 mp4 直链回 video/mp4 且【不带 charset】（带了就等于把二进制当文本，hypit collect 判定会脏）",
+      film("outputs/clip.mp4")[1], "video/mp4")
+check("9b jpg 直链回 image/jpeg 且【不带 charset】（贴图那一件走的是同一张表）",
+      film("outputs/frame.jpg")[1], "image/jpeg")
+check("9c 两条都回 200（类型修对的同时别把正文弄坏）",
+      [film("outputs/clip.mp4")[0], film("outputs/frame.jpg")[0]], [200, 200])
+check("9d 路径穿越拿不到东西（rel 带 .. 编码也不许爬到 productions 外面）",
+      [film("../secret")[0], film("..%2F..%2Fsecret")[0] in (400, 404)], [404, True])
+check("9e 不存在的文件回 404，不是 500", film("outputs/nope.mp4")[0], 404)
+SRC_MA = open(os.path.join(BACKEND, r"model_admin.py"), encoding="utf-8", errors="replace").read()
+check("9f 复发防护：取值时剥掉点号（表键不带点，两边必须同一口径）",
+      SRC_MA.count('[1].lower().lstrip(".")') >= 1, True)
+srv2.shutdown()
+shutil.rmtree(PROD, ignore_errors=True)
 print("\n=== %d 条断言，失败 %d ===" % (total[0], len(fails)))
 for n, g, w in fails:
     print("  FAIL", n, "got", g, "want", w)

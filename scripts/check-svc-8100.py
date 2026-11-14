@@ -17,7 +17,7 @@ import sys
 import urllib.request
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-CMD = r"D:\video-skill\start_model_admin.cmd"
+CMD = os.path.join(BACKEND, r"start_model_admin.cmd")
 SELFHEAL = "--selfheal" in sys.argv
 out = []
 
@@ -43,7 +43,9 @@ def http(path, timeout=3.0):
 
 # ── 存活守卫的判据（A 组与 W 组共用一份，不在闸里再抄一遍规则）──
 import importlib.util as _ilu                                            # noqa: E402
-_gspec = _ilu.spec_from_file_location("svc8100guard", r"D:\video-skill\svc_8100_guard.py")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+_gspec = _ilu.spec_from_file_location("svc8100guard", os.path.join(BACKEND, r"svc_8100_guard.py"))
 G = _ilu.module_from_spec(_gspec)
 _gspec.loader.exec_module(G)
 
@@ -54,7 +56,7 @@ check("A2 CRLF 行尾且无裸 LF", raw.count(b"\r\n") > 0 and raw.count(b"\n") 
 txt = raw.decode("ascii")
 code_only = "\n".join(l for l in txt.splitlines() if not l.strip().startswith("rem"))
 check("A3 守卫不再拿 netstat 当'在服务'", "netstat" in code_only, False)
-_GUARD = io.open(r"D:\video-skill\svc_8100_guard.py", encoding="utf-8", errors="replace").read()
+_GUARD = io.open(os.path.join(BACKEND, r"svc_8100_guard.py"), encoding="utf-8", errors="replace").read()
 _gcode = "\n".join(l for l in _GUARD.splitlines() if not l.strip().startswith("#"))
 # 🔴 A4/A5/A6 原来钉的是 .cmd 里那两行 curl 守卫。2026-10-11 判据搬进 svc_8100_guard.py
 #    （.cmd 只负责叫守卫），所以这三条改成钉搬家后的同一件事 —— 意图一条没丢：
@@ -88,7 +90,7 @@ check("B3 ExecutionTimeLimit=PT0S（不限时，长任务不会被任务引擎�
 # ---- B4/B5 隐藏执行（2026-10-05：那条 1 分钟看门狗每分钟闪一个控制台窗，客户桌面被闪）----
 # 规则钉在"动作指向哪"，不钉"窗口有没有出现"（后者没法自动断言）。守卫逻辑仍只在 .cmd 一处，
 # vbs 只负责隐藏窗口 + 等子进程（保住 IgnoreNew 的"一次只重启一份"）+ 转发退出码。
-VBS = r"D:\video-skill\run_hidden.vbs"
+VBS = os.path.join(BACKEND, r"run_hidden.vbs")
 acts = ps("$r=@();foreach($n in 'WeeksirModelAdmin','WeeksirVideoUI'){$a=(Get-ScheduledTask -TaskName $n).Actions[0];" +
           "$r+=$a.Execute+'|'+$a.Arguments}; $r -join ';'")
 lines = [l for l in acts.split(";") if l.strip()]
@@ -118,8 +120,10 @@ except Exception:
     pres = {}
 # 🔴 名单从权威源读（hypit_bridge.PRESENCE_KEYS），不在这里再抄一份：
 #    上一版这里写死 ["film","hypit","omni"]，加了 prompt-reverse/motion-transfer 两档后它一直假红。
-sys.path.insert(0, r"D:\video-skill")
-sys.path.insert(0, r"D:\video-skill\backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 try:
     import hypit_bridge as _hb
     _want_keys = sorted(_hb.PRESENCE_KEYS)
@@ -137,7 +141,7 @@ check("C5d 引擎活着≠有意图：film 只能 up 不 intent", (film.get("up"
 # 有意图的那条会话必须把端口和工程一起回出来 —— 少一个，客户端就会回落兜底端口去看【别人的工程】
 sid = ""
 try:
-    intents = json.load(open(r"C:\dsh\.dsh\intent.json", encoding="utf-8"))
+    intents = json.load(open(os.path.join(WS, r".dsh\intent.json"), encoding="utf-8"))
     cand = sorted(((v.get("ts") or 0, k) for k, v in intents.items() if isinstance(v, dict) and v.get("skill") == "hypit"),
                   reverse=True)
     sid = cand[0][1] if cand else ""
@@ -170,7 +174,7 @@ check("W2 只杀【命令行里确实是 model_admin】的占用者（白名单�
        G.should_kill(""), G.should_kill("PYW~1.EXE BACKEND\\MODEL_ADMIN.PY")], [True, False, False, True])
 check("W3 探针判'活'=拿到任何 HTTP 应答（404 也算）——拿 200 当活会每分钟杀健康服务",
       [G.answered.__doc__ is not None, "except urllib.error.HTTPError" in
-       io.open(r"D:\video-skill\svc_8100_guard.py", encoding="utf-8", errors="replace").read()],
+       io.open(os.path.join(BACKEND, r"svc_8100_guard.py"), encoding="utf-8", errors="replace").read()],
       [True, True])
 if http("/api/model/caps")[0] == 200:
     _keep = G.HEALTH_URL
@@ -185,7 +189,7 @@ if http("/api/model/caps")[0] == 200:
     check("W3b 真跑对照：404 那一条算活着、拒连那一条算死了", [w3_live, w3_dead], [True, False])
 else:
     print("SKIP W3b（8100 现在没答话 ⇒ 不做在线对照，闸自己不许变成故障点）")
-_gsrc = io.open(r"D:\video-skill\svc_8100_guard.py", encoding="utf-8", errors="replace").read()
+_gsrc = io.open(os.path.join(BACKEND, r"svc_8100_guard.py"), encoding="utf-8", errors="replace").read()
 _ens = _gsrc[_gsrc.index("def ensure("):_gsrc.index("if __name__")]
 check("W4 🔴 ensure 里绝不【调用】schtasks —— .cmd 就是任务动作，ensure 再 /run 是自我递归"
       "（2026-10-11 实测：第二层 guard 把刚起的那份 /end 掉，表现是报 RESTARTED-OK 然后端口空着）",
@@ -213,14 +217,14 @@ check("W4c 反向对照·喂【出事那一版的重启形状】（答话就算�
 _cmd = io.open(CMD, encoding="utf-8", errors="replace").read()
 check("W5 启动脚本只负责叫守卫（判据不留在 .cmd 里，也不留第二条 starter）",
       ["svc_8100_guard.py" in _cmd, "curl.exe" in _cmd, "model_admin.py" in _cmd], [True, False, False])
-_ma = io.open(r"D:\video-skill\backend\model_admin.py", encoding="utf-8", errors="replace").read()
+_ma = io.open(os.path.join(BACKEND, r"model_admin.py"), encoding="utf-8", errors="replace").read()
 check("W6 handler 有空闲 timeout（HTTP/1.1 keep-alive 不超时 = 连接只增不减，攒到积压打满就拒连）",
       [bool(re.search(r"class H\(BaseHTTPRequestHandler\)[\s\S]{0,600}?\n    timeout = \d+", _ma)),
        G.TIMEOUT > 0 and G.TRIES >= 3], [True, True])
 check("W7 bind 失败必须退非 0（不留「活着但一个端口都没有」的僵尸；.venv 壳会再生一个子进程，别按进程数判双实例）",
       [bool(re.search(r"except OSError as e:[\s\S]{0,400}?sys\.exit\(3\)", _ma)), _ma.count("sys.exit(3)")],
       [True, 1])
-_st = subprocess.run([sys.executable, r"D:\video-skill\svc_8100_guard.py", "status"],
+_st = subprocess.run([sys.executable, os.path.join(BACKEND, r"svc_8100_guard.py"), "status"],
                      capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
 try:
     _sj = json.loads(_st.stdout.strip().splitlines()[-1])
@@ -235,7 +239,7 @@ check("W8 status 子命令：状态与退出码对得上（0=HEALTHY 1=WEDGED 2=
 #   _spawn_direct() 把服务进程的 stdout/stderr 指到守卫自己那份 _svc_8100.err.log（任务那一跳又 2>> 同一个文件），
 #   长期活着的服务继承了那份句柄 ⇒ 下一次真要重启时 open(LOG,"a") 撞 PermissionError ⇒ ensure 每分钟崩在裸 open 上。
 #   "只有要重启才走的那条路"恰好是唯一会碰这份日志的路 ⇒ 平时一行都不红，一出事就是永久死锁。
-_gsrc = io.open(r"D:\video-skill\svc_8100_guard.py", encoding="utf-8", errors="replace").read()
+_gsrc = io.open(os.path.join(BACKEND, r"svc_8100_guard.py"), encoding="utf-8", errors="replace").read()
 import ast as _ast                                                      # noqa: E402
 _gt = _ast.parse(_gsrc)
 
@@ -383,7 +387,7 @@ if SELFHEAL:
 #    （pid 52580→56676、新进程晚于 gateway.py 的 mtime），却被最后一行带 ⇒ 的 print 崩成 traceback，
 #    调用方只看到 UnicodeEncodeError、看不到"生效没有"。这条路是"只有出事才走"的那条，
 #    它绊倒一次 = 那天没人起服务。判据 = 出口处包了 _safe，且 _safe 不 reconfigure 整条流。
-_gsrc2 = io.open(r"D:\video-skill\svc_8100_guard.py", encoding="utf-8", errors="replace").read()
+_gsrc2 = io.open(os.path.join(BACKEND, r"svc_8100_guard.py"), encoding="utf-8", errors="replace").read()
 _restarts = [l for l in _gsrc2.split(chr(10)) if "RESTARTED-" in l and "print" in l]
 check("W10 守卫的结论行不会被半句中文绊倒（print 出口都过 _safe）",
       [len(_restarts) >= 1, all("_safe(" in l for l in _restarts),
@@ -400,6 +404,12 @@ check("W10c _safe 只换字符、不许 reconfigure 整条输出流（后者会�
       [False, True])
 check("W10d 真跑一次 _safe：不许抛，且回来的还是 str（守卫的结论行必须打得出来）",
       [isinstance(G._safe("结论 ⇒ 已换人"), str), G._safe("a⇒b").startswith("a")], [True, True])
+
+# W11 看门狗起的进程【不许带控制台窗口】：它是"没人看着也在跑"的那一层 —— 用 DETACHED_PROCESS(0x08)
+#     只是不继承父控制台，控制台子系统的解释器照样新建一个，服务真被拉起那一下客户桌面就闪一个黑框。
+check("W11 守卫 direct-spawn 用 CREATE_NO_WINDOW(0x08000000)，不再把 DETACHED_PROCESS 当'无窗'",
+      ["0x08000000" in _GUARD, "kwargs[\"creationflags\"] = 0x00000008 | 0x00000200" in _GUARD],
+      [True, False])
 
 bad = [n for ok, n in out if not ok]
 print("\n=== 8100 自愈闸：%d 条断言，失败 %d ===" % (len(out), len(bad)))

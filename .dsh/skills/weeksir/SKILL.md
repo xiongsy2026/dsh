@@ -26,5 +26,12 @@ description: >
 | 超级复刻、换产品、换脸 | `super-clone` |
 | 抽帧、原声贴回、时间轴 | `hypit` |
 | Omni 出片、omni_flash | `omni` |
+| 这条视频的提示词是什么、反推成可复用模板、学它的镜头结构（**只要文本产物**） | `prompt-reverse` |
+| 去水印、清字幕、把 Sora/Seedance 的水印去掉 | `video-dewatermark` |
+| 高清修复、视频升清、upscale、把这条片变清晰 | `video-enhance` |
+| 一句话出片、一句话生视频、一句话给我出 3 版 15s 商品视频 | `one-shot-video` |
+| 声音克隆、音色克隆、用这段参考音频克隆音色念口播 | `voice-clone` |
+| 动作迁移、借这条爆款视频的动作换成我的模特/我的商品出片 | `motion-transfer` |
+| TVC、广告片、品牌片、产品分镜提示词、多宫格、End Frame、产品拆解（**只出提示词，不出片**） | `tvc-director` |
 
 视频三条是共用工具，片型私有化以后再说。客户不选模型。

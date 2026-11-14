@@ -1,0 +1,6 @@
+interface:
+  display_name: "影视专家增强桥"
+  short_description: "用户选择后，只加载一项当前阶段专家方法"
+  default_prompt: "请在不改变原 9 Skill 流程的前提下，为当前阶段显示专家增强选项。"
+policy:
+  allow_implicit_invocation: false

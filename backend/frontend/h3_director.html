@@ -1,0 +1,1515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H3 导演台 · 全能版</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #7c3aed 0%, #ec4899 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 560px; min-width: 440px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .task-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+        .task-type-card { background: #1e1e36; border: 2px solid #3a3a5c; border-radius: 10px; padding: 12px 8px; cursor: pointer; text-align: center; transition: all .2s; position: relative; }
+        .task-type-card:hover { border-color: #7c3aed; background: #22223e; }
+        .task-type-card.active { border-color: #7c3aed; background: #2d1b4e; }
+        .task-type-card .icon { font-size: 1.4em; margin-bottom: 4px; }
+        .task-type-card .label { font-size: .82em; color: #ccc; }
+        .task-type-card.active .label { color: #c084fc; }
+        .task-type-card .code { font-size: .65em; color: #666; margin-top: 2px; }
+        .task-type-card.active .code { color: #a855f7; }
+        .task-type-card .badge-unet { position: absolute; top: 4px; right: 4px; font-size: .55em; padding: 1px 5px; border-radius: 4px; background: rgba(124,58,237,.25); color: #c084fc; border: 1px solid rgba(124,58,237,.5); }
+
+        /* 源视频编辑器（v2v/rv2v） */
+        .source-video-panel { background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+        .source-video-panel .sv-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+        .source-video-panel .sv-row:last-child { margin-bottom: 0; }
+        .sv-preview { font-size: .78em; color: #22c55e; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sv-btn { background: #2a2a44; border: 1px solid #3a3a5c; color: #ddd; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: .78em; }
+        .sv-btn:hover { border-color: #7c3aed; background: #2d1b4e; }
+        .sv-btn.active { border-color: #7c3aed; background: #2d1b4e; color: #c084fc; }
+        .sv-help { font-size: .7em; color: #888; margin-top: 6px; line-height: 1.5; }
+
+        /* segment 卡片 */
+        .segment-list { margin-bottom: 12px; }
+        .segment-card { background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 12px; padding: 16px; margin-bottom: 12px; position: relative; }
+        .segment-card.disabled { opacity: .55; }
+        .segment-card .seg-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .segment-card .seg-header-left { display: flex; align-items: center; gap: 10px; }
+        .segment-card .seg-num { background: linear-gradient(135deg, #7c3aed, #ec4899); color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: .85em; }
+        .segment-card .seg-chain { font-size: .68em; color: #888; }
+        .segment-card .seg-chain.linked { color: #22c55e; }
+        .segment-card .seg-del { background: rgba(239,68,68,.15); color: #f87171; border: 1px solid rgba(239,68,68,.3); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: .78em; }
+        .segment-card .seg-del:hover { background: rgba(239,68,68,.3); }
+
+        /* 勾选运行 */
+        .seg-select-toggle { display: flex; align-items: center; gap: 6px; font-size: .78em; color: #c084fc; cursor: pointer; }
+        .seg-select-toggle input { cursor: pointer; }
+
+        /* 帧上传 */
+        .frame-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        .frame-upload { background: #16162a; border: 2px dashed #3a3a5c; border-radius: 10px; padding: 12px; text-align: center; cursor: pointer; transition: all .2s; position: relative; }
+        .frame-upload:hover { border-color: #7c3aed; }
+        .frame-upload.has-file { border-color: #22c55e; border-style: solid; }
+        .frame-upload.linked { border-color: #c084fc; border-style: solid; background: rgba(124,58,237,.08); }
+        .frame-upload input[type="file"] { display: none; }
+        .frame-upload .frame-label { font-size: .75em; color: #aaa; margin-bottom: 4px; }
+        .frame-upload.linked .frame-label { color: #c084fc; }
+        .frame-upload .frame-icon { font-size: 1.6em; color: #666; }
+        .frame-upload.has-file .frame-icon { color: #22c55e; }
+        .frame-upload.linked .frame-icon { color: #c084fc; }
+        .frame-upload .frame-name { font-size: .68em; color: #22c55e; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .frame-upload.linked .frame-name { color: #c084fc; }
+        .frame-upload img.preview { max-width: 100%; max-height: 80px; border-radius: 6px; margin-top: 6px; object-fit: cover; }
+        .frame-upload .clear-btn { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.7); color: #f87171; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: .75em; display: flex; align-items: center; justify-content: center; }
+        .frame-upload .link-badge { position: absolute; top: 4px; left: 4px; background: rgba(124,58,237,.3); color: #c084fc; border: 1px solid rgba(124,58,237,.6); border-radius: 4px; padding: 1px 5px; font-size: .55em; }
+
+        /* 素材组（r2v/rv2v） */
+        .refs-block { background: #16162a; border: 1px solid #3a3a5c; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+        .refs-block-title { font-size: .76em; color: #aaa; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .refs-block-title .ref-hint { color: #c084fc; font-size: .82em; }
+        .refs-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 8px; }
+        .ref-slot { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 8px; aspect-ratio: 1; position: relative; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2em; color: #666; overflow: hidden; }
+        .ref-slot:hover { border-color: #7c3aed; }
+        .ref-slot.has-file { border-color: #22c55e; border-style: solid; }
+        .ref-slot img { width: 100%; height: 100%; object-fit: cover; }
+        .ref-slot video { width: 100%; height: 100%; object-fit: cover; }
+        .ref-slot .slot-num { position: absolute; top: 2px; left: 4px; font-size: .55em; color: #c084fc; font-weight: 600; }
+        .ref-slot .slot-clear { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.7); color: #f87171; border: none; border-radius: 50%; width: 16px; height: 16px; font-size: .7em; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .ref-slot input[type="file"] { display: none; }
+
+        /* 段间转场提示词 */
+        .transition-row { background: #16162a; border: 1px dashed #3a3a5c; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+        .transition-row .trans-label { font-size: .7em; color: #c084fc; margin-bottom: 4px; }
+        .transition-row input { width: 100%; background: transparent; border: none; color: #ddd; font-size: .82em; outline: none; }
+
+        .field-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .field-row .field { flex: 1; }
+        .field-label { font-size: .75em; color: #aaa; margin-bottom: 4px; display: block; }
+        .text-field, .num-field, .select-field { width: 100%; box-sizing: border-box; padding: 10px 12px; background: #16162a; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .88em; outline: none; font-family: inherit; }
+        .text-field:focus, .num-field:focus, .select-field:focus { border-color: #7c3aed; }
+        textarea.text-field { resize: vertical; min-height: 60px; line-height: 1.5; }
+        .add-seg-btn { width: 100%; padding: 12px; background: transparent; border: 2px dashed #3a3a5c; border-radius: 10px; color: #aaa; cursor: pointer; font-size: .95em; transition: all .2s; }
+        .add-seg-btn:hover { border-color: #7c3aed; color: #c084fc; background: #22223e; }
+        .advanced-toggle { background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: .88em; color: #aaa; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .advanced-toggle:hover { border-color: #7c3aed; color: #c084fc; }
+        .advanced-panel { display: none; background: #1e1e36; border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+        .advanced-panel.show { display: block; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #7c3aed, #ec4899); color: #fff; transition: all .2s; letter-spacing: 1px; }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(124,58,237,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        .stage-text { font-size: .88em; color: #aaa; margin-bottom: 14px; }
+        .progress-bar-wrap { background: #2a2a44; border-radius: 6px; height: 10px; margin-bottom: 16px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #7c3aed, #ec4899); transition: width .4s; width: 0%; }
+        .video-result { background: #1e1e36; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+        .video-result video { width: 100%; border-radius: 8px; max-height: 420px; background: #000; }
+        .video-result .video-url { font-size: .8em; color: #666; margin-top: 8px; word-break: break-all; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .76em; color: #8b8bab; max-height: 320px; overflow-y: auto; line-height: 1.7; }
+        .log-line.running { color: #60a5aa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .history-panel { background: #16162a; border-radius: 14px; padding: 20px; }
+        .history-list { display: flex; flex-direction: column; gap: 8px; }
+        .history-item { background: #1e1e36; border: 1px solid #2a2a44; border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: all .2s; display: flex; justify-content: space-between; align-items: center; }
+        .history-item:hover { border-color: #7c3aed; background: #22223e; }
+        .history-item .hi-left { flex: 1; }
+        .history-item .hi-type { font-size: .82em; color: #c084fc; }
+        .history-item .hi-time { font-size: .72em; color: #666; margin-top: 2px; }
+        .history-item .hi-status { font-size: .78em; padding: 2px 10px; border-radius: 12px; }
+        .empty-state { text-align: center; padding: 40px 20px; color: #555; }
+        .hint-box { background: #1e1e36; border-left: 3px solid #7c3aed; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: .82em; color: #aaa; line-height: 1.7; }
+        .hint-box code { background: #0d0d1a; padding: 1px 6px; border-radius: 4px; color: #c084fc; font-family: "Cascadia Code", monospace; }
+
+        /* ── 9 宫格带货工作流 ── */
+        .mode-switcher { display: flex; gap: 0; background: #16162a; border-bottom: 1px solid #2a2a44; }
+        .mode-tab { flex: 1; padding: 12px 24px; background: transparent; border: none; color: #888; cursor: pointer; font-size: .92em; font-weight: 500; transition: all .2s; border-bottom: 2px solid transparent; }
+        .mode-tab:hover { color: #c084fc; background: rgba(124,58,237,.05); }
+        .mode-tab.active { color: #c084fc; border-bottom-color: #7c3aed; background: rgba(124,58,237,.08); }
+        .nine-grid-panel { padding: 24px; max-width: 1100px; margin: 0 auto; color: #e0e0e0; }
+        .ng-stage { background: #16162a; border: 1px solid #2a2a44; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+        .ng-stage-title { display: flex; align-items: center; gap: 10px; font-size: 1.05em; font-weight: 600; margin-bottom: 14px; }
+        .ng-stage-num { background: linear-gradient(135deg, #7c3aed, #ec4899); color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: .82em; font-weight: 700; }
+        .ng-stage-done { color: #22c55e; font-size: .8em; margin-left: auto; }
+        .ng-stage-running { color: #fbbf24; font-size: .8em; margin-left: auto; }
+        .ng-field { margin-bottom: 12px; }
+        .ng-field label { display: block; font-size: .78em; color: #aaa; margin-bottom: 4px; }
+        .ng-field input[type="text"], .ng-field input[type="number"], .ng-field textarea, .ng-field select { width: 100%; box-sizing: border-box; padding: 10px 12px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .88em; outline: none; font-family: inherit; }
+        .ng-field textarea { min-height: 80px; resize: vertical; line-height: 1.5; }
+        .ng-field input:focus, .ng-field textarea:focus, .ng-field select:focus { border-color: #7c3aed; }
+        .ng-upload-row { display: flex; gap: 10px; align-items: center; }
+        .ng-upload-row .ng-path-input { flex: 1; }
+        .ng-upload-btn { background: #2a2a44; border: 1px solid #3a3a5c; color: #ddd; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: .82em; white-space: nowrap; }
+        .ng-upload-btn:hover { border-color: #7c3aed; background: #2d1b4e; color: #c084fc; }
+        .ng-run-btn { background: linear-gradient(90deg, #7c3aed, #ec4899); color: #fff; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: .92em; font-weight: 500; margin-top: 8px; transition: all .2s; }
+        .ng-run-btn:hover { filter: brightness(1.15); }
+        .ng-run-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .ng-result-box { margin-top: 14px; background: #0d0d1a; border: 1px solid #2a2a44; border-radius: 8px; padding: 12px; max-height: 360px; overflow: auto; }
+        .ng-result-box pre { color: #a3e635; font-family: "Cascadia Code", monospace; font-size: .76em; line-height: 1.55; white-space: pre-wrap; word-break: break-all; }
+        .ng-result-empty { color: #555; font-size: .82em; font-style: italic; }
+        .ng-status-line { font-size: .78em; color: #888; margin-top: 8px; }
+        .ng-status-line.ok { color: #22c55e; }
+        .ng-status-line.err { color: #f87171; }
+        .ng-status-line.run { color: #fbbf24; }
+        .ng-images-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-top: 12px; }
+        .ng-images-grid .ng-img-cell { aspect-ratio: 9/16; background: #0d0d1a; border: 1px solid #2a2a44; border-radius: 4px; overflow: hidden; position: relative; }
+        .ng-images-grid .ng-img-cell img { width: 100%; height: 100%; object-fit: cover; }
+        .ng-images-grid .ng-img-cell .ng-img-num { position: absolute; top: 2px; left: 4px; font-size: .55em; color: #c084fc; font-weight: 600; background: rgba(0,0,0,.6); padding: 0 4px; border-radius: 3px; }
+        .ng-images-grid .ng-img-cell.shared { border-color: #c084fc; box-shadow: 0 0 0 1px rgba(124,58,237,.5) inset; }
+        .ng-images-grid .ng-img-cell .ng-shared-tag { position: absolute; bottom: 2px; right: 2px; font-size: .5em; color: #c084fc; background: rgba(0,0,0,.7); padding: 1px 3px; border-radius: 2px; }
+        .ng-seg-block { margin-bottom: 14px; }
+        .ng-seg-block-title { font-size: .85em; color: #c084fc; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px dashed #2a2a44; }
+        .ng-progress-wrap { margin-top: 10px; }
+        .ng-progress-bar { background: #0d0d1a; border-radius: 4px; overflow: hidden; height: 8px; }
+        .ng-progress-fill { background: linear-gradient(90deg, #7c3aed, #ec4899); height: 100%; width: 0%; transition: width .3s; }
+        .ng-segments-readonly { font-size: .8em; color: #888; margin-top: 4px; }
+        .ng-disabled-overlay { opacity: .55; pointer-events: none; }
+        .ng-actions-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+        .ng-copy-btn { background: #2a2a44; border: 1px solid #3a3a5c; color: #ddd; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: .78em; }
+        .ng-copy-btn:hover { border-color: #7c3aed; color: #c084fc; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:16px;">
+        <a href="/" class="back-btn">← 首页</a>
+        <h1>🎬 H3 导演台</h1>
+    </div>
+    <span class="tag">MiniMax H3 · 无限拼接 · 全模式</span>
+</div>
+<div class="mode-switcher">
+    <button class="mode-tab active" data-mode="director">🎬 导演台模式（直接提交 H3）</button>
+    <button class="mode-tab" data-mode="9grid">🛒 9 宫格带货工作流（脚本→图→视频）</button>
+</div>
+<div class="main" id="directorPanel">
+    <div class="input-panel">
+        <!-- 任务类型 -->
+        <div class="section-title"><span class="dot dot-required"></span>任务类型</div>
+        <div class="task-type-grid" id="taskTypeGrid">
+            <div class="task-type-card active" data-type="fl2v">
+                <span class="badge-unet">fl2va</span>
+                <div class="icon">🖼️🖼️</div>
+                <div class="label">首尾帧生视频</div>
+                <div class="code">fl2v</div>
+            </div>
+            <div class="task-type-card" data-type="t2v">
+                <span class="badge-unet">fl2va</span>
+                <div class="icon">📝</div>
+                <div class="label">文生视频</div>
+                <div class="code">t2v</div>
+            </div>
+            <div class="task-type-card" data-type="i2v">
+                <span class="badge-unet">fl2va</span>
+                <div class="icon">🖼️</div>
+                <div class="label">图生视频</div>
+                <div class="code">i2v</div>
+            </div>
+            <div class="task-type-card" data-type="r2v">
+                <span class="badge-unet">ref2va</span>
+                <div class="icon">🎯</div>
+                <div class="label">参考主体</div>
+                <div class="code">r2v</div>
+            </div>
+            <div class="task-type-card" data-type="v2v">
+                <span class="badge-unet">ref2va</span>
+                <div class="icon">🎞️</div>
+                <div class="label">视频转视频</div>
+                <div class="code">v2v</div>
+            </div>
+            <div class="task-type-card" data-type="rv2v">
+                <span class="badge-unet">ref2va</span>
+                <div class="icon">🎬</div>
+                <div class="label">参考改视频</div>
+                <div class="code">rv2v</div>
+            </div>
+        </div>
+
+        <div class="hint-box" id="hintBox">
+            <b>fl2v 模式</b>（fl2va UNET）：每段上传首帧（必传）和尾帧（可选），提示词写中间运动。上传尾帧后会自动作为下一段首帧，实现无限拼接。<br>
+            <span style="color:#fbbf24;">⚠ RH 环境限制：段间引导功能暂时不可用，段间转场提示词在 RH 上可能被忽略。急用可在本地安装导演台插件或使用云端镜像。</span>
+        </div>
+
+        <!-- v2v/rv2v 源视频编辑器 -->
+        <div id="sourceVideoPanel" class="source-video-panel" style="display:none;">
+            <div class="section-title"><span class="dot dot-required"></span>源视频</div>
+            <div class="sv-row">
+                <button class="sv-btn" id="uploadSourceBtn">📤 上传源视频</button>
+                <input type="file" id="sourceVideoInput" accept="video/*" style="display:none;">
+                <div class="sv-preview" id="sourceVideoName">未上传</div>
+            </div>
+            <div class="sv-row">
+                <button class="sv-btn" id="splitAvgBtn">均分 N 段</button>
+                <input type="number" id="splitAvgNum" value="4" min="2" max="20" style="width:60px;padding:4px;background:#16162a;border:1px solid #3a3a5c;border-radius:6px;color:#fff;font-size:.78em;">
+                <button class="sv-btn" id="splitSmartBtn">✨ 智能分割</button>
+                <button class="sv-btn" id="splitClearBtn">清空段</button>
+            </div>
+            <div class="sv-help">源视频上传后可一键均分或智能切分；每段自动绑定 <code>&lt;Video 1&gt;</code>，提示词写改写效果。</div>
+        </div>
+
+        <!-- 分镜段列表 -->
+        <div class="section-title">
+            <span class="dot dot-required"></span>分镜段
+            <label class="seg-select-toggle" id="runSelectToggle" style="margin-left:auto;">
+                <input type="checkbox" id="runSelectEnabled"> 选择运行
+            </label>
+        </div>
+        <div class="segment-list" id="segmentList"></div>
+        <button class="add-seg-btn" id="addSegBtn">+ 添加分镜段</button>
+
+        <!-- 高级参数 -->
+        <div style="margin-top:20px;">
+            <div class="advanced-toggle" id="advancedToggle">
+                <span>⚙️ 高级参数</span>
+                <span id="advancedArrow">▶</span>
+            </div>
+            <div class="advanced-panel" id="advancedPanel">
+                <div class="field-row">
+                    <div class="field">
+                        <label class="field-label">画面尺寸</label>
+                        <select class="select-field" id="sizePreset">
+                            <option value="576x736">0.4MP 3:4 竖版 (576×736)</option>
+                            <option value="768x1024">0.6MP 3:4 竖版 (768×1024)</option>
+                            <option value="864x480">0.4MP 16:9 横版 (864×480)</option>
+                            <option value="960x544">0.5MP 16:9 横版 (960×544)</option>
+                            <option value="1280x736">0.9MP 16:9 横版 (1280×736)</option>
+                            <option value="1920x1088">2.0MP 16:9 横版 (1920×1088)</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">帧率</label>
+                        <input type="number" class="num-field" id="frameRate" value="24" min="8" max="60">
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="field-label">音频模式</label>
+                        <select class="select-field" id="audioMode">
+                            <option value="generate">生成音频</option>
+                            <option value="original">使用原声（v2v/rv2v）</option>
+                            <option value="silent">静音</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">采样步数</label>
+                        <input type="number" class="num-field" id="steps" value="20" min="1" max="50">
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="field-label">Sampler</label>
+                        <select class="select-field" id="sampler">
+                            <option value="res_multistep">res_multistep (默认)</option>
+                            <option value="euler">euler</option>
+                            <option value="euler_ancestral">euler_ancestral</option>
+                            <option value="dpmpp_2m">dpmpp_2m</option>
+                            <option value="dpmpp_sde">dpmpp_sde</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">Scheduler</label>
+                        <select class="select-field" id="scheduler">
+                            <option value="simple">simple (默认)</option>
+                            <option value="karras">karras</option>
+                            <option value="normal">normal</option>
+                            <option value="exponential">exponential</option>
+                            <option value="sgm_uniform">sgm_uniform</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="field-label">CFG</label>
+                        <input type="number" class="num-field" id="cfg" value="1.0" step="0.1" min="0.1" max="10">
+                    </div>
+                    <div class="field">
+                        <label class="field-label">Seed（0=随机）</label>
+                        <input type="number" class="num-field" id="seed" value="0" min="0">
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="field-label">Video Shift</label>
+                        <input type="number" class="num-field" id="shiftVideo" value="12" step="0.5" min="0">
+                    </div>
+                    <div class="field">
+                        <label class="field-label">Audio Shift</label>
+                        <input type="number" class="num-field" id="shiftAudio" value="3" step="0.5" min="0">
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="field-label">ref_max_size（r2v/rv2v 参考图最大边长）</label>
+                        <input type="number" class="num-field" id="refMaxSize" value="736" step="16" min="256" max="1536">
+                    </div>
+                    <div class="field">
+                        <label class="field-label">未勾选段填充策略</label>
+                        <select class="select-field" id="fillStrategy">
+                            <option value="cache">用缓存填充</option>
+                            <option value="source">用源画面填充</option>
+                            <option value="skip">跳过</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top:8px;">
+                    <label class="field-label">全局提示词（可选，补充说明）</label>
+                    <textarea class="text-field" id="globalPrompt" placeholder="例如：整体风格为电影感、暖色调..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- 运行按钮 -->
+        <button class="run-btn" id="runBtn" style="margin-top:20px;">🚀 启动 H3 导演台</button>
+    </div>
+
+    <div class="output-panel">
+        <div class="status-panel">
+            <div class="status-header">
+                <span class="status-badge badge-idle" id="statusBadge">空闲</span>
+                <span style="font-size:.85em;color:#666;" id="taskIdText"></span>
+            </div>
+            <div class="stage-text" id="stageText">准备就绪，等待启动</div>
+            <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressFill"></div></div>
+            <div class="log-box" id="logBox"><div class="log-line">系统就绪</div></div>
+        </div>
+
+        <div id="videoContainer"></div>
+
+        <div class="history-panel">
+            <div class="section-title"><span class="dot dot-optional"></span>历史记录</div>
+            <div class="history-list" id="historyList">
+                <div class="empty-state">暂无历史记录</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── 9 宫格带货工作流面板 ── -->
+<div class="nine-grid-panel" id="nineGridPanel" style="display:none;">
+
+    <!-- 阶段 1：9 宫格分镜脚本 -->
+    <div class="ng-stage" id="ngStage1">
+        <div class="ng-stage-title">
+            <span class="ng-stage-num">1</span>
+            9 宫格分镜脚本 + 画外音话术
+            <span class="ng-stage-done" id="ngStage1Status"></span>
+        </div>
+        <div class="ng-field">
+            <label>产品图（必填，用于锁定产品外观）</label>
+            <div class="ng-upload-row">
+                <input type="text" class="ng-path-input" id="ngProductImagePath" placeholder="D:/uploads/product.png 或点击右侧上传">
+                <input type="file" id="ngProductImageFile" accept="image/*" style="display:none;">
+                <button class="ng-upload-btn" id="ngUploadProductBtn">📤 上传</button>
+            </div>
+        </div>
+        <div class="ng-field">
+            <label>产品名（必填）</label>
+            <input type="text" id="ngProductName" placeholder="例如：车载无线吸尘器">
+        </div>
+        <div class="ng-field">
+            <label>核心卖点（1-10 条，每行一条）</label>
+            <textarea id="ngSellingPoints" placeholder="无线便携&#10;强力吸尘&#10;一秒清尘"></textarea>
+        </div>
+        <div class="ng-field">
+            <label>段数 N（1-6 段，每段 15 秒）</label>
+            <input type="number" id="ngSegmentCount" value="2" min="1" max="6">
+        </div>
+        <div class="ng-field">
+            <label>补充上下文（可选，目标平台/风格偏好等）</label>
+            <textarea id="ngExtraContext" placeholder="例如：投放抖音短视频，目标受众为有车一族，节奏紧凑..."></textarea>
+        </div>
+        <button class="ng-run-btn" id="ngRunStoryboardBtn">🚀 生成 9 宫格脚本</button>
+        <div class="ng-status-line" id="ngStoryboardStatus"></div>
+        <div class="ng-result-box" id="ngStoryboardResult">
+            <div class="ng-result-empty">尚未生成</div>
+        </div>
+    </div>
+
+    <!-- 阶段 2：9:16 图片提示词 -->
+    <div class="ng-stage ng-disabled-overlay" id="ngStage2">
+        <div class="ng-stage-title">
+            <span class="ng-stage-num">2</span>
+            9:16 竵屏图片生成提示词
+            <span class="ng-stage-done" id="ngStage2Status"></span>
+        </div>
+        <div class="ng-segments-readonly">输入：阶段 1 输出的 storyboard_json + 产品名</div>
+        <button class="ng-run-btn" id="ngRunImagePromptsBtn">🚀 生成图片提示词</button>
+        <div class="ng-status-line" id="ngImagePromptsStatus"></div>
+        <div class="ng-result-box" id="ngImagePromptsResult">
+            <div class="ng-result-empty">尚未生成</div>
+        </div>
+    </div>
+
+    <!-- 阶段 2.5：9 图 i2i 生成 -->
+    <div class="ng-stage ng-disabled-overlay" id="ngStage25">
+        <div class="ng-stage-title">
+            <span class="ng-stage-num">2.5</span>
+            9 图 i2i 关键帧生成（以产品图为参考）
+            <span class="ng-stage-done" id="ngStage25Status"></span>
+        </div>
+        <div class="ng-field">
+            <label>图片尺寸（接近 9:16 竵屏）</label>
+            <select id="ngImageSize">
+                <option value="1024x1536">1024x1536（推荐，接近 9:16）</option>
+                <option value="768x1344">768x1344（更接近 9:16）</option>
+                <option value="1024x1024">1024x1024（正方形，备用）</option>
+            </select>
+        </div>
+        <div class="ng-field">
+            <label>单段内 i2i 并发上限（控制速率，建议 2-3）</label>
+            <input type="number" id="ngMaxConcurrency" value="3" min="1" max="9">
+        </div>
+        <button class="ng-run-btn" id="ngRunGenerateImagesBtn">🚀 生成 N 段 × 9 张关键帧</button>
+        <div class="ng-status-line" id="ngGenerateImagesStatus"></div>
+        <div class="ng-progress-wrap" id="ngGenerateImagesProgress" style="display:none;">
+            <div class="ng-progress-bar"><div class="ng-progress-fill" id="ngGenerateImagesFill"></div></div>
+        </div>
+        <div id="ngGenerateImagesResult"></div>
+    </div>
+
+    <!-- 阶段 3：Ref2VA 6 字段视频提示词 -->
+    <div class="ng-stage ng-disabled-overlay" id="ngStage3">
+        <div class="ng-stage-title">
+            <span class="ng-stage-num">3</span>
+            Ref2VA 6 字段视频提示词（每段 15 秒）
+            <span class="ng-stage-done" id="ngStage3Status"></span>
+        </div>
+        <div class="ng-segments-readonly">输入：阶段 1 storyboard + 阶段 2 image_prompts + 产品图</div>
+        <button class="ng-run-btn" id="ngRunVideoPromptsBtn">🚀 生成 N 段视频提示词</button>
+        <div class="ng-status-line" id="ngVideoPromptsStatus"></div>
+        <div class="ng-result-box" id="ngVideoPromptsResult">
+            <div class="ng-result-empty">尚未生成</div>
+        </div>
+    </div>
+</div>
+
+<script>
+const state = {
+    taskType: 'fl2v',
+    segments: [],
+    taskId: null,
+    pollTimer: null,
+    sourceVideoPath: null,
+    sourceVideoName: null,
+    runSelectEnabled: false,
+};
+
+const taskTypeHints = {
+    t2v: '<b>t2v 模式</b>（fl2va UNET）：纯文本生成音视频，无需上传图片，每段只填提示词。可无限添加段实现长视频拼接。',
+    i2v: '<b>i2v 模式</b>（fl2va UNET）：图生视频，每段上传一张起始图（作为 genImage）。',
+    fl2v: '<b>fl2v 模式</b>（fl2va UNET）：每段上传首帧（必传）和尾帧（可选）。上传尾帧后会自动作为下一段首帧，实现无限拼接。提示词写中间运动。<br><span style="color:#fbbf24;">⚠ RH 环境限制：段间引导功能暂时不可用，段间转场提示词在 RH 上可能被忽略。急用可在本地安装导演台插件或使用云端镜像。</span>',
+    r2v: '<b>r2v 模式</b>（ref2va UNET）：参考主体生视频。每段为一个素材组，上传图片1-9 / 音频1-3 / 视频1-3。提示词用 <code>&lt;Picture N&gt;</code> / <code>&lt;Video K&gt;</code> / <code>&lt;Audio J&gt;</code> 引用。<br><span style="color:#fbbf24;">⚠ 需 ref2va 工作流，后端会自动切换工作流 ID。</span>',
+    v2v: '<b>v2v 模式</b>（ref2va UNET）：上传源视频，均分或智能切分。每段自动绑定 <code>&lt;Video 1&gt;</code>，提示词写改写效果。<br><span style="color:#fbbf24;">⚠ 需 ref2va 工作流。</span>',
+    rv2v: '<b>rv2v 模式</b>（ref2va UNET）：v2v 基础上额外支持参考图组（图1-9）和参考音频（1-3）。声音模式可选生成/原声/静音。<br><span style="color:#fbbf24;">⚠ 需 ref2va 工作流。</span>',
+};
+
+// 任务类型切换
+document.querySelectorAll('.task-type-card').forEach(card => {
+    card.addEventListener('click', () => {
+        document.querySelectorAll('.task-type-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        state.taskType = card.dataset.type;
+        document.getElementById('hintBox').innerHTML = taskTypeHints[state.taskType] || '';
+        // v2v/rv2v 显示源视频编辑器
+        document.getElementById('sourceVideoPanel').style.display = ['v2v','rv2v'].includes(state.taskType) ? 'block' : 'none';
+        renderSegments();
+    });
+});
+
+// 段管理
+function newSegment() {
+    return {
+        durationSec: 5,
+        prompt: '',
+        negativePrompt: 'bad video',
+        startImagePath: null,
+        startImagePreview: null,
+        endImagePath: null,
+        endImagePreview: null,
+        referenceVideoPath: null,      // v2v/rv2v 段级源视频片段
+        refImagePaths: [],             // r2v/rv2v 参考图组
+        refImagePreviews: [],
+        refAudioPaths: [],             // rv2v 参考音频
+        refVideoPaths: [],             // r2v/rv2v 段内参考视频
+        transitionPrompt: '',          // 段间转场提示词（fl2v 拼接）
+        selected: true,                // 选择运行勾选
+    };
+}
+
+function addSegment() {
+    state.segments.push(newSegment());
+    renderSegments();
+    // fl2v 自动串联：新段刚加，若前段有尾帧，自动填到本段首帧
+    if (state.taskType === 'fl2v' && state.segments.length >= 2) {
+        const prev = state.segments[state.segments.length - 2];
+        if (prev.endImagePath) {
+            const cur = state.segments[state.segments.length - 1];
+            cur.startImagePath = prev.endImagePath;
+            cur.startImagePreview = prev.endImagePreview;
+            cur._linkedFromPrev = true;  // 标记为自动串联
+            renderSegments();
+        }
+    }
+}
+
+function removeSegment(idx) {
+    state.segments.splice(idx, 1);
+    // fl2v：重新串联
+    if (state.taskType === 'fl2v') reChainFl2v();
+    renderSegments();
+}
+
+// fl2v 串联：把上一段的尾帧自动作为下一段首帧（仅当下一段首帧是 _linkedFromPrev 时）
+function reChainFl2v() {
+    for (let i = 1; i < state.segments.length; i++) {
+        const prev = state.segments[i - 1];
+        const cur = state.segments[i];
+        if (cur._linkedFromPrev || !cur.startImagePath) {
+            if (prev.endImagePath) {
+                cur.startImagePath = prev.endImagePath;
+                cur.startImagePreview = prev.endImagePreview;
+                cur._linkedFromPrev = true;
+            } else {
+                if (cur._linkedFromPrev) {
+                    cur.startImagePath = null;
+                    cur.startImagePreview = null;
+                }
+                cur._linkedFromPrev = false;
+            }
+        }
+    }
+}
+
+function renderSegments() {
+    const list = document.getElementById('segmentList');
+    list.innerHTML = '';
+    if (state.segments.length === 0) {
+        list.innerHTML = '<div class="empty-state">点击下方按钮添加第一个分镜段</div>';
+        return;
+    }
+    state.segments.forEach((seg, idx) => {
+        const card = document.createElement('div');
+        card.className = 'segment-card' + (state.runSelectEnabled && !seg.selected ? ' disabled' : '');
+
+        const showStart = ['i2v','fl2v','r2v','rv2v'].includes(state.taskType);
+        const showEnd = state.taskType === 'fl2v';
+        const showRefsBlock = ['r2v','rv2v'].includes(state.taskType);
+        const showRefAudios = state.taskType === 'rv2v';
+        const showTransition = state.taskType === 'fl2v' && idx < state.segments.length - 1;
+        const showSelect = state.runSelectEnabled;
+        const isLinked = seg._linkedFromPrev;
+
+        card.innerHTML = `
+            <div class="seg-header">
+                <div class="seg-header-left">
+                    <div class="seg-num">${idx + 1}</div>
+                    ${showSelect ? `<label class="seg-select-toggle"><input type="checkbox" data-field="selected" data-idx="${idx}" ${seg.selected ? 'checked':''}></label>` : ''}
+                    ${isLinked ? `<span class="seg-chain linked">🔗 串联自上段</span>` : `<span class="seg-chain">段 ${idx+1}</span>`}
+                </div>
+                <button class="seg-del" data-idx="${idx}">删除</button>
+            </div>
+
+            ${showStart ? `
+            <div class="frame-row">
+                <div class="frame-upload ${seg.startImagePath ? 'has-file' : ''} ${isLinked ? 'linked' : ''}" data-idx="${idx}" data-pos="start">
+                    ${isLinked ? '<span class="link-badge">🔗 自动</span>' : ''}
+                    <div class="frame-label">首帧 ${state.taskType === 'fl2v' ? '（必传）' : ''}</div>
+                    <div class="frame-icon">🖼️</div>
+                    <div class="frame-name">${seg.startImagePath ? seg.startImagePath.split(/[\\\\/]/).pop() : '点击上传'}</div>
+                    ${seg.startImagePreview ? `<img class="preview" src="${seg.startImagePreview}">` : ''}
+                    ${seg.startImagePath && !isLinked ? '<button class="clear-btn" data-idx="'+idx+'" data-pos="start">×</button>' : ''}
+                    <input type="file" accept="image/*">
+                </div>
+                ${showEnd ? `
+                <div class="frame-upload ${seg.endImagePath ? 'has-file' : ''}" data-idx="${idx}" data-pos="end">
+                    <div class="frame-label">尾帧（可选，自动串联下段）</div>
+                    <div class="frame-icon">🖼️</div>
+                    <div class="frame-name">${seg.endImagePath ? seg.endImagePath.split(/[\\\\/]/).pop() : '点击上传'}</div>
+                    ${seg.endImagePreview ? `<img class="preview" src="${seg.endImagePreview}">` : ''}
+                    ${seg.endImagePath ? '<button class="clear-btn" data-idx="'+idx+'" data-pos="end">×</button>' : ''}
+                    <input type="file" accept="image/*">
+                </div>` : ''}
+            </div>` : ''}
+
+            ${showRefsBlock ? renderRefsBlock(idx, seg) : ''}
+
+            <div>
+                <label class="field-label">提示词 ${state.taskType === 'r2v' ? '（用 <Picture N> / <Video K> / <Audio J> 引用素材）' : ''}</label>
+                <textarea class="text-field" data-field="prompt" data-idx="${idx}" placeholder="${getPromptPlaceholder()}">${seg.prompt}</textarea>
+            </div>
+
+            ${showTransition ? `
+            <div class="transition-row">
+                <div class="trans-label">↪ 段间转场提示词（可选，写在下一段首帧前）</div>
+                <input type="text" data-field="transitionPrompt" data-idx="${idx}" value="${seg.transitionPrompt || ''}" placeholder="例如：镜头缓慢推进，光线渐亮...">
+            </div>` : ''}
+
+            <div class="field-row" style="margin-top:8px;">
+                <div class="field" style="max-width:120px;">
+                    <label class="field-label">时长（秒）</label>
+                    <input type="number" class="num-field" data-field="durationSec" data-idx="${idx}" value="${seg.durationSec}" min="1" max="60">
+                </div>
+                <div class="field">
+                    <label class="field-label">负向提示词</label>
+                    <input type="text" class="text-field" data-field="negativePrompt" data-idx="${idx}" value="${seg.negativePrompt}">
+                </div>
+            </div>
+        `;
+        list.appendChild(card);
+    });
+
+    // 绑定事件
+    list.querySelectorAll('.seg-del').forEach(btn => {
+        btn.addEventListener('click', () => removeSegment(parseInt(btn.dataset.idx)));
+    });
+    list.querySelectorAll('[data-field]').forEach(input => {
+        input.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.idx);
+            const field = e.target.dataset.field;
+            const val = field === 'durationSec' ? parseInt(e.target.value) || 5 :
+                        field === 'selected' ? e.target.checked :
+                        e.target.value;
+            state.segments[idx][field] = val;
+        });
+    });
+    list.querySelectorAll('.frame-upload').forEach(box => {
+        const idx = parseInt(box.dataset.idx);
+        const pos = box.dataset.pos;
+        const input = box.querySelector('input[type="file"]');
+        box.addEventListener('click', (e) => {
+            if (e.target.classList.contains('clear-btn')) return;
+            input.click();
+        });
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            await uploadFrame(idx, pos, file);
+        });
+    });
+    list.querySelectorAll('.clear-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt(btn.dataset.idx);
+            const pos = btn.dataset.pos;
+            state.segments[idx][`${pos}ImagePath`] = null;
+            state.segments[idx][`${pos}ImagePreview`] = null;
+            state.segments[idx]._linkedFromPrev = false;
+            renderSegments();
+        });
+    });
+    // 素材组上传
+    list.querySelectorAll('.ref-slot').forEach(slot => {
+        const idx = parseInt(slot.dataset.idx);
+        const type = slot.dataset.type;
+        const si = parseInt(slot.dataset.si);
+        const input = slot.querySelector('input[type="file"]');
+        slot.addEventListener('click', (e) => {
+            if (e.target.classList.contains('slot-clear')) return;
+            input.click();
+        });
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            await uploadRef(idx, type, si, file);
+        });
+    });
+    list.querySelectorAll('.slot-clear').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt(btn.dataset.idx);
+            const type = btn.dataset.type;
+            const si = parseInt(btn.dataset.si);
+            const arrPath = `${type}Paths`;
+            const arrPrev = `${type}Previews`;
+            state.segments[idx][arrPath][si] = null;
+            state.segments[idx][arrPrev][si] = null;
+            renderSegments();
+        });
+    });
+}
+
+function getPromptPlaceholder() {
+    switch (state.taskType) {
+        case 't2v': return '例如：一只猴子在森林里奔跑，伴随自然的跑步声';
+        case 'i2v': return '描述这张图之后的运动和镜头';
+        case 'fl2v': return '描述首帧到尾帧之间的运动 / 镜头 / 过渡';
+        case 'r2v': return '使用 <Picture 1> <Video 1> <Audio 1> 引用素材，描述视频内容';
+        case 'v2v': return '描述这一段画面的改写效果，源片段会自动绑为 <Video 1>';
+        case 'rv2v': return '描述改写效果，可用 <Picture N> 引用参考图';
+        default: return '';
+    }
+}
+
+// 渲染素材组块
+function renderRefsBlock(idx, seg) {
+    const showRefImages = ['r2v','rv2v'].includes(state.taskType);
+    const showRefVideos = ['r2v','rv2v'].includes(state.taskType);
+    const showRefAudios = state.taskType === 'rv2v';
+
+    // 初始化数组
+    if (!seg.refImagePaths || seg.refImagePaths.length < 9) seg.refImagePaths = Array(9).fill(null);
+    if (!seg.refImagePreviews || seg.refImagePreviews.length < 9) seg.refImagePreviews = Array(9).fill(null);
+    if (!seg.refVideoPaths || seg.refVideoPaths.length < 3) seg.refVideoPaths = Array(3).fill(null);
+    if (!seg.refVideoPreviews || seg.refVideoPreviews.length < 3) seg.refVideoPreviews = Array(3).fill(null);
+    if (!seg.refAudioPaths || seg.refAudioPaths.length < 3) seg.refAudioPaths = Array(3).fill(null);
+
+    let html = '<div class="refs-block"><div class="refs-block-title"><span>素材组</span><span class="ref-hint">提示词用 &lt;Picture N&gt; / &lt;Video K&gt; / &lt;Audio J&gt; 引用</span></div>';
+
+    if (showRefImages) {
+        html += '<div class="refs-grid">';
+        for (let i = 0; i < 9; i++) {
+            const has = seg.refImagePaths[i];
+            html += `<div class="ref-slot ${has?'has-file':''}" data-idx="${idx}" data-type="refImage" data-si="${i}">
+                <span class="slot-num">P${i+1}</span>
+                ${seg.refImagePreviews[i] ? `<img src="${seg.refImagePreviews[i]}">` : '<div>🖼️</div>'}
+                ${has ? `<button class="slot-clear" data-idx="${idx}" data-type="refImage" data-si="${i}">×</button>` : ''}
+                <input type="file" accept="image/*">
+            </div>`;
+        }
+        html += '</div>';
+    }
+    if (showRefVideos) {
+        html += '<div class="refs-grid" style="grid-template-columns: repeat(3, 1fr);">';
+        for (let i = 0; i < 3; i++) {
+            const has = seg.refVideoPaths[i];
+            html += `<div class="ref-slot ${has?'has-file':''}" data-idx="${idx}" data-type="refVideo" data-si="${i}">
+                <span class="slot-num">V${i+1}</span>
+                ${seg.refVideoPreviews[i] ? `<video src="${seg.refVideoPreviews[i]}"></video>` : '<div>🎞️</div>'}
+                ${has ? `<button class="slot-clear" data-idx="${idx}" data-type="refVideo" data-si="${i}">×</button>` : ''}
+                <input type="file" accept="video/*">
+            </div>`;
+        }
+        html += '</div>';
+    }
+    if (showRefAudios) {
+        html += '<div class="refs-grid" style="grid-template-columns: repeat(3, 1fr);">';
+        for (let i = 0; i < 3; i++) {
+            const has = seg.refAudioPaths[i];
+            html += `<div class="ref-slot ${has?'has-file':''}" data-idx="${idx}" data-type="refAudio" data-si="${i}">
+                <span class="slot-num">A${i+1}</span>
+                <div>🎵</div>
+                ${has ? `<button class="slot-clear" data-idx="${idx}" data-type="refAudio" data-si="${i}">×</button>` : ''}
+                <input type="file" accept="audio/*">
+            </div>`;
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+async function uploadFrame(idx, pos, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const resp = await fetch('/api/upload/image', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.success) {
+            state.segments[idx][`${pos}ImagePath`] = data.file_path;
+            state.segments[idx][`${pos}ImagePreview`] = data.path;
+            state.segments[idx]._linkedFromPrev = false;
+            // fl2v：尾帧上传后自动填到下一段首帧
+            if (state.taskType === 'fl2v' && pos === 'end' && idx < state.segments.length - 1) {
+                const next = state.segments[idx + 1];
+                next.startImagePath = data.file_path;
+                next.startImagePreview = data.path;
+                next._linkedFromPrev = true;
+            }
+            renderSegments();
+        } else {
+            alert('上传失败: ' + (data.error || '未知错误'));
+        }
+    } catch (err) {
+        alert('上传失败: ' + err.message);
+    }
+}
+
+async function uploadRef(idx, type, si, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const resp = await fetch('/api/upload/image', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.success) {
+            const arrPath = `${type}Paths`;
+            const arrPrev = `${type}Previews`;
+            state.segments[idx][arrPath] = state.segments[idx][arrPath] || Array(9).fill(null);
+            state.segments[idx][arrPrev] = state.segments[idx][arrPrev] || Array(9).fill(null);
+            state.segments[idx][arrPath][si] = data.file_path;
+            state.segments[idx][arrPrev][si] = data.path;
+            renderSegments();
+        } else {
+            alert('上传失败: ' + (data.error || '未知错误'));
+        }
+    } catch (err) {
+        alert('上传失败: ' + err.message);
+    }
+}
+
+// 源视频上传（v2v/rv2v）
+document.getElementById('uploadSourceBtn').addEventListener('click', () => {
+    document.getElementById('sourceVideoInput').click();
+});
+document.getElementById('sourceVideoInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const resp = await fetch('/api/upload/image', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.success) {
+            state.sourceVideoPath = data.file_path;
+            state.sourceVideoName = file.name;
+            document.getElementById('sourceVideoName').textContent = file.name;
+            addLog(`✓ 源视频已上传: ${file.name}`, 'done');
+        } else {
+            alert('源视频上传失败: ' + (data.error || '未知错误'));
+        }
+    } catch (err) {
+        alert('源视频上传失败: ' + err.message);
+    }
+});
+
+// 均分 N 段
+document.getElementById('splitAvgBtn').addEventListener('click', () => {
+    if (!state.sourceVideoPath) { alert('请先上传源视频'); return; }
+    const n = parseInt(document.getElementById('splitAvgNum').value) || 4;
+    state.segments = [];
+    for (let i = 0; i < n; i++) {
+        const seg = newSegment();
+        seg.referenceVideoPath = state.sourceVideoPath;  // 每段绑同一源视频，由后端按时长切片
+        seg.prompt = `<Video 1> 改写第 ${i+1}/${n} 段`;
+        seg.durationSec = 5;
+        state.segments.push(seg);
+    }
+    renderSegments();
+    addLog(`✓ 已均分 ${n} 段，每段绑 <Video 1>`, 'done');
+});
+
+// 智能分割（前端简化：按 3 秒一段切，后端按时长切片）
+document.getElementById('splitSmartBtn').addEventListener('click', () => {
+    if (!state.sourceVideoPath) { alert('请先上传源视频'); return; }
+    alert('智能分割需要 PySceneDetect，前端简化为按 3 秒一段切分，请用「均分 N 段」替代。');
+});
+
+// 清空段
+document.getElementById('splitClearBtn').addEventListener('click', () => {
+    state.segments = [];
+    renderSegments();
+});
+
+// 高级参数切换
+document.getElementById('advancedToggle').addEventListener('click', () => {
+    const panel = document.getElementById('advancedPanel');
+    const arrow = document.getElementById('advancedArrow');
+    panel.classList.toggle('show');
+    arrow.textContent = panel.classList.contains('show') ? '▼' : '▶';
+});
+
+// 选择运行
+document.getElementById('runSelectEnabled').addEventListener('change', (e) => {
+    state.runSelectEnabled = e.target.checked;
+    renderSegments();
+});
+
+// 添加分镜段
+document.getElementById('addSegBtn').addEventListener('click', addSegment);
+
+// 提交任务
+document.getElementById('runBtn').addEventListener('click', async () => {
+    if (state.segments.length === 0) { alert('请至少添加一个分镜段'); return; }
+    if (['v2v','rv2v'].includes(state.taskType) && !state.sourceVideoPath) { alert('请先上传源视频'); return; }
+
+    // fl2v 校验首帧
+    if (state.taskType === 'fl2v') {
+        for (let i = 0; i < state.segments.length; i++) {
+            if (!state.segments[i].startImagePath) {
+                alert(`第 ${i+1} 段缺少首帧（fl2v 模式必传）`);
+                return;
+            }
+        }
+    }
+    // 校验提示词
+    for (let i = 0; i < state.segments.length; i++) {
+        if (!state.segments[i].prompt.trim()) {
+            alert(`第 ${i+1} 段提示词为空`);
+            return;
+        }
+    }
+
+    const sizeStr = document.getElementById('sizePreset').value.split('x');
+    const payload = {
+        task_type: state.taskType,
+        segments: state.segments.map(s => ({
+            durationSec: s.durationSec,
+            prompt: (s.transitionPrompt ? s.transitionPrompt + '；' : '') + s.prompt,
+            negativePrompt: s.negativePrompt,
+            startImagePath: s.startImagePath,
+            endImagePath: s.endImagePath,
+            referenceVideoPath: s.referenceVideoPath,
+            refImagePaths: (s.refImagePaths || []).filter(Boolean),
+            refAudioPaths: (s.refAudioPaths || []).filter(Boolean),
+            refVideoPaths: (s.refVideoPaths || []).filter(Boolean),
+            selected: s.selected,
+        })),
+        frame_rate: parseInt(document.getElementById('frameRate').value),
+        width: parseInt(sizeStr[0]),
+        height: parseInt(sizeStr[1]),
+        global_prompt: document.getElementById('globalPrompt').value,
+        audio_mode: document.getElementById('audioMode').value,
+        steps: parseInt(document.getElementById('steps').value),
+        cfg: parseFloat(document.getElementById('cfg').value),
+        seed: parseInt(document.getElementById('seed').value),
+        sampler: document.getElementById('sampler').value,
+        scheduler: document.getElementById('scheduler').value,
+        shift_video: parseFloat(document.getElementById('shiftVideo').value),
+        shift_audio: parseFloat(document.getElementById('shiftAudio').value),
+        ref_max_size: parseInt(document.getElementById('refMaxSize').value),
+        run_select_enabled: state.runSelectEnabled,
+        fill_strategy: document.getElementById('fillStrategy').value,
+    };
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '⏳ 提交中...';
+    setBadge('running', '提交中');
+    addLog('提交 H3 导演台任务...', 'running');
+
+    try {
+        const resp = await fetch('/api/h3-director/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            state.taskId = data.task_id;
+            document.getElementById('taskIdText').textContent = `任务 ${data.task_id} · RH ${data.rh_task_id}`;
+            addLog(`✓ 已提交，RH 任务 ID: ${data.rh_task_id}`, 'done');
+            btn.textContent = '⏳ 生成中...';
+            startPolling();
+        } else {
+            addLog('✗ 提交失败: ' + (data.error || '未知错误'), 'error');
+            setBadge('failed', '提交失败');
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '🚀 启动 H3 导演台';
+        }
+    } catch (err) {
+        addLog('✗ 网络错误: ' + err.message, 'error');
+        setBadge('failed', '网络错误');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '🚀 启动 H3 导演台';
+    }
+});
+
+// 轮询状态
+function startPolling() {
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    state.pollTimer = setInterval(pollStatus, 3000);
+    pollStatus();
+}
+
+async function pollStatus() {
+    if (!state.taskId) return;
+    try {
+        const resp = await fetch(`/api/h3-director/status?task_id=${state.taskId}`);
+        const data = await resp.json();
+        if (data.status === 'not_found') {
+            stopPolling();
+            addLog('任务不存在', 'error');
+            setBadge('failed', '不存在');
+            resetBtn();
+            return;
+        }
+        updateUI(data);
+        if (data.status === 'SUCCESS') {
+            stopPolling();
+            finalizeSuccess(data);
+        } else if (data.status === 'FAILED') {
+            stopPolling();
+            finalizeFailed(data);
+        }
+    } catch (err) {
+        addLog('查询失败: ' + err.message, 'error');
+    }
+}
+
+function stopPolling() {
+    if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+    }
+}
+
+function resetBtn() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.classList.remove('running');
+    btn.textContent = '🚀 启动 H3 导演台';
+}
+
+function updateUI(data) {
+    document.getElementById('stageText').textContent = data.stage || '';
+    const progress = data.progress || 0;
+    document.getElementById('progressFill').style.width = progress + '%';
+    const logBox = document.getElementById('logBox');
+    const logs = data.logs || [];
+    const currentLines = logBox.querySelectorAll('.log-line').length;
+    if (logs.length > currentLines) {
+        for (let i = currentLines; i < logs.length; i++) {
+            const line = logs[i];
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            if (line.includes('✓') || line.includes('完成')) div.classList.add('done');
+            else if (line.includes('✗') || line.includes('失败')) div.classList.add('error');
+            else if (line.includes('→') || line.includes('运行') || line.includes('轮询')) div.classList.add('running');
+            div.textContent = line;
+            logBox.appendChild(div);
+        }
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+    const badgeMap = {
+        'SUBMITTING': ['running', '提交中'],
+        'QUEUED': ['running', '排队中'],
+        'RUNNING': ['running', '运行中'],
+        'SUCCESS': ['completed', '完成'],
+        'FAILED': ['failed', '失败'],
+        'TIMEOUT': ['failed', '超时'],
+    };
+    const [cls, txt] = badgeMap[data.status] || ['idle', data.status];
+    setBadge(cls, txt);
+}
+
+function finalizeSuccess(data) {
+    resetBtn();
+    const container = document.getElementById('videoContainer');
+    const videoUrl = data.video_url || (data.outputs[0] && data.outputs[0].fileUrl);
+    if (videoUrl) {
+        container.innerHTML = `
+            <div class="video-result">
+                <video controls autoplay loop src="${videoUrl}"></video>
+                <div class="video-url">📁 ${videoUrl}</div>
+            </div>
+        `;
+    }
+    loadHistory();
+}
+
+function finalizeFailed(data) {
+    resetBtn();
+    addLog('任务失败: ' + (data.error || ''), 'error');
+}
+
+function setBadge(cls, text) {
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'status-badge badge-' + cls;
+    badge.textContent = text;
+}
+
+function addLog(msg, type) {
+    const logBox = document.getElementById('logBox');
+    const div = document.createElement('div');
+    div.className = 'log-line ' + (type || '');
+    div.textContent = msg;
+    logBox.appendChild(div);
+    logBox.scrollTop = logBox.scrollHeight;
+}
+
+// 历史记录
+async function loadHistory() {
+    try {
+        const resp = await fetch('/api/h3-director/history');
+        const data = await resp.json();
+        const list = document.getElementById('historyList');
+        if (!data.history || data.history.length === 0) {
+            list.innerHTML = '<div class="empty-state">暂无历史记录</div>';
+            return;
+        }
+        list.innerHTML = '';
+        data.history.forEach(h => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            const time = h.created_at ? new Date(h.created_at * 1000).toLocaleString('zh-CN') : '';
+            const statusClass = h.status === 'SUCCESS' ? 'badge-completed' : (h.status === 'FAILED' ? 'badge-failed' : 'badge-running');
+            item.innerHTML = `
+                <div class="hi-left">
+                    <div class="hi-type">${h.task_type} · ${h.segment_count} 段</div>
+                    <div class="hi-time">${time}</div>
+                </div>
+                <span class="hi-status status-badge ${statusClass}">${h.status}</span>
+            `;
+            item.addEventListener('click', () => {
+                if (h.task_id === state.taskId) return;
+                state.taskId = h.task_id;
+                document.getElementById('taskIdText').textContent = `任务 ${h.task_id}`;
+                addLog(`查看历史任务: ${h.task_id}`, 'running');
+                if (h.status === 'SUCCESS' && h.video_url) {
+                    setBadge('completed', '完成');
+                    document.getElementById('videoContainer').innerHTML = `
+                        <div class="video-result">
+                            <video controls loop src="${h.video_url}"></video>
+                            <div class="video-url">📁 ${h.video_url}</div>
+                        </div>
+                    `;
+                } else if (h.status === 'FAILED') {
+                    setBadge('failed', '失败');
+                } else {
+                    setBadge('running', '恢复中');
+                    startPolling();
+                }
+            });
+            list.appendChild(item);
+        });
+    } catch (err) {
+        console.error('加载历史失败:', err);
+    }
+}
+
+// 初始化
+addSegment();
+loadHistory();
+
+// ════════════════════════════════════════════════════════════════════
+// 9 宫格带货工作流模块
+// ════════════════════════════════════════════════════════════════════
+const ngState = {
+    mode: 'director',          // 'director' | '9grid'
+    storyboardJson: null,      // 阶段 1 输出
+    imagePromptsJson: null,    // 阶段 2 输出
+    generatedImages: null,     // 阶段 2.5 输出
+    videoPromptsJson: null,    // 阶段 3 输出
+    imageTaskId: null,         // 9 图 i2i 任务 ID
+    imagePollTimer: null,
+};
+
+// 模式切换
+document.querySelectorAll('.mode-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        ngState.mode = tab.dataset.mode;
+        document.getElementById('directorPanel').style.display = ngState.mode === 'director' ? 'flex' : 'none';
+        document.getElementById('nineGridPanel').style.display = ngState.mode === '9grid' ? 'block' : 'none';
+    });
+});
+
+// ── 产品图上传 ──
+document.getElementById('ngUploadProductBtn').addEventListener('click', () => {
+    document.getElementById('ngProductImageFile').click();
+});
+document.getElementById('ngProductImageFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const resp = await fetch('/api/h3-9grid/upload-product', { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (data.success) {
+            document.getElementById('ngProductImagePath').value = data.path;
+        } else {
+            alert('上传失败: ' + (data.error || '未知错误'));
+        }
+    } catch (err) {
+        alert('上传异常: ' + err.message);
+    }
+});
+
+// ── 工具函数 ──
+function ngSetStatus(elementId, message, kind /* 'ok'|'err'|'run'|undefined */) {
+    const el = document.getElementById(elementId);
+    el.textContent = message;
+    el.className = 'ng-status-line' + (kind ? ' ' + kind : '');
+}
+function ngSetStageDone(stageStatusId, done) {
+    const el = document.getElementById(stageStatusId);
+    el.textContent = done ? '✓ 已完成' : '';
+    el.className = done ? 'ng-stage-done' : 'ng-stage-running';
+}
+function ngShowJson(elementId, jsonObj) {
+    const box = document.getElementById(elementId);
+    box.innerHTML = '<pre>' + JSON.stringify(jsonObj, null, 2)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+}
+function ngEnableStage(stageId, enabled) {
+    const el = document.getElementById(stageId);
+    if (enabled) el.classList.remove('ng-disabled-overlay');
+    else el.classList.add('ng-disabled-overlay');
+}
+function ngCopyText(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        // 简单提示
+    });
+}
+
+// ── 阶段 1：生成 9 宫格脚本 ──
+document.getElementById('ngRunStoryboardBtn').addEventListener('click', async () => {
+    const productImagePath = document.getElementById('ngProductImagePath').value.trim();
+    const productName = document.getElementById('ngProductName').value.trim();
+    const sellingPointsRaw = document.getElementById('ngSellingPoints').value.trim();
+    const segmentCount = parseInt(document.getElementById('ngSegmentCount').value, 10);
+    const extraContext = document.getElementById('ngExtraContext').value.trim();
+
+    if (!productImagePath) return ngSetStatus('ngStoryboardStatus', '✗ 请填产品图路径', 'err');
+    if (!productName) return ngSetStatus('ngStoryboardStatus', '✗ 请填产品名', 'err');
+    if (!sellingPointsRaw) return ngSetStatus('ngStoryboardStatus', '✗ 至少填 1 条卖点', 'err');
+    if (!segmentCount || segmentCount < 1 || segmentCount > 6) return ngSetStatus('ngStoryboardStatus', '✗ 段数必须在 1-6 之间', 'err');
+
+    const sellingPoints = sellingPointsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+
+    ngSetStatus('ngStoryboardStatus', '→ 正在调用 LLM 生成 9 宫格脚本...', 'run');
+    document.getElementById('ngRunStoryboardBtn').disabled = true;
+
+    try {
+        const resp = await fetch('/api/h3-9grid/storyboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                product_image_path: productImagePath,
+                product_name: productName,
+                selling_points: sellingPoints,
+                segment_count: segmentCount,
+                extra_context: extraContext,
+            }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            ngState.storyboardJson = data.storyboard;
+            ngShowJson('ngStoryboardResult', data.storyboard);
+            const segCnt = data.storyboard?.segment_count || segmentCount;
+            const total = data.storyboard?.total_duration_sec || segmentCount * 15;
+            ngSetStatus('ngStoryboardStatus', `✓ 已生成 ${segCnt} 段 × 9 格（共 ${total}s）`, 'ok');
+            ngSetStageDone('ngStage1Status', true);
+            // 解锁阶段 2
+            ngEnableStage('ngStage2', true);
+            // 重置下游阶段
+            ngState.imagePromptsJson = null;
+            ngState.generatedImages = null;
+            ngState.videoPromptsJson = null;
+            ngEnableStage('ngStage25', false);
+            ngEnableStage('ngStage3', false);
+            ngSetStageDone('ngStage2Status', false);
+            ngSetStageDone('ngStage25Status', false);
+            ngSetStageDone('ngStage3Status', false);
+            document.getElementById('ngImagePromptsResult').innerHTML = '<div class="ng-result-empty">尚未生成</div>';
+            document.getElementById('ngGenerateImagesResult').innerHTML = '';
+            document.getElementById('ngVideoPromptsResult').innerHTML = '<div class="ng-result-empty">尚未生成</div>';
+        } else {
+            ngSetStatus('ngStoryboardStatus', '✗ ' + (data.detail || '生成失败'), 'err');
+        }
+    } catch (err) {
+        ngSetStatus('ngStoryboardStatus', '✗ 网络异常: ' + err.message, 'err');
+    } finally {
+        document.getElementById('ngRunStoryboardBtn').disabled = false;
+    }
+});
+
+// ── 阶段 2：生成 9:16 图片提示词 ──
+document.getElementById('ngRunImagePromptsBtn').addEventListener('click', async () => {
+    if (!ngState.storyboardJson) return ngSetStatus('ngImagePromptsStatus', '✗ 请先完成阶段 1', 'err');
+    const productName = document.getElementById('ngProductName').value.trim();
+    if (!productName) return ngSetStatus('ngImagePromptsStatus', '✗ 产品名缺失', 'err');
+
+    ngSetStatus('ngImagePromptsStatus', '→ 正在转译为 9:16 竵屏图片提示词...', 'run');
+    document.getElementById('ngRunImagePromptsBtn').disabled = true;
+
+    try {
+        const resp = await fetch('/api/h3-9grid/image-prompts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                storyboard_json: ngState.storyboardJson,
+                product_name: productName,
+            }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            ngState.imagePromptsJson = data.image_prompts;
+            ngShowJson('ngImagePromptsResult', data.image_prompts);
+            ngSetStatus('ngImagePromptsStatus', '✓ 已生成图片提示词', 'ok');
+            ngSetStageDone('ngStage2Status', true);
+            // 解锁阶段 2.5 与阶段 3
+            ngEnableStage('ngStage25', true);
+            ngEnableStage('ngStage3', true);
+            // 重置下游
+            ngState.generatedImages = null;
+            ngState.videoPromptsJson = null;
+            ngSetStageDone('ngStage25Status', false);
+            ngSetStageDone('ngStage3Status', false);
+            document.getElementById('ngGenerateImagesResult').innerHTML = '';
+            document.getElementById('ngVideoPromptsResult').innerHTML = '<div class="ng-result-empty">尚未生成</div>';
+        } else {
+            ngSetStatus('ngImagePromptsStatus', '✗ ' + (data.detail || '生成失败'), 'err');
+        }
+    } catch (err) {
+        ngSetStatus('ngImagePromptsStatus', '✗ 网络异常: ' + err.message, 'err');
+    } finally {
+        document.getElementById('ngRunImagePromptsBtn').disabled = false;
+    }
+});
+
+// ── 阶段 2.5：9 图 i2i 生成（异步轮询） ──
+document.getElementById('ngRunGenerateImagesBtn').addEventListener('click', async () => {
+    if (!ngState.imagePromptsJson) return ngSetStatus('ngGenerateImagesStatus', '✗ 请先完成阶段 2', 'err');
+    const productImagePath = document.getElementById('ngProductImagePath').value.trim();
+    if (!productImagePath) return ngSetStatus('ngGenerateImagesStatus', '✗ 产品图路径缺失', 'err');
+    const size = document.getElementById('ngImageSize').value;
+    const maxConcurrency = parseInt(document.getElementById('ngMaxConcurrency').value, 10) || 3;
+
+    ngSetStatus('ngGenerateImagesStatus', '→ 提交 9 图 i2i 生成任务...', 'run');
+    document.getElementById('ngRunGenerateImagesBtn').disabled = true;
+    document.getElementById('ngGenerateImagesProgress').style.display = 'block';
+    document.getElementById('ngGenerateImagesFill').style.width = '0%';
+
+    try {
+        const resp = await fetch('/api/h3-9grid/generate-images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                image_prompts_json: ngState.imagePromptsJson,
+                product_image_path: productImagePath,
+                size: size,
+                max_concurrency: maxConcurrency,
+            }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            ngState.imageTaskId = data.task_id;
+            ngSetStatus('ngGenerateImagesStatus', `→ 任务 ${data.task_id} 已提交，正在生成...`, 'run');
+            // 启动轮询
+            ngState.imagePollTimer = setInterval(ngPollImageStatus, 3000);
+        } else {
+            ngSetStatus('ngGenerateImagesStatus', '✗ ' + (data.detail || '提交失败'), 'err');
+            document.getElementById('ngRunGenerateImagesBtn').disabled = false;
+            document.getElementById('ngGenerateImagesProgress').style.display = 'none';
+        }
+    } catch (err) {
+        ngSetStatus('ngGenerateImagesStatus', '✗ 网络异常: ' + err.message, 'err');
+        document.getElementById('ngRunGenerateImagesBtn').disabled = false;
+        document.getElementById('ngGenerateImagesProgress').style.display = 'none';
+    }
+});
+
+async function ngPollImageStatus() {
+    if (!ngState.imageTaskId) return;
+    try {
+        const resp = await fetch(`/api/h3-9grid/images/status/${ngState.imageTaskId}`);
+        const data = await resp.json();
+        if (data.status === 'running') {
+            // 模拟进度推进（API 没有返回细分进度）
+            const cur = parseFloat(document.getElementById('ngGenerateImagesFill').style.width) || 0;
+            const next = Math.min(95, cur + 1.5);
+            document.getElementById('ngGenerateImagesFill').style.width = next + '%';
+            ngSetStatus('ngGenerateImagesStatus', `→ 正在生成 9 图（${next.toFixed(0)}%）`, 'run');
+        } else if (data.status === 'completed') {
+            clearInterval(ngState.imagePollTimer);
+            ngState.imagePollTimer = null;
+            ngState.generatedImages = data.result;
+            document.getElementById('ngGenerateImagesFill').style.width = '100%';
+            ngRenderGeneratedImages(data.result);
+            const totalImgs = (data.result?.segments || []).reduce((acc, s) => acc + (s.images?.length || 0), 0);
+            ngSetStatus('ngGenerateImagesStatus', `✓ 已生成 ${totalImgs} 张关键帧`, 'ok');
+            ngSetStageDone('ngStage25Status', true);
+            document.getElementById('ngRunGenerateImagesBtn').disabled = false;
+        } else if (data.status === 'failed') {
+            clearInterval(ngState.imagePollTimer);
+            ngState.imagePollTimer = null;
+            ngSetStatus('ngGenerateImagesStatus', '✗ 生成失败: ' + (data.error || '未知错误'), 'err');
+            document.getElementById('ngRunGenerateImagesBtn').disabled = false;
+            document.getElementById('ngGenerateImagesProgress').style.display = 'none';
+        }
+    } catch (err) {
+        // 网络瞬时故障：保持轮询
+        console.warn('轮询失败:', err);
+    }
+}
+
+function ngRenderGeneratedImages(result) {
+    const root = document.getElementById('ngGenerateImagesResult');
+    if (!result || !result.segments || !result.segments.length) {
+        root.innerHTML = '<div class="ng-result-empty">无图像</div>';
+        return;
+    }
+    const html = result.segments.map(seg => {
+        const imgs = (seg.images || []).map(img => {
+            const url = img.image_url || '';
+            const sharedCls = img.is_shared ? ' shared' : '';
+            const sharedTag = img.is_shared ? `<div class="ng-shared-tag">↻${img.inherits_from || ''}</div>` : '';
+            const imgTag = url ? `<img src="${url}" alt="sc${img.sc}">` : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:.7em;">无</div>';
+            return `<div class="ng-img-cell${sharedCls}">
+                <div class="ng-img-num">sc${img.sc}</div>
+                ${imgTag}
+                ${sharedTag}
+            </div>`;
+        }).join('');
+        return `<div class="ng-seg-block">
+            <div class="ng-seg-block-title">段 ${seg.segment_id}</div>
+            <div class="ng-images-grid">${imgs}</div>
+        </div>`;
+    }).join('');
+    root.innerHTML = html;
+}
+
+// ── 阶段 3：生成 Ref2VA 视频提示词 ──
+document.getElementById('ngRunVideoPromptsBtn').addEventListener('click', async () => {
+    if (!ngState.storyboardJson) return ngSetStatus('ngVideoPromptsStatus', '✗ 阶段 1 输出缺失', 'err');
+    if (!ngState.imagePromptsJson) return ngSetStatus('ngVideoPromptsStatus', '✗ 阶段 2 输出缺失', 'err');
+    const productName = document.getElementById('ngProductName').value.trim();
+    const productImagePath = document.getElementById('ngProductImagePath').value.trim();
+    if (!productName) return ngSetStatus('ngVideoPromptsStatus', '✗ 产品名缺失', 'err');
+    if (!productImagePath) return ngSetStatus('ngVideoPromptsStatus', '✗ 产品图路径缺失', 'err');
+
+    ngSetStatus('ngVideoPromptsStatus', '→ 正在编译 N 段 Ref2VA 视频提示词...', 'run');
+    document.getElementById('ngRunVideoPromptsBtn').disabled = true;
+
+    try {
+        const resp = await fetch('/api/h3-9grid/video-prompts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                storyboard_json: ngState.storyboardJson,
+                image_prompts_json: ngState.imagePromptsJson,
+                product_name: productName,
+                product_image_path: productImagePath,
+            }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            ngState.videoPromptsJson = data.video_prompts;
+            ngShowJson('ngVideoPromptsResult', data.video_prompts);
+            const segs = data.video_prompts?.segments || [];
+            ngSetStatus('ngVideoPromptsStatus', `✓ 已生成 ${segs.length} 段视频提示词，可直接复制给 H3 导演台 r2v 模式`, 'ok');
+            ngSetStageDone('ngStage3Status', true);
+        } else {
+            ngSetStatus('ngVideoPromptsStatus', '✗ ' + (data.detail || '生成失败'), 'err');
+        }
+    } catch (err) {
+        ngSetStatus('ngVideoPromptsStatus', '✗ 网络异常: ' + err.message, 'err');
+    } finally {
+        document.getElementById('ngRunVideoPromptsBtn').disabled = false;
+    }
+});
+</script>
+</body>
+</html>

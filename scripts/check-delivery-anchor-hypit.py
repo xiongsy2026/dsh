@@ -12,7 +12,10 @@ os.environ["HYPIT_WORKSPACE_INTENT"] = os.path.join(tmp, "intent-ws.json")
 os.environ["HYPIT_INTENT_MARK"] = os.path.join(tmp, "intent-mark.json")
 os.environ["HYPIT_NO_AUTOSTART"] = "1"
 
-sys.path.insert(0, r"D:\video-skill\backend")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 import hypit_bridge as H  # noqa: E402
 import delivery_ledger as L  # noqa: E402
 

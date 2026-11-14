@@ -16,6 +16,7 @@
 
 条数以本文件末尾打印的汇总为准。
 """
+import hashlib
 import json
 import os
 import re
@@ -26,7 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRATCH = os.path.abspath(os.path.join(HERE, "..", "scratch", "attest-gate"))
 os.makedirs(SCRATCH, exist_ok=True)
 
-GW_DIR = r"D:\video-skill"
+GW_DIR = BACKEND
 os.environ["GATEWAY_SPEND_APPROVALS"] = os.path.join(SCRATCH, "approvals.json")
 os.environ["GATEWAY_LEDGER"] = os.path.join(SCRATCH, "ledger.sqlite")
 os.environ["PYTHONPATH"] = GW_DIR
@@ -35,11 +36,14 @@ for _p in (AP, os.environ["GATEWAY_LEDGER"]):
     if os.path.exists(_p):
         os.remove(_p)
 
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
 sys.path.insert(0, GW_DIR)
 from backend import gateway as gw  # noqa: E402
 
 assert gw.SPEND_APPROVALS_PATH != gw._APPROVALS_PATH_DEFAULT, "隔离没生效：写的是生产账本"
-GW_SRC = open(os.path.join(GW_DIR, "backend", "gateway.py"), encoding="utf-8").read()
+GW_SRC = open(os.path.join(GW_DIR, "gateway.py"), encoding="utf-8").read()
 
 RESULTS = []
 
@@ -87,10 +91,46 @@ def denials_of(acct=None, reason=None):
 cprint("== 环境 == approvals=%s  pending TTL=%.0fs" % (AP, gw.SPEND_PENDING_TTL))
 
 # ---------- A 弹窗那套必须已经死了（只看代码行，注释里记着教训不算） ----------
-CODE_LINES = "\n".join(l for l in GW_SRC.splitlines() if not l.strip().startswith("#"))
-chk("A1", "没有 MessageBoxW 调用", "MessageBoxW" in CODE_LINES, False)
-chk("A2", "没有 ctypes 弹窗那套残留（import/常量都没了）",
-    bool(re.search(r"import ctypes|MB_DEFBUTTON2|_MB_YESNO", CODE_LINES)), False)
+def _code_only(src):
+    """剥注释要用 tokenizer，不能只丢"整行是注释"的那些 —— 行尾注释里写着
+    "当初这里换成了 MessageBoxW" 这种**教训记录**，字符串比对会把它当成违规代码（2026-10-14 就红过一次，
+    红的是文档不是码）。tokenize 只丢 COMMENT token，代码里的字符串一个字都不动。"""
+    import io as _io2
+    import tokenize as _tok
+    try:
+        buf = []
+        for t in _tok.generate_tokens(_io2.StringIO(src).readline):
+            if t.type == _tok.COMMENT:
+                continue
+            if t.type in (_tok.NEWLINE, _tok.NL):
+                buf.append("\n")
+            else:
+                buf.append(t.string)
+        return "".join(buf)
+    except Exception:                                       # noqa: BLE001
+        return "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
+
+
+CODE_LINES = _code_only(GW_SRC)
+
+
+def _dialog_problems(code):
+    """这份码里还【弹得出窗】吗。判据抽成函数是为了能跑反向对照（只看终态会靠奇偶假绿）。
+    两格：① windll 白名单 —— 只许 kernel32（2026-10-14 起 `pid_alive` 拿 GetExitCodeProcess 判活，
+    那是正当用途）；② 弹窗那套的【调用形状】一个都不许在（`MessageBox*(` / MB_* 常量）。
+    🔴 不钉『文件里出现过 import ctypes / 这个词』：那是把当年事故的实现方式当规则 ——
+    既拦住一个正当调用，也会被 docstring 里记的那句教训误判红（今天就是这样红了 A2）。"""
+    return [set(re.findall(r"windll\.(\w+)", code)) <= {"kernel32"},
+            not bool(re.search(r"MessageBox\w*\s*\(|MB_DEFBUTTON2|_MB_YESNO|MB_TIMEOUT", code))]
+
+
+chk("A1", "没有 MessageBoxW 调用（钉【调用形状】，不是钉这个词出现过——教训写在注释里不算代码）",
+      bool(re.search(r"MessageBox\w*\s*\(", CODE_LINES)), False)
+chk("A2", "ctypes 只许碰 kernel32 + 弹窗调用形状零残留（白名单，不是黑名单）",
+      _dialog_problems(CODE_LINES), [True, True])
+chk("A2b", "反向对照：把当年那版弹窗代码原样塞进同一个判据 ⇒ 两格都必须报警（不响就说明 A2 是摆设）",
+    _dialog_problems("import ctypes\n_h = ctypes.windll.user32\n"
+                     "MessageBoxW(0, 'x', 'y', MB_DEFBUTTON2 | _MB_YESNO)\n"), [False, False])
 chk("A3", "没有 human_attest/_attest_dialog/attest_decision 残留",
     bool(re.search(r"def (human_attest|_attest_dialog|attest_decision)", GW_SRC)), False)
 chk("A4", "没有 isatty/GetFileType 真终端判定（曾把真人拒过门外）",
@@ -147,15 +187,50 @@ chk("D3", "闸自测的条子指纹不同（approvals 一眼能分）",
 _prod, _default = gw.SPEND_APPROVALS_PATH, gw._APPROVALS_PATH_DEFAULT
 chk("E1", "源码里有『路径 ≠ 默认才允许免证』这条判据",
     GW_SRC.count("SPEND_APPROVALS_PATH != _APPROVALS_PATH_DEFAULT") >= 1, True)
+_real_default = gw._APPROVALS_PATH_DEFAULT
+
+
+def _sha_of(path):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()[:8] if os.path.isfile(path) else "无文件"
+
+
 try:
-    gw.SPEND_APPROVALS_PATH = _default
+    # 🔴 2026-10-22 修这条反向对照自己的隐患。原来它把 gw.SPEND_APPROVALS_PATH 直接指向
+    #    【真·生产文件】去证"后门签不出生产账本" —— 可一旦被测能力在免批名单里，
+    #    `needs_spend_approval` 为假 ⇒ 那条"必须有人证"的判据【整段被跳过】⇒ 这条对照就真的往生产写。
+    #    现网后果：video.generate 免批那段时间（10-21~10-22），每跑一次闸落 1 条 gate-c 假条子，
+    #    今天数到 4 条才把它清掉；而 E2 读的就是生产，于是它恒红 —— 假样本既把闸弄红，
+    #    又在生产账本里留下"扣了 50 分成功"那种能被人看见的东西。
+    #    现在改成【scratch 里的假装生产文件】：两个路径常量一起指过去，
+    #    `path == default` 这条等式仍然成立 ⇒ 被测判据一个字没变，但字节永远不落生产。
+    _fake = os.path.join(SCRATCH, "approvals-as-if-production.json")
+    if os.path.exists(_fake):
+        os.remove(_fake)
+    _prod_sha = _sha_of(_real_default)
+    gw.SPEND_APPROVALS_PATH = _fake
+    gw._APPROVALS_PATH_DEFAULT = _fake
     gw.ALLOW_GRANT_WITHOUT_ATTEST = True
     c = gw.grant_spend_approval("video.generate", "omni-t2v", "gate-c", 1, 50, "E 组")
-    chk("E2", "指向生产默认路径时，开关=True 也签不出",
+    chk("E2", "指向『默认路径』时开关=True 也签不出（在 scratch 的假装生产上测，判据等价、不碰真账本）",
         (c.get("reason"), grants_of("gate-c")), ("no-attestation", []))
+    chk("E2b", "🔴 跑完这条对照，真·生产条子文件【一个字节都没变】（防它哪天又开始往生产写）",
+        _sha_of(_real_default), _prod_sha)
+    # 变异：把 video.generate 塞回免批名单 ⇒ "必须有人证"那段被整段跳过 ⇒ 假装生产文件里会多出 1 条。
+    # 这证明 E2 咬的是那条判据本身，不是恒真。⚠️ 名单必须在 finally 之外也还原（漏了就污染后面的断言）。
+    _exempt_backup = gw.SPEND_APPROVAL_EXEMPT
+    try:
+        gw.SPEND_APPROVAL_EXEMPT = tuple(gw.SPEND_APPROVAL_EXEMPT) + ("video.generate",)
+        gw.grant_spend_approval("video.generate", "omni-t2v", "gate-c2", 1, 50, "E2c 变异")
+        _c2 = len(grants_of("gate-c2"))
+    finally:
+        gw.SPEND_APPROVAL_EXEMPT = _exempt_backup
+    chk("E2c", "反向对照：能力在免批名单里 ⇒ 人证判据被跳过、条子签得出来（E2 不是恒真）", _c2, 1)
+    chk("E2d", "变异只改了名单这一处：还原后 video.generate 重新要批（名单没被这条对照留在脏状态）",
+        gw.needs_spend_approval("video.generate", "wan3-prime"), True)
 finally:
     gw.ALLOW_GRANT_WITHOUT_ATTEST = False
     gw.SPEND_APPROVALS_PATH = _prod
+    gw._APPROVALS_PATH_DEFAULT = _real_default
 gw.ALLOW_GRANT_WITHOUT_ATTEST = True
 try:
     d = gw.grant_spend_approval("video.generate", "omni-t2v", "gate-d", 1, 50, "E 对照")
@@ -177,7 +252,7 @@ chk("F3", "文案仍指回『由用户本人批准』", "本人" in err, True)
 
 # ---------- G 真 subprocess：agent 单方面只能造 pending ----------
 env = dict(os.environ, PYTHONIOENCODING="utf-8")
-g7 = subprocess.run([sys.executable, os.path.join(GW_DIR, "backend", "gateway.py"),
+g7 = subprocess.run([sys.executable, os.path.join(GW_DIR, "gateway.py"),
                      "approve", "video.generate", "omni-t2v", "--count", "9", "--credits", "9999",
                      "--account", "gate-g", "--session", "sess-g", "--scope", "agent 自签"],
                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -189,15 +264,27 @@ chk("G3", "stdout 里带 pending id（人拿去查码用）", bool(re.search(r"p
 chk("G4", "🔴 stdout 里【不许出现核销码】—— 跑这条命令的一方读到码就能自己 consumed 伪造",
     bool(re.search(r"核销码[:：]\s*[A-Z0-9]{6}", out)), False)
 chk("G5", "待批清单里能查到这条", len([x for x in pendings() if x.get("account") == "gate-g"]), 1)
+# ---------- G6 一次点击：approve 的 stdout 只许给客户【一条链接】 ----------
+# 原来这里连着印三条路（置顶窗 / DSH 审批卡 / 在自己终端跑 `gateway.py code …`）⇒ 人要点三次、
+# agent 还要追问"批了吗"；而那句 code 命令本身违反既有禁令（跑 approve 的就是 agent）。
+chk("G6", "🔴 stdout 里不再出现 `gateway.py code`（不把核销命令递给能自己执行它的一方）",
+    "gateway.py code" in out, False)
+chk("G6b", "面向客户的批准链接【只有一条】，且带 ?session=（多会话并发时他能替别的方案点头）",
+    [out.count("127.0.0.1:8100/approval"), "approval?session=sess-g" in out], [1, True])
+chk("G6c", "不再出现「备选」那种多路并存的措辞（一条链接一次点击是产品口径，不是选项菜单）",
+    "备选" in out, False)
+chk("G6d", "反向对照：把旧的三条路措辞塞回去 ⇒ 上面几条必须翻红（证明它们不是空跑）",
+    [("备选" in (out + "   备选：① … ② gateway.py code x")),
+     (("gateway.py code" in (out + "gateway.py code")))], [True, True])
 _pid = re.search(r"(pend_[a-z0-9]{8})", out).group(1)
-g8 = subprocess.run([sys.executable, os.path.join(GW_DIR, "backend", "gateway.py"), "code", _pid],
+g8 = subprocess.run([sys.executable, os.path.join(GW_DIR, "gateway.py"), "code", _pid],
                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     env=env, timeout=120, cwd=GW_DIR)
 o8 = g8.stdout.decode("utf-8", "replace")
 chk("G6", "`code <id>` 这条【会】给码（人自己终端的兜底路径）",
     bool(re.search(r"核销码[:：]\s*[A-Z0-9]{6}", o8)), True)
 _code = re.search(r"核销码[:：]\s*([A-Z0-9]{6})", o8).group(1)
-g9 = subprocess.run([sys.executable, os.path.join(GW_DIR, "backend", "gateway.py"),
+g9 = subprocess.run([sys.executable, os.path.join(GW_DIR, "gateway.py"),
                      "consumed", _pid, _code, "--session", "sess-g"],
                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     env=env, timeout=120, cwd=GW_DIR)
@@ -213,13 +300,16 @@ _h = gw.create_spend_pending("video.generate", "omni-t2v", "gate-h", 1, 50, "H �
 _hg = gw.grant_spend_approval("video.generate", "omni-t2v", "gate-h", 1, 50, "H 组可消费",
                               session="sess-h",
                               attest={"ok": True, "method": "gate-selftest", "at": gw._time.time()})
-gw.check_spend_approval("video.generate", "omni-t2v", "gate-h", count=1, credits=50, session="sess-h")
+_hr = gw.check_spend_approval("video.generate", "omni-t2v", "gate-h", count=1, credits=50, session="sess-h")
 _hd = json.load(open(AP, encoding="utf-8"))
 chk("H1", "消费一张条子之后，待批还在（旧写法会把 pending 键整份抹掉）",
     [x["id"] for x in _hd.get("pending") or [] if x["id"] == _h["id"]], [_h["id"]])
 chk("H2", "消费之后 denials 键仍在", "denials" in _hd, True)
-chk("H3", "消费确实记了账（那张条子 used=1）",
-    [g.get("used") for g in _hd.get("grants", []) if g["id"] == _hg["id"]], [1])
+# 🔴 H3 原来只印 used=[0] —— 看不出是"没消费"还是"消费被拒"，等于把定性推回给人猜。
+#    现在把 check_spend_approval 的返回信封一起带上（ok + error），红了当场就知道死因。
+chk("H3", "消费确实记了账（那张条子 used=1）；没记就把 check_spend_approval 的拒因一起打出来",
+    [g.get("used") for g in _hd.get("grants", []) if g["id"] == _hg["id"]],
+    [1] if (_hr or {}).get("ok") else ["消费被拒:", str((_hr or {}).get("error"))[:160]])
 _h2 = gw.consume_by_click(_h["id"])
 chk("H4", "consume_by_click：只给 pending_id 就能核销（码由服务端自己取）",
     (_h2.get("ok"), (_h2.get("grant") or {}).get("attest", {}).get("method")),
@@ -227,73 +317,56 @@ chk("H4", "consume_by_click：只给 pending_id 就能核销（码由服务端�
 _h3 = gw.deny_pending("pend_nope")
 chk("H5", "deny 不存在的 pending ⇒ 拒", _h3.get("reason"), "pending-not-found")
 
-# ---- P 组：置顶批准窗（2026-10-09 用户指令"我要出现弹窗进行审批"）----
-#     钉的不是"有没有窗"，是"窗不许变成第二种人证"：判定仍只有服务端 consume_by_click 一条路。
+# ---- P 组：审批只有【一条链接】，不许再有第二种壳（2026-10-22 用户指令）--------------
+#     原话："审批的时候不要弹窗了，就是一个审批链接即可，点了审批链接就是直接提交任务，
+#            别再让 agent 提交到 wan3.0。"
+#     摘掉置顶窗【不削弱人证】：窗从来不是第二种人证 —— 它和批准页走的是同一个
+#     POST /api/spend/approve，额度只有服务端 consume_by_click 签得出。删的是壳，不是判定。
+#     所以这一组从"窗画得对不对"整体换成"还有没有第二条路 + 链接是不是唯一入口"。
 import io as _io
-_pp_raw = _io.open(r"D:\video-skill\backend\approval_popup.py", encoding="utf-8").read()
-_gw = _io.open(r"D:\video-skill\backend\gateway.py", encoding="utf-8").read()
-# 🔴 先剥注释和三引号串：这个文件的注释里就写着"MessageBox 会自返 IDYES"，整段扫会被自己的注释判红
-_pp = __import__("re").sub(r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'', "", _pp_raw)
-_pp = __import__("re").sub(r"(?m)#.*$", "", _pp)
-chk("P1", "批准窗存在，且【绝不碰系统弹窗】（MessageBox 实测无人参与会自返 IDYES）",
-    [bool(_pp), any(x in _pp for x in ("ctypes", "user32", "MessageBox", "win32gui"))], [True, False])
-chk("P2", "只有按钮能触签发：没有任何定时器/启动路径调 act()",
-    bool(__import__("re").search(r"after\(\s*\d+\s*,[^)]*act\s*\(", _pp)), False)
-chk("P3", "Enter/小键盘Enter/空格 全部吃掉（键盘路过不等于点头）",
-    [_pp.count('bind_all("<%s>", lambda e: "break")' % k) for k in ("Return", "KP_Enter", "space")],
-    [1, 1, 1])
-chk("P4", "窗只打 approve/deny 两个动作口（URL 是拼出来的 ⇒ 钉拼装形状，不钉字面量）",
-    ['"/api/spend/%s" % kind' in _pp, 'act("approve")' in _pp, 'act("deny")' in _pp,
-     "consumed" in _pp], [True, True, True, False])
-chk("P5", "窗不创建 pending、不延长过期（没人点就只能等过期=fail-closed）",
-    ["create_spend_pending" in _pp, "TTL" in _pp], [False, False])
-chk("P6", "gateway.approve 建完待批就弹窗，且弹不出来必须打印原因（不许假装在等人点）",
-    ["pop_approval_window(p[\"id\"])" in _gw, "弹窗没起来" in _gw], [True, True])
-chk("P7", "有运维抑制开关（CI/无人值守时不往桌面扔窗），且关掉会说明是被关的",
-    ["GATEWAY_APPROVAL_POPUP" in _gw, "已按 GATEWAY_APPROVAL_POPUP=0 抑制" in _gw], [True, True])
-import os as _os
-_os.environ["GATEWAY_APPROVAL_POPUP"] = "0"
-chk("P8", "开关真生效（这条不弹窗：返回原因字符串，不启动进程）",
-    gw.pop_approval_window("P-TEST-ONLY"), "已按 GATEWAY_APPROVAL_POPUP=0 抑制")
-_os.environ.pop("GATEWAY_APPROVAL_POPUP", None)
+import re as _re
+_gw = _io.open(os.path.join(BACKEND, r"gateway.py"), encoding="utf-8").read()
+# 🔴 扫之前先剥三引号串与行尾注释：gateway 与本文件的注释里到处写着"弹窗/置顶批准窗"，
+#    整段扫会被自己的注释判红（这条教训就写在上面第 283 行原来那版里）。
+_gw_code = _re.sub(r"(?m)#.*$", "", _gw)     # 只剥行尾注释：三引号串里也可能有被判断的代码，别顺手吞掉
+_ap0 = _gw_code.find("p = create_spend_pending(")
+_ap = _gw_code[_ap0:_gw_code.find('elif cmd', _ap0)] if _ap0 > 0 else ""
 
-# ---- P9~P13 居中（2026-10-12 用户两次点名"弹窗要居中啊"）----
-#     这张窗就是人证本身：落在屏幕角落里 = 客户没看见 = 15 分钟过期 = 整条方案白报价。
-#     现网实测的坑不是"没算居中"，是【只给 +x+y 不带尺寸】⇒ Tk 不设 USPosition，
-#     窗口一 map 就被 Windows 级联放置接管（实测连跳 78,78 → 130,130 → 234,234）。
-import importlib.util as _ilu_pp
-_sp_pp = _ilu_pp.spec_from_file_location("ap_pp", r"D:\video-skill\backend\approval_popup.py")
-MOD_PP = _ilu_pp.module_from_spec(_sp_pp)
-_sp_pp.loader.exec_module(MOD_PP)                    # 只 import，不建窗（建窗会往人桌面上扔东西）
-_c = MOD_PP.center_xy
-chk("P9", "居中的算术：1920×1080 放 400×270 ⇒ (760,405)（正中间）",
-    _c(1920, 1080, 400, 270), (760, 405))
-chk("P10", "窗口比屏幕还大 ⇒ 夹到 (0,0)，不许算出负数（负数会把标题栏推到屏幕外，连按钮都够不着）",
-    _c(800, 600, 1200, 900), (0, 0))
-chk("P11", "小屏/奇数尺寸不抛、取整（1366×768 放 401×274）", _c(1366, 768, 401, 274), (482, 247))
-_lines_pp = [l.split("#")[0].rstrip() for l in _pp_raw.splitlines() if not l.strip().startswith("#")]
-_pp_body = "\n".join(_lines_pp)
-# 🔴 顺序锚点按【代码行】数，且先剥行尾注释：`place_centered(root)   # 居中…` 这种行不剥就匹配不上，
-#    而用 `in l` 匹配又会先撞上 `def place_centered(...)` 那行 —— 两个方向都会把绿写成红、把红写成绿。
-_pp_lines = [l.strip() for l in _lines_pp if l.strip()]
-_i_tick = next(i for i, l in enumerate(_pp_lines) if l == "tick()")
-_i_place = next(i for i, l in enumerate(_pp_lines) if l == "place_centered(root)")
-_i_main = next(i for i, l in enumerate(_pp_lines) if l == "root.mainloop()")
-chk("P12", "顺序是死的：tick() 先把内容填上 ⇒ 再居中 ⇒ 才 mainloop（先居中会按空窗口的尺寸算，偏一大截）",
-    [_i_tick < _i_place < _i_main,
-     sum(1 for l in _pp_lines if l == "place_centered(root)")], [True, 1])
-chk("P13", "🔴 geometry 必须带尺寸：`\"%dx%d+%d+%d\"`（只写 +x+y 那一版实测被 Windows 级联放置接管）",
-    ['root.geometry("%dx%d+%d+%d" % (w, h, x, y))' in _pp_body,
-     'root.geometry("+%d+%d"' in _pp_body], [True, False])
-chk("P14", "居中前必须 update_idletasks（不打这一句，winfo_req* 还是打包前的旧尺寸 = 按错的数居中）",
-    [_pp_body.count("update_idletasks()") >= 2, "winfo_reqwidth()" in _pp_body,
-     "winfo_screenwidth()" in _pp_body], [True, True, True])
-chk("P15", "变异对照：把 geometry 改回【只给位置】那种写法 ⇒ P13 必须红（证明它咬的是形状不是字面）",
-    [('root.geometry("%dx%d+%d+%d" % (w, h, x, y))'
-      in _pp_body.replace('root.geometry("%dx%d+%d+%d" % (w, h, x, y))',
-                          'root.geometry("+%d+%d" % (x, y))'))], [False])
-chk("P9", "顺序：先建 pending 再弹窗（没有待批可弹=窗只会显示空）",
-    0 < _gw.index("p = create_spend_pending(") < _gw.index('pop = pop_approval_window(p["id"])'), True)
+chk("P1", "置顶批准窗整条已摘除：gateway 代码里 `pop_approval_window` 零出现，那个文件也不在盘上",
+    ["pop_approval_window" in _gw_code,
+     os.path.isfile(os.path.join(BACKEND, r"approval_popup.py"))], [False, False])
+chk("P1b", "锚点真的在（找不到建待批那一行 = 下面 P3~P5 全是在比空气，必须先红在这里）",
+    _ap0 > 0 and len(_ap) > 200, True)
+_mut = _gw_code.replace("def _cli(argv):", 'def _cli(argv):\n    pop_approval_window("x")\n', 1)
+chk("P2", "反向对照：把当年那行调用原样塞回【同一份判据】⇒ 必须报警（不响就说明 P1 是摆设）",
+    ["pop_approval_window" in _mut, "pop_approval_window" in _gw_code], [True, False])
+chk("P3", "approve 只给一条地址，且必须带 ?session=（不带 = 客户看到全局列表，能替别的方案点头）",
+    ["approval?session=%s" in _ap, _ap.count("http://127.0.0.1:8100")], [True, 1])
+chk("P4", "approve 的输出里不许再出现第二种壳的话术（置顶窗/另一层壳/弹窗）——口径只有一条路",
+    [x in _ap for x in ("置顶批准窗", "另一层壳", "弹窗")], [False, False, False])
+chk("P5", "核销码与 `gateway.py code` 这类命令绝不进 approve 输出（跑 approve 的就是 agent，"
+    "链接成为唯一入口后这条更要钉死）",
+    [x in _ap for x in ("gateway.py code", "consumed ")], [False, False])
+
+# ---- P6~P8：链接那一下到底发生了什么（把"点链接 = 服务端直接提交"钉成判据）----
+#     原来 P9~P15 钉的是那张置顶窗画得对不对（居中算术、geometry 带不带尺寸、widget 选项名）。
+#     窗已经整条摘掉，那些断言全部作废 —— 留下它们就是"闸在守一个不存在的东西"的假保险。
+#     换成钉这三件：签发只有一处、点下去先起提交腿再挂号、链接必须在 pending 建出来之后才印。
+_MA_CODE = _re.sub(r"(?m)#.*$", "",
+                   _io.open(os.path.join(BACKEND, r"model_admin.py"), encoding="utf-8",
+                            errors="replace").read())
+_c0 = _MA_CODE.find("gateway.consume_by_click(pid)")
+chk("P6", "签发只有服务端一处：批准页那个口调 consume_by_click，且 approval_popup 零残留"
+    "（将来谁再加壳，也必须调这同一个口，不许各写一份签发）",
+    [_c0 > 0, "approval_popup" in _MA_CODE], [True, False])
+_seg = _MA_CODE[_c0:][:3000] if _c0 > 0 else ""
+_k, _w = _seg.find("kickoff_submit("), _seg.find("approval_wake_note(")
+chk("P7", "点链接那一下顺序是死的：先起提交腿 ⇒ 再挂号（反过来 = agent 醒来看到盘上没人提交、"
+    "自己再 call 一次 = 双提交，2026-10-12 现网那个形状）", [_k > 0, _w > 0, _k < _w], [True, True, True])
+_i_pend, _i_url = _ap.find("create_spend_pending("), _ap.find("appr_url =")
+chk("P8", "approve 那一段：先建 pending ⇒ 再打印那条链接（没有待批可点 = 链接指向空气，"
+    "2026-10-11 现网那次客户点进去是空位）", [_i_pend > 0, _i_url > 0, _i_pend < _i_url],
+    [True, True, True])
 
 # ---- P16~P20 批准卡上的「点下去之后」（2026-10-12 用户："说明批准后发起任务没法撤回"）----
 #     钉两件事：① 四格后果齐（只写"不能撤回"不写"失败不扣"= 拿恐惧换点头，也算红）；
@@ -301,7 +374,7 @@ chk("P9", "顺序：先建 pending 再弹窗（没有待批可弹=窗只会显�
 _N16 = gw.approval_notice({"capability": "video.generate", "purpose": "wan3-prime", "account": "local",
                            "count": 3, "credits": 180, "scope": "闸里的假方案", "session": "session-x"})
 # 批准页那张卡的 HTML：从 model_admin 源码里切出 card() 那一段（整份扫会被别的字符串喂绿）
-_MA_SRC = _io.open(r"D:\video-skill\backend\model_admin.py", encoding="utf-8", errors="replace").read()
+_MA_SRC = _io.open(os.path.join(BACKEND, r"model_admin.py"), encoding="utf-8", errors="replace").read()
 _html0 = _MA_SRC.index("function card(p){")
 _pp_html = _MA_SRC[_html0:_MA_SRC.index("async function act(", _html0)]
 chk("P16", "approval_notice 真跑：四格齐（随即发起 / 不能撤回 / 不扣的情况 / 范围锁死），"
@@ -315,8 +388,9 @@ chk("P17", "按钮文案由服务端那一份给：页面那颗 .ok 必须是 no
      "class=ok>${E((p.notice||{}).button" in _pp_html,
      "批准，开始跑</button>" in _pp_html],
     [True, True, False])
-chk("P18", "后果文案只有一份：批准页 HTML 与置顶窗代码里都不许出现『不能撤回/不可撤回』的字面",
-    ["不能撤回" not in _pp_html, "不能撤回" not in _pp, "不可撤回" not in _pp], [True, True, True])
+chk("P18", "后果文案只有一份：批准页 HTML 里不许出现『不能撤回/不可撤回』的字面（那份话只能来自 "
+    "approval_notice 那一处；窗已摘除，但「文案两份迟早漂」这条判据留着）",
+    ["不能撤回" not in _pp_html, "不可撤回" not in _pp_html], [True, True])
 chk("P19", "余额读不到就不编一个：账户不存在 ⇒ 正文里不许出现『最低』那个凭空数",
     [any("最低" in b for b in gw.approval_notice({"capability": "video.generate",
                                                   "purpose": "wan3-prime", "account": "__no_such__",
@@ -325,90 +399,10 @@ chk("P19", "余额读不到就不编一个：账户不存在 ⇒ 正文里不许
 chk("P20", "反向对照：P16 的四格是数出来的，把 bullets 砍到三条就必须红（不是恒真断言）",
     [len([b for b in _N16["bullets"] if "不能撤回" in b]), len(_N16["bullets"][:3])], [1, 3])
 
-# ── P21：批准窗的每一个 widget 选项名必须是 Tk 真认识的（2026-10-14 现网）────────────
-# 事故形状：我加"点下去之后"那段时写了 Label(align="top") ⇒ Label 没有 -align（只有 -anchor/-justify），
-#   Tk 在【构造那一句】就抛 TclError ⇒ 弹窗一创建就死，人桌面上从来没有任何卡可点。
-#   而当时 P 组全绿：那些断言测的是文案与居中算法，一条都没碰到 widget 构造 ⇒
-#   "闸全绿却藏着一条必然崩溃的分支"。这里补的判据不弹任何窗（Tcl() 不注册 widget 命令，问不到选项表），
-#   用【按类的合法选项白名单】静态判，配一条变异证明它真咬人。
-_TK_OPTIONS = {
-    "Label": {"anchor", "background", "bitmap", "borderwidth", "compound", "cursor", "font",
-              "foreground", "height", "highlightbackground", "highlightcolor", "highlightthickness",
-              "image", "justify", "name", "padx", "pady", "relief", "takefocus", "text",
-              "textvariable", "width", "wraplength", "class"},
-    "Button": {"anchor", "background", "bitmap", "borderwidth", "compound", "cursor", "default",
-               "disabledforeground", "font", "foreground", "height", "highlightbackground",
-               "highlightcolor", "highlightthickness", "image", "justify", "command", "name",
-               "padx", "pady", "relief", "state", "takefocus", "text", "textvariable", "underline",
-               "width", "wraplength", "class", "activebackground", "activeforeground",
-               "activeborderwidth", "relief"},
-    "Frame": {"borderwidth", "class", "colspan", "container", "cursor", "height",
-              "highlightbackground", "highlightcolor", "highlightthickness", "name", "padx", "pady",
-              "relief", "takefocus", "width", "background"},
-    "Toplevel": {"class", "container", "height", "menu", "takefocus", "visual", "width",
-                 "background", "name"},
-}
-
-
-_TK_ALIASES = {"fg", "bg", "bd"}   # Tk 单独注册的短别名（-fg 不是 -foreground 的前缀，前缀规则盖不到）
-
-
-def _tk_option_ok(kw, table):
-    """Tk 认【唯一前缀】：-fg 是 -foreground 的合法缩写 ⇒ 只比对全名会把合格对象判红
-       （我第一版就红在这里）。规则：完全相等，或作为唯一前缀命中一项。"""
-    if kw in table or kw in _TK_ALIASES:
-        return True
-    return len([o for o in table if o.startswith(kw)]) == 1
-
-
-_PACK_OPTIONS = {"after", "anchor", "before", "expand", "fill", "in", "ipadx", "ipady",
-                 "padx", "pady", "side"}
-_GRID_OPTIONS = _PACK_OPTIONS | {"column", "columnspan", "row", "rowspan", "sticky"}
-
-
-def widget_option_problems(text):
-    """返回【问题清单】。判据：Label/Button/… 构造的 kwargs 名必须在 Tk 的合法选项里；
-       pack/grid 的关键字同理。未知选项 = Tk 当场 TclError = 窗起不来。"""
-    import ast as _A
-    p = []
-    try:
-        tree = _A.parse(text)
-    except SyntaxError as e:
-        return ["文件语法错：%s" % e]
-    for n in _A.walk(tree):
-        if not isinstance(n, _A.Call):
-            continue
-        f = n.func
-        name = getattr(f, "attr", None) or getattr(f, "id", None)
-        if name in _TK_OPTIONS:
-            for kw in n.keywords:
-                if kw.arg is None:
-                    continue
-                if not _tk_option_ok(kw.arg, _TK_OPTIONS[name]):
-                    p.append("%s:%s 不认识的选项 -%s（Tk 会在构造那一句抛 TclError ⇒ 弹窗直接死）"
-                             % (getattr(n, "lineno", "?"), name, kw.arg))
-        elif name in ("pack", "grid", "place"):
-            table = {"pack": _PACK_OPTIONS, "grid": _GRID_OPTIONS}.get(name)
-            if not table:
-                continue
-            for kw in n.keywords:
-                if kw.arg and not _tk_option_ok(kw.arg, table):
-                    p.append("%s:%s 不认识的选项 -%s" % (getattr(n, "lineno", "?"), name, kw.arg))
-    return p
-
-
-_pp_src = _io.open(r"D:\video-skill\backend\approval_popup.py", encoding="utf-8",
-                   errors="replace").read()
-chk("P21", "批准窗的 widget 选项名全部合法（-align 那种一构造就 TclError）",
-      widget_option_problems(_pp_src), [])
-chk("P21b", "反向对照：把 align 那行插回去 ⇒ 必须红（现网那个 bug 的形状）",
-      any("-align" in x for x in widget_option_problems(
-          _pp_src.replace('wraplength=430, justify="left")',
-                          'wraplength=430, justify="left", align="top")', 1))), True)
-chk("P21c", "变异只改动一处（锚点在文件里唯一，否则这条自测是在比空气）",
-      _pp_src.count('wraplength=430, justify="left")'), 1)
-chk("P21d", "pack/grid 那一侧同样在射程内（pack(align=...) 也是当场死）",
-      any("pack" in x for x in widget_option_problems("x.pack(padx=18, align=\"w\")")), True)
+# ── 原 P21~P21d（批准窗 widget 选项名必须 Tk 真认识）已于 2026-10-22 随窗整条摘除。
+#    留这条注释是为了不重犯：当年 `Label(align="top")` 一构造就 TclError ⇒ 窗从来弹不出来，
+#    而 P 组全绿 —— 那些断言只测文案与居中算法，一条都没碰到 widget 构造。
+#    教训=「闸全绿却藏着一条必然崩溃的分支」；将来若再加任何 GUI 壳，这条判据要连着一起回来。
 
 n_ok = sum(1 for _, ok in RESULTS if ok)
 cprint("\n=== 人证闸（pending+核销版）汇总：%d/%d 通过 ===" % (n_ok, len(RESULTS)))

@@ -4,7 +4,7 @@
 日期：2026-09-25  
 工作区：`C:\dsh`  
 运行时：DSH Desktop v0.9.2（基于 DeepSeek Harness）  
-生成器：Wan 3.0（沿用 `D:\video-skill` 超级复刻管线）
+生成器：Wan 3.0（沿用 `backend` 超级复刻管线）
 
 ---
 
@@ -14,7 +14,7 @@
 
 ## 2. 背景
 
-`D:\video-skill` 超级复刻已经能跑通「原片 + 产品图 → MiMo 解析 → 迁移编译 → Wan3 直出」。默认只换产品；换脸 / 换背景 / 改口播可选。
+`backend` 超级复刻已经能跑通「原片 + 产品图 → MiMo 解析 → 迁移编译 → Wan3 直出」。默认只换产品；换脸 / 换背景 / 改口播可选。
 
 难单会翻车。最近一次护肤软糖片：15.8 秒、20 个快切、脸按肤色 A→B→C（后加 D）、再换瓶/袋/糖。整段一次送 Wan，原脸被参考片锁死；后来 7 段 / 3 段 / 4 段方案在跑的时候改；脸 C 整段仍是原脸；军训第二镜脸 B 没换上；水印还在；裁切对不齐原声。
 
@@ -27,7 +27,7 @@
 1. 在 `C:\dsh` 单独立项，DSH Desktop 打开本工作区即可跑复刻 Agent。
 2. 完整搬入两个 skill：`super-clone`（主合同）和 `hypit`（时间轴 / 抽帧 / 项目文件）。
 3. 难单标准路径：分析 → 人审 TIMELINE → 并发 Wan → 抽帧验收 → 原声贴回。
-4. 生成器锁 Wan 3.0。第一期用 shell 调 `D:\video-skill` 现有 Python，不重写管线。
+4. 生成器锁 Wan 3.0。第一期用 shell 调 `backend` 现有 Python，不重写管线。
 
 ## 4. 非目标（本期不做）
 
@@ -62,7 +62,7 @@ DSH Desktop（Agent 壳：会话、skill、shell、批准、轨迹）
     ├── skill super-clone     最小迁移合同 + 切段规则 + Wan 调用约定
     ├── skill hypit           抽帧 / 裁切 / 原声贴回 / 项目文件
     ├── 工作区 C:\dsh         BRIEF / ANALYSIS / TIMELINE / PROGRESS
-    └── shell → D:\video-skill  super_clone_wan3.run_pipeline（Wan 3.0）
+    └── shell → backend  super_clone_wan3.run_pipeline（Wan 3.0）
 ```
 
 Skill 是说明书，不是运行时代码。Wan 工具第一期走 shell；超时长命令走 DSH 后台 job。
@@ -96,7 +96,7 @@ Skill 是说明书，不是运行时代码。Wan 工具第一期走 shell；超�
 
 ### 7.2 hypit（辅）
 
-从 `D:\video-skill\.grok\skills\hypit` 完整搬运。本项目里只用于：
+从 `backend/.grok\skills\hypit` 完整搬运。本项目里只用于：
 
 - 读参考片、抽帧、tiles
 - 按源时间 `cut`

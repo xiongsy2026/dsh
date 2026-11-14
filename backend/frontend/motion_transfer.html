@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>动作迁移</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #0ea5e9 0%, #6366f1 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 440px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #0ea5e9; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .upload-card .preview-img { max-width: 100%; max-height: 120px; border-radius: 8px; margin-top: 8px; object-fit: cover; }
+        .upload-card .preview-video { max-width: 100%; max-height: 140px; border-radius: 8px; margin-top: 8px; }
+        .image-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+        .image-list-item { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #1e1e36; border: 1px solid #3a3a5c; }
+        .image-list-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .image-list-item .del { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.75); color: #f87171; border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: .85em; display: flex; align-items: center; justify-content: center; }
+        .image-list-item .del:hover { background: rgba(239,68,68,.9); color: #fff; }
+        .image-list-item .badge { position: absolute; bottom: 4px; left: 4px; background: rgba(14,165,233,.92); color: #fff; font-size: .62em; padding: 1px 6px; border-radius: 8px; }
+        .add-image-card { border: 2px dashed #3a3a5c; border-radius: 8px; aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: #888; transition: all .2s; }
+        .add-image-card:hover { border-color: #0ea5e9; color: #0ea5e9; background: #22223e; }
+        .add-image-card .icon { font-size: 1.8em; }
+        .add-image-card .label { font-size: .72em; margin-top: 4px; }
+        .img-hint { font-size: .72em; color: #666; margin-bottom: 16px; }
+        .text-field { width:100%;box-sizing:border-box;margin-bottom:16px;padding:12px 14px;background:#1e1e36;border:1px solid #3a3a5c;border-radius:8px;color:#fff;font-size:.95em;outline:none; }
+        .text-field:focus { border-color:#0ea5e9; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #0ea5e9, #6366f1); color: #fff; transition: all .2s; letter-spacing: 1px; }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(14,165,233,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        .progress-bar-wrap { background: #2a2a44; border-radius: 6px; height: 10px; margin-bottom: 16px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #0ea5e9, #6366f1); transition: width .4s; width: 0%; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 220px; overflow-y: auto; line-height: 1.7; }
+        .log-line.running { color: #60a5fa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .video-result { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; }
+        .video-result h3 { margin-bottom: 16px; font-size: 1.1em; }
+        .video-player { width: 100%; border-radius: 10px; background: #000; max-height: 520px; }
+        .video-placeholder { width: 100%; height: 280px; border-radius: 10px; background: #1e1e36; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #555; font-size: 1.2em; gap: 12px; }
+        .video-placeholder .ph-icon { font-size: 3em; }
+        .result-links { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: #1e1e36; color: #60a5fa; text-decoration: none; font-size: .9em; transition: background .2s; }
+        .result-link:hover { background: #2a2a5c; }
+        .param-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .param-row .param-item { flex: 1; }
+        .param-item label { display: block; font-size: .82em; color: #a5a5c8; margin-bottom: 6px; }
+        .param-item select, .param-item input { width: 100%; padding: 8px 12px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #e0e0e0; font-size: .9em; outline: none; }
+        .param-item select:focus, .param-item input:focus { border-color: #0ea5e9; }
+        .param-item select option { background: #1e1e36; color: #e0e0e0; }
+        .history-section { margin-top: 20px; }
+        .history-item { display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1a1a30;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s;border:1px solid transparent; }
+        .history-item:hover { border-color:#0ea5e9; }
+        .history-item .h-info { flex:1;min-width:0; }
+        .history-item .h-title { font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+        .history-item .h-meta { font-size:.7em;color:#666;margin-top:2px; }
+        .history-item .h-status { font-size:.7em;padding:2px 8px;border-radius:10px;white-space:nowrap; }
+        .h-status.ok { background:#065f46;color:#6ee7b7; }
+        .h-status.fail { background:#7f1d1d;color:#fca5a5; }
+        .h-status.running { background:#1e3a5f;color:#60a5fa; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>MOTION TRANSFER</h1>
+        <span class="tag">动作迁移</span>
+    </div>
+</div>
+<div class="main">
+    <div class="input-panel">
+        <div class="section-title"><span class="dot dot-required"></span> 参考视频（动作源）</div>
+        <div class="upload-card" id="videoCard" onclick="document.getElementById('videoInput').click()">
+            <div class="icon">🎬</div>
+            <div class="label">点击上传参考视频</div>
+            <input type="file" id="videoInput" accept="video/*">
+            <div class="filename" id="videoFilename"></div>
+        </div>
+
+        <div class="section-title">
+            <span class="dot dot-required"></span> 参考图（多图精准比对）
+            <span id="imgCount" style="font-size:.75em;color:#888;margin-left:auto;">0 张</span>
+        </div>
+        <div class="image-list" id="imageList">
+            <div class="add-image-card" onclick="document.getElementById('imageInput').click()">
+                <div class="icon">＋</div>
+                <div class="label">添加参考图</div>
+            </div>
+        </div>
+        <input type="file" id="imageInput" accept="image/*" multiple style="display:none;">
+        <div class="img-hint">至少 1 张，建议 1-4 张多角度图提升比对精度</div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 参数设置</div>
+        <div class="param-row">
+            <div class="param-item">
+                <label>视频宽度</label>
+                <input type="number" id="paramWidth" value="832" step="16">
+            </div>
+            <div class="param-item">
+                <label>视频高度</label>
+                <input type="number" id="paramHeight" value="480" step="16">
+            </div>
+        </div>
+        <div class="param-row">
+            <div class="param-item">
+                <label>采样步数</label>
+                <input type="number" id="paramSteps" value="4" min="1" max="50">
+            </div>
+            <div class="param-item">
+                <label>CFG</label>
+                <input type="number" id="paramCfg" value="1" min="0" max="10" step="0.5">
+            </div>
+        </div>
+        <div class="param-row">
+            <div class="param-item">
+                <label>LoRA 强度</label>
+                <input type="number" id="paramLoraStrength" value="0.8" min="0" max="2" step="0.05">
+            </div>
+            <div class="param-item">
+                <label>ControlNet 强度</label>
+                <input type="number" id="paramCnStrength" value="1.0" min="0" max="2" step="0.05">
+            </div>
+        </div>
+        <div class="param-row">
+            <div class="param-item">
+                <label>帧率</label>
+                <input type="number" id="paramFps" value="30" min="8" max="60">
+            </div>
+            <div class="param-item">
+                <label>最大帧数</label>
+                <input type="number" id="paramMaxFrames" value="81" min="1" max="200">
+            </div>
+        </div>
+
+        <button class="run-btn" id="runBtn" onclick="startMotionTransfer()">🚀 开始动作迁移</button>
+
+        <div class="history-section">
+            <div class="section-title">📋 历史记录</div>
+            <div id="historyList" style="max-height:300px;overflow-y:auto;">
+                <div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="output-panel">
+        <div class="status-panel">
+            <div class="status-header">
+                <span class="status-badge badge-idle" id="statusBadge">等待提交</span>
+                <span id="taskIdDisplay" style="font-size:.8em;color:#666;"></span>
+            </div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+            <div class="log-box" id="logBox">
+                <div class="log-line">等待提交任务...</div>
+            </div>
+        </div>
+
+        <div class="video-result" id="videoResultSection" style="display:none;">
+            <h3>生成结果</h3>
+            <video class="video-player" id="resultVideo" controls loop></video>
+            <div class="result-links" id="resultLinks"></div>
+        </div>
+
+        <div class="video-placeholder" id="videoPlaceholder">
+            <div class="ph-icon">🎭</div>
+            <div>上传视频和参考图，开始动作迁移</div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── 状态 ──
+let videoFilePath = null;
+let imageList = [];  // [{path, name, url}, ...] 多参考图
+let currentTaskId = null;
+let pollTimer = null;
+
+// ── 上传视频 ──
+document.getElementById('videoInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const card = document.getElementById('videoCard');
+    const fn = document.getElementById('videoFilename');
+    card.classList.add('has-file');
+    fn.textContent = file.name;
+    // 上传
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const res = await fetch('/api/upload/video', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            videoFilePath = data.file_path;
+            // 预览
+            const old = card.querySelector('.preview-video');
+            if (old) old.remove();
+            const vid = document.createElement('video');
+            vid.className = 'preview-video';
+            vid.src = URL.createObjectURL(file);
+            vid.muted = true;
+            card.appendChild(vid);
+        } else {
+            alert('视频上传失败');
+        }
+    } catch (err) {
+        alert('视频上传出错: ' + err.message);
+    }
+});
+
+// ── 上传参考图（支持多选） ──
+document.getElementById('imageInput').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    e.target.value = '';  // 允许重复选择同一文件
+    for (const file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const res = await fetch('/api/upload/image', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.success) {
+                imageList.push({
+                    path: data.file_path,
+                    name: file.name,
+                    url: URL.createObjectURL(file),
+                });
+            } else {
+                alert(`图片「${file.name}」上传失败`);
+            }
+        } catch (err) {
+            alert(`图片「${file.name}」上传出错: ` + err.message);
+        }
+    }
+    renderImages();
+});
+
+function renderImages() {
+    const list = document.getElementById('imageList');
+    const count = document.getElementById('imgCount');
+    count.textContent = imageList.length + ' 张';
+    // 保留"添加"卡片在最后
+    list.innerHTML = '';
+    imageList.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'image-list-item';
+        div.innerHTML = `
+            <img src="${item.url}" alt="${item.name}">
+            ${idx === 0 ? '<span class="badge">主图</span>' : ''}
+            <button class="del" title="删除" onclick="removeImage(${idx})">×</button>
+        `;
+        list.appendChild(div);
+    });
+    const addCard = document.createElement('div');
+    addCard.className = 'add-image-card';
+    addCard.onclick = () => document.getElementById('imageInput').click();
+    addCard.innerHTML = '<div class="icon">＋</div><div class="label">添加参考图</div>';
+    list.appendChild(addCard);
+}
+
+function removeImage(idx) {
+    if (imageList[idx] && imageList[idx].url) URL.revokeObjectURL(imageList[idx].url);
+    imageList.splice(idx, 1);
+    renderImages();
+}
+
+// ── 开始动作迁移 ──
+async function startMotionTransfer() {
+    if (!videoFilePath) { alert('请上传参考视频'); return; }
+    if (!imageList.length) { alert('请至少添加 1 张参考图'); return; }
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '⏳ 任务执行中...';
+
+    setBadge('running');
+    addLog(`正在提交动作迁移任务（${imageList.length} 张参考图）...`, 'running');
+
+    try {
+        const res = await fetch('/api/motion-transfer/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_path: videoFilePath,
+                image_paths: imageList.map(i => i.path),
+                width: parseInt(document.getElementById('paramWidth').value) || 832,
+                height: parseInt(document.getElementById('paramHeight').value) || 480,
+                steps: parseInt(document.getElementById('paramSteps').value) || 4,
+                cfg: parseFloat(document.getElementById('paramCfg').value) || 1,
+                lora_strength: parseFloat(document.getElementById('paramLoraStrength').value) || 0.8,
+                cn_strength: parseFloat(document.getElementById('paramCnStrength').value) || 1.0,
+                fps: parseInt(document.getElementById('paramFps').value) || 30,
+                max_frames: parseInt(document.getElementById('paramMaxFrames').value) || 81,
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            currentTaskId = data.task_id;
+            document.getElementById('taskIdDisplay').textContent = 'Task: ' + currentTaskId;
+            addLog('任务已提交，taskId: ' + currentTaskId, 'running');
+            startPolling();
+        } else {
+            addLog('提交失败: ' + (data.error || '未知错误'), 'error');
+            resetBtn();
+        }
+    } catch (err) {
+        addLog('请求出错: ' + err.message, 'error');
+        resetBtn();
+    }
+}
+
+// ── 轮询任务状态 ──
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+        if (!currentTaskId) return;
+        try {
+            const res = await fetch('/api/motion-transfer/status?task_id=' + currentTaskId);
+            const data = await res.json();
+            if (data.success) {
+                const status = data.status;
+                const progress = data.progress || 0;
+                document.getElementById('progressBar').style.width = progress + '%';
+
+                if (status === 'SUCCESS') {
+                    addLog('任务完成！', 'done');
+                    setBadge('completed');
+                    stopPolling();
+                    resetBtn();
+                    showResult(data.outputs);
+                } else if (status === 'FAILED') {
+                    addLog('任务失败: ' + (data.error || ''), 'error');
+                    setBadge('failed');
+                    stopPolling();
+                    resetBtn();
+                } else {
+                    // RUNNING or QUEUED
+                    if (data.message) addLog(data.message, 'running');
+                }
+            }
+        } catch (err) {
+            addLog('轮询出错: ' + err.message, 'error');
+        }
+    }, 3000);
+}
+
+function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ── 显示结果 ──
+function showResult(outputs) {
+    document.getElementById('videoPlaceholder').style.display = 'none';
+    const section = document.getElementById('videoResultSection');
+    section.style.display = 'block';
+    const linksDiv = document.getElementById('resultLinks');
+    linksDiv.innerHTML = '';
+
+    if (outputs && outputs.length > 0) {
+        const videoOut = outputs.find(o => o.fileType === 'mp4' || o.fileType === 'video');
+        const url = videoOut ? videoOut.fileUrl : outputs[0].fileUrl;
+        const video = document.getElementById('resultVideo');
+        video.src = url;
+        // 下载链接
+        const a = document.createElement('a');
+        a.className = 'result-link';
+        a.href = url;
+        a.target = '_blank';
+        a.download = '';
+        a.textContent = '⬇️ 下载视频';
+        linksDiv.appendChild(a);
+    }
+}
+
+// ── 工具 ──
+function addLog(msg, cls) {
+    const box = document.getElementById('logBox');
+    const div = document.createElement('div');
+    div.className = 'log-line ' + (cls || '');
+    const t = new Date().toLocaleTimeString();
+    div.textContent = '[' + t + '] ' + msg;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function setBadge(status) {
+    const b = document.getElementById('statusBadge');
+    b.className = 'status-badge';
+    if (status === 'running') { b.classList.add('badge-running'); b.textContent = '执行中'; }
+    else if (status === 'completed') { b.classList.add('badge-completed'); b.textContent = '已完成'; }
+    else if (status === 'failed') { b.classList.add('badge-failed'); b.textContent = '失败'; }
+    else { b.classList.add('badge-idle'); b.textContent = '等待提交'; }
+}
+
+function resetBtn() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.classList.remove('running');
+    btn.textContent = '🚀 开始动作迁移';
+}
+</script>
+</body>
+</html>

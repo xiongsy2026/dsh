@@ -218,7 +218,7 @@ stage:
 | LOOP.md 中枢 | 默认页 = `LOOP.stage`；skill 不互相调 |
 | 批准只 3 停点 | 不新增停点；只把重操作挪到 Stage |
 | 账号记忆隔离 | 右栏只读当前会话 `productions/` |
-| jobs 调 `D:\video-skill` | Stage 只展示与批准结论，不执行 |
+| jobs 调 `backend` | Stage 只展示与批准结论，不执行 |
 | 文件即记忆 | 结论写 `TIMELINE.md` / `PROGRESS.md` |
 | 不改生成引擎 | 纯展示 + 交互层 |
 

@@ -1,7 +1,7 @@
 r"""工作区侧的意图登记 —— 点完 skill 后 agent 要跑的第一条命令（沙箱里也跑得动）。
 
-为什么要有这个文件：登记动作过去只有一条路 `python D:\video-skill\backend\hypit_bridge.py intent ...`，
-而那条命令要写 `D:\video-skill\.gateway_intent.json` —— **在工作区外**，DSH 自带的文件沙箱会直接拒
+为什么要有这个文件：登记动作过去只有一条路 `python backend/hypit_bridge.py intent ...`，
+而那条命令要写 `.gateway_intent.json` —— **在工作区外**，DSH 自带的文件沙箱会直接拒
 （实测报 `sandbox escalation … is not strictly wider`）⇒ 结果就是"用户明明点了 /hypit-pipeline，
 右栏却什么都不弹"。本脚本只写自己工作区里的 `.dsh/intent.json`，8100 的判定口两个源合并读
 （同会话取时间更新的那个），所以 agent 不需要任何提权。
@@ -48,7 +48,7 @@ USAGE = ("用法: python scripts/intent.py <omni|hypit|super-clone|product-video
          "问\"我点了没反应\"先跑这条，别猜\n"
          "可选 --task-dir <已建好的目录>：agent 先建了家再登记时用（任务名仍走位置参数）")
 FORM_API_POST = "http://127.0.0.1:8100/api/skills/form"
-# 🔴 可登记的意图档名单。权威源是 `D:\video-skill\backend\hypit_bridge.py` 的 KNOWN_SKILLS，
+# 🔴 可登记的意图档名单。权威源是 `backend/hypit_bridge.py` 的 KNOWN_SKILLS，
 #    但这条命令是"点完 skill 后 agent 跑的第一条"，不该为了拿一个名单去 import 整个网关（起不来就全瞎）。
 #    所以这里留一份短名单，由 scripts/check-intent-rule.py 断言【两份必须相等】—— 漂了就红。
 #    为什么必须校验：过去这条脚本对 args[0] 完全不判，打错一个字母就往意图簿里写出一条死档
@@ -98,6 +98,21 @@ def ensure_task_dir(skill, raw):
 def die(msg, code=2):
     print(msg)
     sys.exit(code)
+
+
+_SLOT_PREFIX = re.compile(r"^(?:\d{2}-[0-9a-fA-F]{8}-)+")
+
+
+def slot_stem(src: str) -> str:
+    """槽内落盘名里那半截「原名」：先剥掉上一轮回填拼上去的 `NN-sha8-` 前缀，再清洗、截断。
+
+    🔴 为什么要剥（2026-10-14 现网 15:12）：把【已经归位过的槽内文件】当源再跑一次回填，
+       不剥前缀就拼成 `01-317a8726-01-317a8726-video-317A8726-video16`，再被 32 字上限截断 ⇒
+       注册出一个盘上根本不存在的路径；服务端存了它，客户点【提交给 agent 分析】就被
+       「第 1 个文件不在表单上传目录里」拒掉 —— 连点四次同一死因，而素材好好地躺在槽里。
+    """
+    raw = _SLOT_PREFIX.sub("", os.path.splitext(os.path.basename(str(src or "")))[0])
+    return re.sub(r"[^A-Za-z0-9._-]", "", raw)[:32] or "file"
 
 
 def prefill_key_problems(values, keys, media_keys) -> list:
@@ -199,7 +214,7 @@ def cmd_prefill(args, sid):
         slot = os.path.join(updir, re.sub(r"[^A-Za-z0-9._-]", "", fk)[:24] or "slot")
         os.makedirs(slot, exist_ok=True)
         ext = os.path.splitext(src)[1].lstrip(".").lower()
-        stem = re.sub(r"[^A-Za-z0-9._-]", "", os.path.splitext(os.path.basename(src))[0])[:32] or "file"
+        stem = slot_stem(src)
         with open(src, "rb") as fh:
             sha8 = hashlib.sha256(fh.read()).hexdigest()[:8]
         dst = os.path.join(slot, "%02d-%s-%s.%s" % (n + 1, sha8, stem, ext))

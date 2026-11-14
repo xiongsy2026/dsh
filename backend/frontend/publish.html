@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视频发布工作台</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f0f1a;color:#e0e0e0;min-height:100vh;padding:24px}
+.container{max-width:900px;margin:0 auto}
+.header{text-align:center;margin-bottom:32px}
+.header h1{font-size:2em;color:#fff;background:linear-gradient(90deg,#10b981,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:2px}
+.header p{color:#888;margin-top:8px;font-size:.9em}
+.card{background:#16162a;border:1px solid #2a2a5c;border-radius:14px;padding:24px;margin-bottom:20px}
+.card h2{font-size:1.1em;color:#fff;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.input-group{margin-bottom:16px}
+.input-group label{display:block;font-size:.85em;color:#a5a5c8;margin-bottom:6px}
+.input-group input,.input-group textarea{width:100%;padding:12px 14px;background:#1e1e36;border:1px solid #3a3a5c;border-radius:8px;color:#fff;font-size:.95em;outline:none;font-family:inherit}
+.input-group input:focus,.input-group textarea:focus{border-color:#10b981}
+.input-group textarea{resize:vertical;min-height:80px}
+.video-preview{width:100%;max-height:400px;border-radius:10px;background:#000;margin-top:8px}
+.run-btn{width:100%;padding:14px;border:none;border-radius:10px;font-size:1.05em;font-weight:600;cursor:pointer;background:linear-gradient(90deg,#10b981,#06b6d4);color:#fff;transition:all .2s;letter-spacing:1px}
+.run-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(16,185,129,.4)}
+.run-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.login-btn{padding:10px 20px;border:1px solid #3a3a5c;border-radius:8px;background:#1e1e36;color:#7dd3fc;cursor:pointer;font-size:.9em;margin-bottom:16px}
+.login-btn:hover{background:#2a2a5c}
+.stage-box{background:#1e1e36;border-radius:8px;padding:16px;margin-top:16px;min-height:60px}
+.stage-text{font-size:.95em;color:#7dd3fc;line-height:1.6}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid #3d3d66;border-top-color:#10b981;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error-msg{background:rgba(239,68,68,.1);border:1px solid #ef4444;color:#fca5a5;padding:12px;border-radius:8px;margin-top:12px;font-size:.9em}
+.success-msg{background:rgba(16,185,129,.1);border:1px solid #10b981;color:#6ee7b7;padding:12px;border-radius:8px;margin-top:12px;font-size:.9em}
+.back-link{display:inline-block;margin-bottom:16px;color:#7dd3fc;text-decoration:none;font-size:.9em}
+.tag-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.tag-item{background:#1e1e36;padding:4px 12px;border-radius:20px;font-size:.85em;color:#7dd3fc;border:1px solid #3a3a5c}
+</style>
+</head>
+<body>
+<div class="container">
+    <a href="/" class="back-link">← 返回首页</a>
+    <div class="header">
+        <h1>视频发布工作台</h1>
+        <p>RPA 自动发布视频到抖音创作者中心</p>
+    </div>
+
+    <div class="card">
+        <h2>🔐 登录状态</h2>
+        <button class="login-btn" id="loginBtn" onclick="doLogin()">扫码登录抖音</button>
+        <div id="loginStatus" style="font-size:.85em;color:#aaa;">未检测登录态</div>
+    </div>
+
+    <div class="card">
+        <h2>📝 发布信息</h2>
+        <div class="input-group">
+            <label>视频文件路径</label>
+            <input type="text" id="videoPath" placeholder="/outputs/womenswear_studio/xxx/final.mp4 或绝对路径">
+        </div>
+        <div class="input-group">
+            <label>视频预览</label>
+            <video class="video-preview" id="videoPreview" controls style="display:none;"></video>
+        </div>
+        <div class="input-group">
+            <label>标题/描述</label>
+            <textarea id="title" placeholder="视频标题和描述..."></textarea>
+        </div>
+        <div class="input-group">
+            <label>标签（逗号分隔）</label>
+            <input type="text" id="tags" placeholder="女装,穿搭,童装">
+        </div>
+        <button class="run-btn" id="publishBtn" onclick="publishToDouyinStep()">启动分步发布（走一步停一步）</button>
+    </div>
+
+    <div class="card" id="progressCard" style="display:none;">
+        <h2>⚡ 分步发布进度</h2>
+        <div id="publishStepsList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;"></div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button id="publishNextBtn" class="run-btn" style="flex:1;padding:10px;font-size:.9em;" onclick="publishSessionNext()">继续下一步 →</button>
+            <button id="publishAbortBtn" style="padding:10px 14px;border:1px solid #5a3a3a;border-radius:8px;background:#3a1e1e;color:#fca5a5;cursor:pointer;font-size:.85em;" onclick="publishSessionAbort()">放弃</button>
+        </div>
+        <div id="publishSnapshotBox" style="display:none;background:#1e1e36;border-radius:6px;padding:8px;margin-bottom:8px;">
+            <div style="color:#888;font-size:.75em;margin-bottom:4px;">🔍 页面识别</div>
+            <pre id="publishSnapshotText" style="color:#7dd3fc;font-size:.75em;white-space:pre-wrap;max-height:120px;overflow:auto;margin:0;"></pre>
+            <img id="publishSnapshotImg" style="display:none;max-width:100%;margin-top:6px;border-radius:4px;" />
+        </div>
+        <div style="background:#1e1e36;border-radius:6px;padding:8px;">
+            <div style="color:#888;font-size:.75em;margin-bottom:4px;">📝 日志</div>
+            <div id="publishLogList" style="color:#aaa;font-size:.78em;line-height:1.6;max-height:180px;overflow:auto;font-family:Consolas,monospace;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// 从 URL 参数读取视频路径和标题
+const params = new URLSearchParams(window.location.search);
+if (params.get('video')) {
+    document.getElementById('videoPath').value = params.get('video');
+    document.getElementById('videoPreview').src = params.get('video');
+    document.getElementById('videoPreview').style.display = 'block';
+}
+if (params.get('title')) {
+    document.getElementById('title').value = params.get('title');
+}
+
+let pollTimer = null;
+
+async function doLogin() {
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.textContent = '登录中...';
+    document.getElementById('loginStatus').textContent = '请扫码登录抖音（浏览器窗口已弹出）';
+
+    try {
+        const res = await fetch('/api/publish/login', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            pollLogin(data.task_id);
+        } else {
+            btn.disabled = false;
+            btn.textContent = '扫码登录抖音';
+            document.getElementById('loginStatus').textContent = '❌ ' + (data.detail || '启动失败');
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '扫码登录抖音';
+        document.getElementById('loginStatus').textContent = '❌ ' + e.message;
+    }
+}
+
+function pollLogin(taskId) {
+    const btn = document.getElementById('loginBtn');
+    const status = document.getElementById('loginStatus');
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+        try {
+            const res = await fetch('/api/publish/status?task_id=' + taskId);
+            const data = await res.json();
+            status.textContent = data.stage || data.status;
+            if (data.status === 'SUCCESS') {
+                clearInterval(pollTimer);
+                btn.disabled = false;
+                btn.textContent = '重新登录';
+                status.innerHTML = '✅ 登录成功';
+            } else if (data.status === 'FAILED') {
+                clearInterval(pollTimer);
+                btn.disabled = false;
+                btn.textContent = '扫码登录抖音';
+                status.innerHTML = '❌ ' + (data.error || '登录失败');
+            }
+        } catch (e) {}
+    }, 2000);
+}
+
+// ─── 分步式 RPA 发布（走一步停一步，等用户指令继续）───
+const PUBLISH_STEPS = [
+    { key: 'init',           label: '启动浏览器 + 打开发布页' },
+    { key: 'upload',         label: '上传视频文件 + 等待上传完成' },
+    { key: 'fill_title',     label: '填写标题' },
+    { key: 'fill_tags',      label: '填写标签' },
+    { key: 'pre_publish',    label: '发布前截屏 + 识别页面' },
+    { key: 'locate_publish', label: '🔎 定位发布按钮 + 截图识别' },
+    { key: 'publish',        label: '👆 点击发布 + 等待完成' },
+];
+let publishSessionId = null;
+
+function _renderPublishSteps(currentStep, finished, error) {
+    const list = document.getElementById('publishStepsList');
+    if (!list) return;
+    const curIdx = PUBLISH_STEPS.findIndex(s => s.key === currentStep);
+    list.innerHTML = PUBLISH_STEPS.map((s, i) => {
+        let icon = '⏳', color = '#555';
+        if (finished && !error && i <= curIdx) { icon = '✅'; color = '#10b981'; }
+        else if (error && i === curIdx) { icon = '❌'; color = '#fca5a5'; }
+        else if (i < curIdx) { icon = '✅'; color = '#10b981'; }
+        else if (i === curIdx) { icon = '▶'; color = '#fbbf24'; }
+        return `<div style="display:flex;align-items:center;gap:8px;color:${color};">
+            <span>${icon}</span><span>${i+1}. ${s.label}</span>
+        </div>`;
+    }).join('');
+}
+
+function _appendPublishLogs(logs) {
+    const box = document.getElementById('publishLogList');
+    if (!box) return;
+    box.innerHTML = (logs || []).map(l => `<div>${l}</div>`).join('');
+    box.scrollTop = box.scrollHeight;
+}
+
+function _renderPublishSnapshot(domInfo, screenshot) {
+    const box = document.getElementById('publishSnapshotBox');
+    const txt = document.getElementById('publishSnapshotText');
+    const img = document.getElementById('publishSnapshotImg');
+    if (!domInfo) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    const btns = (domInfo.buttons || []).map(b => `${b.text}${b.disabled ? '(禁用)' : ''}`);
+    const editors = (domInfo.editors || []).map(e => `[${e.length}字]${e.text.slice(0, 50)}`);
+    txt.textContent = `URL: ${domInfo.url || ''}\n标题: ${domInfo.title || ''}\nfileInputs: ${domInfo.fileInputs ?? '-'}\n按钮: ${btns.join(' | ') || '无'}\n编辑器: ${editors.join(' | ') || '无'}`;
+    if (screenshot) {
+        const fname = screenshot.split(/[\\\/]/).pop();
+        img.src = '/uploads/' + fname + '?t=' + Date.now();
+        img.style.display = 'block';
+    } else {
+        img.style.display = 'none';
+    }
+}
+
+async function publishToDouyinStep() {
+    const videoPath = document.getElementById('videoPath').value.trim();
+    const title = document.getElementById('title').value.trim();
+    const tagsStr = document.getElementById('tags').value.trim();
+    if (!videoPath) { alert('请输入视频路径'); return; }
+
+    const tags = tagsStr ? tagsStr.split(/[,，]/).map(t => t.trim()).filter(Boolean) : [];
+
+    const btn = document.getElementById('publishBtn');
+    const panel = document.getElementById('progressCard');
+    const nextBtn = document.getElementById('publishNextBtn');
+    const abortBtn = document.getElementById('publishAbortBtn');
+    btn.disabled = true; btn.textContent = '分步发布中...';
+    panel.style.display = 'block';
+    nextBtn.disabled = true; nextBtn.textContent = '启动中...';
+    abortBtn.disabled = false;
+
+    _renderPublishSteps('init', false, null);
+    _appendPublishLogs(['启动会话...']);
+
+    try {
+        const res = await fetch('/api/publish/session/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ video_path: videoPath, title: title, tags: tags })
+        });
+        const data = await res.json();
+        publishSessionId = data.session_id;
+        _handlePublishSessionResult(data);
+    } catch (e) {
+        _appendPublishLogs(['❌ ' + e.message]);
+        btn.disabled = false; btn.textContent = '启动分步发布（走一步停一步）';
+        nextBtn.disabled = true; nextBtn.textContent = '继续下一步 →';
+    }
+}
+
+async function publishSessionNext() {
+    if (!publishSessionId) return;
+    const nextBtn = document.getElementById('publishNextBtn');
+    nextBtn.disabled = true; nextBtn.textContent = '执行中...';
+    try {
+        const res = await fetch('/api/publish/session/' + publishSessionId + '/next', { method: 'POST' });
+        const data = await res.json();
+        _handlePublishSessionResult(data);
+    } catch (e) {
+        _appendPublishLogs(['❌ ' + e.message]);
+        nextBtn.disabled = false; nextBtn.textContent = '继续下一步 →';
+    }
+}
+
+async function publishSessionAbort() {
+    if (!publishSessionId) return;
+    if (!confirm('确定放弃本次发布？浏览器会被关闭。')) return;
+    const abortBtn = document.getElementById('publishAbortBtn');
+    abortBtn.disabled = true;
+    try {
+        await fetch('/api/publish/session/' + publishSessionId + '/abort', { method: 'POST' });
+    } catch (e) {}
+    _finishPublishSession(false, '已放弃');
+}
+
+function _handlePublishSessionResult(data) {
+    _appendPublishLogs(data.logs || []);
+    _renderPublishSnapshot(data.dom_info, data.screenshot);
+
+    const btn = document.getElementById('publishBtn');
+    const nextBtn = document.getElementById('publishNextBtn');
+    const abortBtn = document.getElementById('publishAbortBtn');
+
+    if (data.finished) {
+        _finishPublishSession(data.success, data.success ? '发布成功' : (data.error || '发布失败'), data.url);
+        if (data.success) {
+            _appendPublishLogs(['✅ 发布成功！', '视频管理页: ' + (data.url || '')]);
+        } else {
+            _appendPublishLogs(['❌ ' + (data.error || '发布失败')]);
+        }
+        return;
+    }
+
+    if (data.paused) {
+        _renderPublishSteps(data.step, false, data.error);
+        nextBtn.disabled = false;
+        if (data.next_step === 'locate_publish') {
+            nextBtn.textContent = '🔎 定位发布按钮 →';
+            nextBtn.style.background = 'linear-gradient(90deg,#f59e0b,#ef4444)';
+        } else if (data.next_step === 'publish') {
+            nextBtn.textContent = '👆 点击发布按钮 →';
+            nextBtn.style.background = 'linear-gradient(90deg,#ef4444,#f97316)';
+        } else {
+            nextBtn.textContent = '继续下一步 →（' + (data.next_step || '') + '）';
+            nextBtn.style.background = 'linear-gradient(90deg,#10b981,#06b6d4)';
+        }
+        abortBtn.disabled = false;
+        btn.textContent = '分步发布中（暂停等待指令）';
+    } else if (data.error) {
+        _renderPublishSteps(data.step, false, data.error);
+        nextBtn.disabled = false;
+        nextBtn.textContent = '重试此步 →';
+        abortBtn.disabled = false;
+        _appendPublishLogs(['❌ ' + data.error]);
+    } else {
+        _renderPublishSteps(data.step, false, null);
+        nextBtn.disabled = true; nextBtn.textContent = '处理中...';
+    }
+}
+
+function _finishPublishSession(success, msg, url) {
+    publishSessionId = null;
+    const btn = document.getElementById('publishBtn');
+    const nextBtn = document.getElementById('publishNextBtn');
+    const abortBtn = document.getElementById('publishAbortBtn');
+    btn.disabled = false;
+    btn.textContent = '重新启动分步发布';
+    nextBtn.disabled = true; nextBtn.textContent = '已完成';
+    abortBtn.disabled = true;
+    if (success) {
+        _renderPublishSteps('publish', true, null);
+    }
+}
+
+// 视频路径变化时更新预览
+document.getElementById('videoPath').addEventListener('change', (e) => {
+    const v = e.target.value.trim();
+    const preview = document.getElementById('videoPreview');
+    if (v.startsWith('/outputs/')) {
+        preview.src = v;
+        preview.style.display = 'block';
+    } else {
+        preview.style.display = 'none';
+    }
+});
+</script>
+</body>
+</html>

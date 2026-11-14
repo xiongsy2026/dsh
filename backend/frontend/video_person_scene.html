@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频换人换背景</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: #16162a; border-bottom: 1px solid #2a2a5c; }
+        .topbar a { color: #888; text-decoration: none; font-size: .85em; padding: 6px 12px; border: 1px solid #2a2a5c; border-radius: 8px; }
+        .topbar a:hover { color: #fff; border-color: #ec4899; }
+        .topbar-title { font-size: 1.1em; color: #fff; font-weight: 600; }
+        .main { display: grid; grid-template-columns: 420px 1fr; gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto; }
+        @media (max-width: 980px) { .main { grid-template-columns: 1fr; } }
+        .card { background: #16162a; border: 1px solid #2a2a5c; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+        .title { font-size: .85em; color: #aaa; margin-bottom: 10px; letter-spacing: .4px; }
+        .hint { color: #888; font-size: 12px; line-height: 1.5; margin-bottom: 10px; }
+        .opt { display: flex; gap: 10px; align-items: flex-start; background: #0f0f1a; border: 1px solid #2a2a5c; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+        .opt:hover { border-color: #ec4899; }
+        .opt input { margin-top: 3px; accent-color: #ec4899; }
+        .opt b { color: #fff; font-size: .9em; }
+        .opt span { display: block; color: #888; font-size: .75em; margin-top: 2px; }
+        .upload { border: 2px dashed #2a2a5c; border-radius: 10px; padding: 16px; text-align: center; cursor: pointer; background: #0f0f1a; }
+        .upload.has { border-color: #22d3ee; border-style: solid; }
+        .upload input { display: none; }
+        .upload img, .upload video { max-width: 100%; max-height: 140px; margin-top: 8px; border-radius: 6px; }
+        select, textarea, .run { width: 100%; background: #0f0f1a; color: #e0e0e0; border: 1px solid #2a2a5c; border-radius: 8px; padding: 10px; }
+        textarea { min-height: 72px; margin-top: 8px; }
+        .run { margin-top: 12px; background: linear-gradient(90deg, #ec4899, #8b5cf6); border: 0; font-weight: 700; cursor: pointer; }
+        .run:disabled { opacity: .5; cursor: not-allowed; }
+        .log { font-family: Consolas, monospace; font-size: .78em; color: #aaa; white-space: pre-wrap; max-height: 280px; overflow: auto; }
+        .preview video { width: 100%; max-height: 520px; background: #000; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <a href="/">← 首页</a>
+        <span class="topbar-title">视频换人换背景</span>
+    </div>
+    <div class="main">
+        <div>
+            <div class="card">
+                <div class="title">原视频（必选）</div>
+                <div class="upload" id="videoCard" onclick="document.getElementById('videoInput').click()">
+                    <div>点击上传视频</div>
+                    <input type="file" id="videoInput" accept="video/*">
+                    <video id="videoPrev" style="display:none;" controls onclick="event.stopPropagation()"></video>
+                </div>
+            </div>
+            <div class="card">
+                <div class="title">操作（可不选一项，但至少选一个）</div>
+                <div class="hint">不走超级复刻换产品。这里只跑 RunningHub：换人 DreamID-V，换背景可切换待测应用。</div>
+                <label class="opt"><input type="checkbox" id="chkPerson" onchange="sync()"><div><b>换人</b><span>DreamID-V / V2，上传人物图</span></div></label>
+                <div id="personBox" style="display:none;margin-bottom:10px;">
+                    <select id="personApp" style="margin-bottom:8px;"></select>
+                    <div class="upload" id="personCard" onclick="document.getElementById('personInput').click()">
+                        <div id="personLabel">上传人物图</div>
+                        <input type="file" id="personInput" accept="image/*">
+                        <img id="personPrev" style="display:none;">
+                    </div>
+                </div>
+                <label class="opt"><input type="checkbox" id="chkScene" onchange="sync()"><div><b>换背景</b><span>选择 RunningHub 应用 + 背景图</span></div></label>
+                <div id="sceneBox" style="display:none;">
+                    <select id="sceneApp"></select>
+                    <div class="upload" id="sceneCard" style="margin-top:8px;" onclick="document.getElementById('sceneInput').click()">
+                        <div id="sceneLabel">上传背景图</div>
+                        <input type="file" id="sceneInput" accept="image/*">
+                        <img id="scenePrev" style="display:none;">
+                    </div>
+                    <textarea id="prompt" placeholder="可选：换背景提示词 / 描述"></textarea>
+                </div>
+            </div>
+            <button class="run" id="btn" onclick="start()">开始处理</button>
+        </div>
+        <div>
+            <div class="card">
+                <div class="title">状态</div>
+                <div class="log" id="log">等待提交…</div>
+            </div>
+            <div class="card preview">
+                <div class="title">成片</div>
+                <div id="videoArea">完成后在此播放</div>
+            </div>
+        </div>
+    </div>
+<script>
+let videoPath = null, personPath = null, scenePath = null, taskId = null, timer = null;
+function sync() {
+    document.getElementById('personBox').style.display = document.getElementById('chkPerson').checked ? 'block' : 'none';
+    document.getElementById('sceneBox').style.display = document.getElementById('chkScene').checked ? 'block' : 'none';
+}
+async function upload(file, kind) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const url = kind === 'video' ? '/api/upload/video' : '/api/upload/image';
+    const resp = await fetch(url, { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.detail || '上传失败');
+    return data.file_path;
+}
+document.getElementById('videoInput').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    videoPath = await upload(f, 'video');
+    document.getElementById('videoCard').classList.add('has');
+    const v = document.getElementById('videoPrev');
+    v.src = URL.createObjectURL(f); v.style.display = 'block';
+};
+document.getElementById('personInput').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    personPath = await upload(f, 'image');
+    document.getElementById('personCard').classList.add('has');
+    document.getElementById('personLabel').textContent = f.name;
+    const img = document.getElementById('personPrev');
+    img.src = URL.createObjectURL(f); img.style.display = 'block';
+};
+document.getElementById('sceneInput').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    scenePath = await upload(f, 'image');
+    document.getElementById('sceneCard').classList.add('has');
+    document.getElementById('sceneLabel').textContent = f.name;
+    const img = document.getElementById('scenePrev');
+    img.src = URL.createObjectURL(f); img.style.display = 'block';
+};
+(async () => {
+    try {
+        const data = await (await fetch('/api/video-person-scene/apps')).json();
+        const personSel = document.getElementById('personApp');
+        personSel.innerHTML = (data.person || []).map(a => `<option value="${a.key}">${a.name}${a.ready ? '' : '（待测）'}</option>`).join('');
+        const sel = document.getElementById('sceneApp');
+        sel.innerHTML = (data.scene || []).map(a => `<option value="${a.key}">${a.name}${a.ready ? '' : '（待测）'}</option>`).join('');
+    } catch (e) {
+        document.getElementById('sceneApp').innerHTML = '<option value="bg_v2">Video Replace Background V2（待测）</option>';
+    }
+})();
+async function start() {
+    const swapPerson = document.getElementById('chkPerson').checked;
+    const swapScene = document.getElementById('chkScene').checked;
+    if (!videoPath) return alert('请上传视频');
+    if (!swapPerson && !swapScene) return alert('请至少勾选换人或换背景');
+    if (swapPerson && !personPath) return alert('勾选换人后请上传人物图');
+    if (swapScene && !scenePath) return alert('勾选换背景后请上传背景图');
+    const btn = document.getElementById('btn');
+    btn.disabled = true;
+    document.getElementById('log').textContent = '提交中…\n';
+    const payload = {
+        video_path: videoPath,
+        swap_person: swapPerson,
+        swap_scene: swapScene,
+        person_image_path: personPath,
+        scene_image_path: scenePath,
+        scene_app_key: document.getElementById('sceneApp').value || 'bg_v2',
+        person_app_key: document.getElementById('personApp') ? document.getElementById('personApp').value : 'dreamid_v',
+        prompt: document.getElementById('prompt').value.trim(),
+    };
+    const resp = await fetch('/api/video-person-scene/submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+        btn.disabled = false;
+        return alert(data.detail || '提交失败');
+    }
+    taskId = data.task_id;
+    if (timer) clearInterval(timer);
+    timer = setInterval(poll, 2000);
+    poll();
+}
+async function poll() {
+    try {
+        const resp = await fetch('/api/video-person-scene/status/' + taskId);
+        if (!resp.ok) {
+            // 404 = taskId 不存在（通常是服务重启后旧 task 丢失）
+            clearInterval(timer);
+            document.getElementById('btn').disabled = false;
+            document.getElementById('log').textContent = '任务状态丢失（服务可能已重启）。\n请重新提交任务。';
+            return;
+        }
+        const data = await resp.json();
+        const lines = (data.logs || []).map(x => x.msg || x).join('\n');
+        document.getElementById('log').textContent = (lines || data.status) + (data.error ? '\n' + data.error : '');
+        if (data.status === 'SUCCESS') {
+            clearInterval(timer);
+            document.getElementById('btn').disabled = false;
+            document.getElementById('videoArea').innerHTML =
+                `<video src="/api/video-person-scene/result/${taskId}" controls autoplay></video>`;
+        } else if (data.status === 'FAILED') {
+            clearInterval(timer);
+            document.getElementById('btn').disabled = false;
+        }
+    } catch (e) {
+        // 网络错误（服务挂掉）→ 停止轮询，避免刷屏
+        clearInterval(timer);
+        document.getElementById('btn').disabled = false;
+        document.getElementById('log').textContent = '连接失败：' + e.message + '\n服务可能已停止。';
+    }
+}
+</script>
+</body>
+</html>

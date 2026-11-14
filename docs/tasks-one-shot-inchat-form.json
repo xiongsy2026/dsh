@@ -1,0 +1,215 @@
+{
+  "name": "one-shot-inchat-form",
+  "title": "one-shot-video 去 8090 化 —— 对话内表单进、右栏出",
+  "adr": "docs/ADR-one-shot-inchat-form.md",
+  "date": "2026-10-08",
+  "user_intent": "「还要启用8090服务，把要输入的放单agent里面去填表，输出的右侧栏展示」+「不要还要启动一个什么服务，太重了，后面没法商业化」",
+  "root_cause": {
+    "form_primitive": "内核没有表单插件：elicitation 全树零命中、primitives 无 Select/Textarea/Form、ask_user_question 是分页向导（dsh-client-ui-user-questions/lib/client.js:488）⇒ 渲染器必须自己写一份、全 skill 共用",
+    "reuse": "inputActions.setDraft/addAttachments/submit（dsh-client-ui-conversation/lib/client.js:12627-12639）+ conversation.createDrafts(sessionId,files)（:2967-2986）程序化塞图 + conversation.input.overlay 槽（list 型·replaceRisk:none·官方 FeedbackDialog 先例 dsh-client-ui-message-feedback/lib/client.js:57-135）",
+    "engine_legs": "编译腿=纯转发（app.py:7418）可搬；服务壳=sqlite 已在 C:\\\\dsh\\\\backend\\\\data\\\\tasks.db（task_store.py:32-34）；生成腿=RPA 但有 weeksir REST v2（判 A 可直连，ADR §5.5）",
+    "images_not_urls": "引擎图片入参一律 Path(...).exists()、无公网 URL 能力 ⇒ 表单图片字段必须是上传控件，贴链接是假字段（ADR §2 红字）"
+  },
+  "hard_boundaries": [
+    "表单不直连引擎：提交物 = 一条普通用户消息 + 附件（setDraft + addAttachments），agent 侧零改动；不许出现第二条调用路径",
+    "表单不收花钱确认：点头仍只有 127.0.0.1:8100/approval 那一次点击（见 memory/spend-approval-human-gate）",
+    "表单是加速器不是关卡：客户直接在聊天里丢文字+图，agent 必须照常能跑",
+    "字段表唯一源 = .dsh/skills/<id>/SKILL.md 的 frontmatter form: 段；不许在插件里再硬编一份（两个入口=违规）",
+    "表单里不许出现改了也不生效的控件：one-shot 的 9:16/15s/720p 写死、8091 的 engine 是死字段（pipeline.py:192）",
+    "卡片上不出现任何积分/价格数字（价格必须从 gateway resolve 现读）",
+    "不碰 pipeline/step5_video_generate.py 与 BOUNDARY.md 受保护文件：去 RPA 走新增旁路文件（PROTECTED_FILES 是穷举清单 check_replica_boundary.py:45-50）",
+    "不许顺手停 8090：它同时是 prompt-reverse 第 6 档台的宿主",
+    "重启 8090/8100 前先 hypit_bridge.py preflight；8100 有看门狗（WeeksirModelAdmin 每 1min），杀掉等 1 分钟自动拉起、不要自己 Popen 抢端口",
+    "动 plugins/super-clone-ui/lib/client.js 前先查 mtime + git diff --numstat，只用精确插入式编辑（多会话并发写同一文件）"
+  ],
+  "unknowns_must_verify": [
+    {
+      "id": "U1",
+      "q": "conversation.input.overlay 这个 list 槽的 ownerProps 里有没有 inputActions / 能否拿到 sessionId",
+      "why": "决定 P0a 能不能不接管 composer 就把文本和附件交出去",
+      "how": "读 dsh-cordis-client-runner/lib/client.js:2852-2907 的 ownerProps + 真界面点一次实测"
+    },
+    {
+      "id": "U2",
+      "q": "接管 composer 时（InputBar 只 display:none，dsh-client-ui-renderer/lib/client.js:872-878）submit() 是否还能走完 admission/附件结算",
+      "why": "决定 P0b（自动发）能不能做",
+      "how": "真界面实测，不许靠推断"
+    },
+    {
+      "id": "U3",
+      "q": "前端读不到 .dsh/skills 目录（只有 sessions.list / skills.remote.list）⇒ 字段表怎么到渲染器手里",
+      "why": "决定 form: 段的投递通路",
+      "how": "倾向 8100 新增只读 GET /api/skills/forms（解析 frontmatter），而不是让插件扫盘"
+    },
+    {
+      "id": "U4",
+      "q": "weeksir v2 的 POST 创建路径+请求体、reference_image_ids 上传接口、token 获取方式",
+      "why": "P4 的开工前提",
+      "how": "已登录浏览器 DevTools/HAR 抓一条真提交 = 花 225 积分，必须先过报价关口并等同意"
+    }
+  ],
+  "incidents_found": [
+    "✅ 已修 2026-10-08：weeksir 明文账号密码从 pipeline/step5_video_generate.py:186-187 清出，改 config 字段 + .env（WEEKSIR_USERNAME/PASSWORD），缺配置抛 RuntimeError 不再拿空串点登录；全仓 15 个副本文件（7 个 debug_*.py、PRD.md、PRD_replica.md、tasks_replica_1to1.json、weeksir_example_rpa.py、两张页面快照、.workbuddy/memory 两份）已脱敏，复查只剩 .env。⚠️ 这些文件都未入 git ⇒ 历史干净；但**密码本身必须轮换**（已进过对话与多份文件）",
+    "✅ 已修 2026-10-08：app.py:7605 的 SSE 过滤由字面量 'one_shot' 改引用 oneshot_video.TASK_TYPE（库里实测 one_shot_video 19 条）⇒ /api/one-shot/events 不再是死路径；⚠️ 要重启 8090 才生效",
+    "✅ 已修 2026-10-08：SKILL.md §2 端点表 file:line 全部重核（旧版偏移约 +110 行）",
+    "⚠️ 未处理（需用户决定）：BOUNDARY 签名基准**整片过期** —— 6 处漂移里只有 step5 是我改的（且它的 delta +3933B 远大于我加的 ~17 行 ⇒ 我动手前就已漂），另外 5 处（step1/step3/workflow.py/frontend/replica.html/app.py 复刻段 1636-3333）是别人未确认的改动。我没有跑 --update：那等于替未验证的改动背书",
+    "✅ 实测价拿到：weeksir seedance-2-renlian 15s/720p = 225 积分（f_000144），不再是占位",
+    {
+      "id": "INC-U1-overclaim",
+      "date": "2026-10-08",
+      "what": "台账把 U1 写成\"已验：standardProps 里有 inputActions / sessionId / useConversation\"，其中 sessionId 是推断、useConversation 被当成附件接口；真读编译产物后两条都不成立。",
+      "impact": "P0a 的图片腿在真运行时静默退化成\"只填文字\"（有降级文案，但功能没通）。",
+      "fix": "改为 ctx.get(\"conversation\").createDrafts(sid, files) + inputActions.addAttachments；闸 B10/B11 钉死；ADR §2.5 补\"P0a 落地后补的三条内核事实\"。",
+      "lesson": "静态读一份 provide() 声明不等于读到槽的实际 props；判\"某个 prop 到不到\"要看渲染点的 renderSlot(name, props) 实参 + scope 适配器两处。"
+    },
+    {
+      "id": "INC-form-mount-point",
+      "date": "2026-10-08",
+      "what": "第一版把表单挂在 conversation.input.overlay（输入框上方覆盖层），展开后压住 composer，而且是个常驻控件 —— 没登记意图也会出现。用户原话：『你怎么把表单放到了对话框这里，不符合需求，挂点应该是明确意图后让客户填写，填写收集到的能正常入参』。",
+      "root_cause": "我把『在对话中填表』理解成『在输入区旁边填表』，并且漏了产品既有铁律『先明确意图，才有 UI』（工作区 AGENTS.md 右栏 UI 铁律同一条判据，输入侧同样适用）；另外只做到『生成一条消息』，没给 agent 一条读参数的契约 ⇒ 填了也没人收。",
+      "fix": "挂点改 conversation.chat.turnTail + 意图门控（8100 按会话回 show）+ 提交落会话级载荷 + scripts/intent.py payload 收口；P0b 整条作废；闸 B2/B3/B4/B5/B9/E1 钉死。",
+      "lesson": "输入类 UI 的挂点判据是『意图之后 + 对话流内』，不是『离输入框近』；而且表单必须同时定义『谁来消费这些值』，否则只是把追问换成了一张没人读的表。"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T0a",
+      "layer": "表单",
+      "title": "P0a 表单挂 agent 对话流的回合尾部（conversation.chat.turnTail）：意图登记后才出现，提交只落 8100 会话级载荷，agent 经 scripts/intent.py payload 直接入参",
+      "status": "redone-on-stream-mount-awaiting-ui-check",
+      "depends_on": [],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js",
+        ".dsh/skills/one-shot-video/SKILL.md",
+        "backend/model_admin.py",
+        "scripts/check-skill-form.py"
+      ],
+      "done": [
+        "U1 更正（2026-10-08 二次读码）：input.overlay 的渲染点只传空 props（dsh-client-ui-conversation/lib/client.js:16069），session scope 注入的是 inputActions + useConversation/useInput（:16590-16604），**没有 sessionId 这个 prop**⇒ 会话 id 要自己兜底（props.sessionId || currentSessionId(ctx)）",
+        "U3 已定：字段表由 8100 GET /api/skills/forms 投递（解析 SKILL.md 的 form: 段），唯一源仍是 SKILL.md",
+        "SKILL.md 加 form: 段（6 字段·行格式 key|type|label|必填|选项|引擎参数），version 0.1.0→0.2.0",
+        "model_admin 加 parse_skill_form / skill_forms_view / GET /api/skills/forms（只读·CORS）；8100 已经看门狗重启（PID 119856→18376），线上实测返回 6 字段",
+        "client.js 加 buildSkillDraft（纯函数）+ mountSkillForm（input.overlay·rev skill-form-20261008a）；node --check 通过",
+        "新闸 scripts/check-skill-form.py 26 条全绿（A 字段表唯一源/解析容错、B 不调引擎·不自动提交·无价格、C buildSkillDraft 值表 6 条、D param 必须对得上 compile 入参）",
+        "附件腿纠错（rev skill-form-20261008b）：createDrafts 在 conversation 服务上（:2972 / 官方调用 :16781 / 取法 :16505 ctx.get(\"conversation\")），useConversation() 给的只是会话数据快照（:2467-2484）⇒ 原实现必然落空、图片永远带不上；已改走服务并保留\"只填文字\"降级",
+        "闸补 B10/B11 两条（附件腿只许 ctx.get(\"conversation\")、会话 id 必须有兜底），28/28 绿，两条都做了反向对照",
+        "🔴 挂点重做（用户否掉第一版）：从 conversation.input.overlay（贴着输入框）改到 conversation.chat.turnTail；输入框一寸不碰 —— setDraft / addAttachments / inputActions / submit 在表单这一段源码里全部不许出现（闸 B2/B3）",
+        "出现条件 = 这条会话登记过意图：8100 GET /api/skills/form?session= 回 show=false 时 select 返回 null（闸 B5）；意图档 ↔ 技能目录的映射写在 SKILL.md frontmatter 的 intent: 键（one-shot-video → product-video 档）",
+        "服务端 form_submit：必填真拦、select 归选项码、字段表外的 key 直接丢、图片按 param 名展开成绝对路径数组、文件名洗 ASCII（防 ../ 穿越）、>7 张 / >8MB / 非图片一律拒；载荷 TTL 与意图同口径（闸 E1-E15 真跑该函数）",
+        "agent 收口契约：python scripts/intent.py payload ⇒ {ok, skill, params}，params 即可直接喂 compile；判据只在 8100 一份，脚本只搬运（不抄第二份校验）",
+        "旧复数口 GET /api/skills/forms 已删（同一件事不留两个入口），8100 重启后实测 404；rev 提到 skill-form-20261008c；闸 47/47、回合尾推荐闸 20/20（顺带修了它把表单节误算进自己块的切块 bug）"
+      ],
+      "remaining": [
+        "真界面验证：/one-shot-video 登记意图后，agent 那条回复的尾巴上应出现表单卡（且输入框区没有任何新东西）；填完点【提交这张表】→ 回一句『开始』→ agent 跑 intent.py payload 拿到 params 并照它入参",
+        "一条会话只留最新一张卡（DOM 去重）在真界面上的效果"
+      ],
+      "acceptance": [
+        "字段与引擎强校验一一对上（一句话必填、图 1-7 上传、变体下拉、engine 下拉）",
+        "不自动 submit、不调任何引擎口、不出现价格数字（闸断言）",
+        "客户不填表直接在聊天里发文字+图，skill 照常跑通",
+        "params 的键 = SKILL.md form: 段第 6 列的引擎参数名（闸 E3/E12）",
+        "没登记意图 ⇒ 表单一条都不画、提交被拒（闸 B5 + E1）"
+      ]
+    },
+    {
+      "id": "T0b",
+      "layer": "表单",
+      "title": "（作废）P0b 接管 composer + 自动 submit",
+      "status": "cancelled-not-deferred",
+      "depends_on": [],
+      "files": [
+        "plugins/super-clone-ui/lib/client.js"
+      ],
+      "acceptance": [
+        "priority 压到 -10 以下且注册自己的 pending-interaction 域，不抢 user-questions/approval 的 seat",
+        "接管期间原生输入框仍可恢复（display:none 不是卸载）"
+      ],
+      "why_cancelled": "2026-10-08 用户否掉：表单必须在 agent 的对话里出现、不能动对话框。往共享输入框脚本输入本来就是禁止项，所以这条不是排期靠后，是方向错。"
+    },
+    {
+      "id": "T1",
+      "layer": "表单",
+      "title": "P1 form: 段成为通用契约，渲染器读它服务多 skill",
+      "status": "pending",
+      "depends_on": [
+        "T0a"
+      ],
+      "files": [
+        ".dsh/skills/one-shot-video/SKILL.md",
+        "plugins/super-clone-ui/lib/client.js",
+        "backend/model_admin.py"
+      ],
+      "acceptance": [
+        "第二个 skill（super-clone 或 video-enhance）只加 form: 段就能出表单，不改渲染器",
+        "字段表只有一处来源：SKILL.md frontmatter（闸扫全仓不许出现第二份硬编字段表）"
+      ]
+    },
+    {
+      "id": "T2",
+      "layer": "去服务化",
+      "title": "P2 编译腿搬进 skill 脚本，走 gateway.py call text.complete",
+      "status": "pending",
+      "depends_on": [],
+      "files": [
+        ".dsh/skills/one-shot-video/scripts/",
+        "D:/video-skill/backend/gateway.py"
+      ],
+      "acceptance": [
+        "41 字段 JSON 编译质量对回原 prompt_compiler 输出（同题多采样比，不是一次）",
+        "编译进积分账（basis/tokens 可查），不再账本外直连 OPENAI_*/SR_GROK_*"
+      ]
+    },
+    {
+      "id": "T3",
+      "layer": "右栏",
+      "title": "P3 右栏工作台：进度 + 成片，读 data/tasks.db，不依赖 8090 SSE",
+      "status": "pending",
+      "depends_on": [
+        "T2"
+      ],
+      "files": [
+        "docs/ADR-workbench-presence.md",
+        "backend/model_admin.py",
+        "plugins/super-clone-ui/lib/client.js"
+      ],
+      "acceptance": [
+        "WORKBENCHES 加一档、intent 登记即弹台（排他规则不破）",
+        "成片走交付三件套：productions/<task>/outputs ASCII 名 + 8100 直链 + 抽帧贴图"
+      ]
+    },
+    {
+      "id": "T4",
+      "layer": "商业化门槛",
+      "title": "P4 生成腿去 RPA：新增 weeksir v2 旁路客户端（step5 原文件不动）",
+      "status": "blocked",
+      "depends_on": [
+        "U4"
+      ],
+      "files": [
+        "D:/video-skill/backend/services/（新文件）"
+      ],
+      "acceptance": [
+        "抓包前先报价（225 积分/条 × 条数）并等到明确同意",
+        "client_request_id 幂等键接上，替代 8090 的 dedup；失败只补跑那一条",
+        "不再需要有头浏览器与 weeksir_profile 登录态"
+      ]
+    },
+    {
+      "id": "T5",
+      "layer": "收口",
+      "title": "P5 SOP：form: 段成为上架交付物",
+      "status": "pending",
+      "depends_on": [
+        "T1"
+      ],
+      "files": [
+        "docs/skill-fast-install.md"
+      ],
+      "note": "用户明示：SOP 最后一步，别提前动"
+    }
+  ],
+  "gates": [
+    "新建 scripts/check-skill-form.py：钉『表单不自动 submit / 不调引擎 / 无价格数字 / 字段集==引擎入参 / 字段表只有一处来源』，每条配反向对照",
+    "复跑：check-skill-dock(89) · check-workbench-client(64) · check-turn-tail-recs(20) · check-approval-attest"
+  ]
+}

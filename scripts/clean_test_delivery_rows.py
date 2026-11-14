@@ -2,9 +2,10 @@ import io
 import json
 import re
 import shutil
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-LED = r"C:\dsh\.dsh\delivery.json"
-BAK = r"C:\dsh\.dsh\delivery.json.bak-before-test-cleanup"
+LED = os.path.join(WS, r".dsh\delivery.json")
+BAK = os.path.join(WS, r".dsh\delivery.json.bak-before-test-cleanup")
 # 只认这两类合成会话 id；真实会话是 session-<uuid>，不会被匹配到
 TEST = re.compile(r"^session-(ANCHOR|PROGRESS)")
 

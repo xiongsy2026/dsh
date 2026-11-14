@@ -13,15 +13,16 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 YML = Path.home() / ("AppData/Local/Programs/DSH Desktop/resources/app/node_modules"
                      "/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml")
-BACKUP = Path(r"C:\dsh\.dsh-ui-backup\agent.cordis.yml.pre-wake-budget-20261004")
-PATCH = Path(r"C:\dsh\_setup\patch_wake_budget.py")
-REBUILD = Path(r"C:\dsh\_setup\rebuild_weeksir_desktop.py")
-SRC = Path(r"C:\dsh\_setup\dsh-harness\packages\jobs\tool-jobs\src\index.ts")
+BACKUP = Path(os.path.join(WS, r".dsh-ui-backup\agent.cordis.yml.pre-wake-budget-20261004"))
+PATCH = Path(os.path.join(WS, r"_setup\patch_wake_budget.py"))
+REBUILD = Path(os.path.join(WS, r"_setup\rebuild_weeksir_desktop.py"))
+SRC = Path(os.path.join(WS, r"_setup\dsh-harness\packages\jobs\tool-jobs\src\index.ts"))
 RUNTIME = Path.home() / ("AppData/Local/Programs/DSH Desktop/resources/app/node_modules"
                          "/@deepseek-ai/dsh-tool-jobs/lib/index.js")
 out = []

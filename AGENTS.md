@@ -47,7 +47,7 @@ python scripts/intent.py <skill> [任务名]
 ```
 
 - 🔴 **为什么是 `scripts/intent.py` 而不是直接调 `hypit_bridge.py intent`**（2026-10-03 实测）：
-   后者要写 `D:\video-skill\.gateway_intent.json`，那在**工作区外**，DSH 自带 agent 的文件沙箱直接拒
+   后者要写 `backend/.gateway_intent.json`，那在**工作区外**，DSH 自带 agent 的文件沙箱直接拒
    （报 `sandbox escalation … is not strictly wider`）⇒ 用户明明点了 skill，右栏却一条 UI 都不出。
    工作区脚本只写 `<工作区>\.dsh\intent.json`，8100 的判定口两个源合并读（同一会话取 ts 更新的那个）。
 - **会话 id 是 DSH 注入子进程的托管变量**：PowerShell 里写 `$env:DSH_SESSION_ID`，**不是** bash 的 `$DSH_SESSION_ID`；
@@ -74,14 +74,14 @@ python scripts/intent.py <skill> [任务名]
 | 没有显式登记 | **零 UI**。盘上的痕迹（旧 claim / 带会话标的 run）**永不触发页签**，只当台里的显示信息 |
 
 - 🔴 **不靠痕迹兜底**（2026-10-02 第四次修订）：实测装了个纯提示词 skill，切回会话却在弹 omni 台——因为一条 67 分钟前的 run 带着该会话的标被当成"佐证"。run 不会过期 ⇒ "跑过一次"就成了永久产权，那仍然是在猜意图。
-- **纯提示词 / 知识库类 skill 不登记意图**：`seedance-*`（那 13 个 prompt 库）、`film-*` 写作类都没有引擎，挂了也只是空壳。它们照常干活（产出就是文案/提示词本身），只是不占右栏。
+- **纯提示词 / 知识库类 skill 不登记意图**：`seedance-*`（那 13 个 prompt 库）、`film-*` 写作类、`tvc-director`（TVC 广告导演，2026-10-14 从上游装进技能库）都没有引擎，挂了也只是空壳。它们照常干活（产出就是文案/提示词本身），只是不占右栏。
 - 🔴 **选了就要看到界面**：`intent <会话> hypit` 这一步会**顺手把 studio 查看器起起来**并 claim 给这条会话（`studio_up`：解析该会话的工程→已有查看器就复用→否则从 5179 往上找空闲口，无 shell、路径限工作区 `productions/` 内、15 秒内没应答就报出来）。触发者是 agent 跑 intent 这条命令，所以**不加 HTTP 执行端点**（那才是要鉴权的面）。
 - 引擎动作会自己钉意图（**这条现在才是真保险**）：omni = `store.create_run()` 带 session 时自动登记 `omni`；hypit = `studio-claim` 自动登记 `hypit`。显式 `intent` 命令照旧要跑，但**忘了跑不会再导致"该弹的不弹"**——2026-10-02 实测线上登记簿 0 条是 agent 自己登记的，所以把登记绑到了必然发生的动作上。
 - 台弹了但引擎没起 ⇒ 台里显示"引擎没在跑 + 怎么起"，**不藏台**。判定口（8100）自己没回话时显示"判定口没回话"，**不许谎报成"这条会话没意图"**。
 - 回归（改这条逻辑必须先过）：`check-intent-rule.py` · `check-workbench-presence.py` · `check-workbench-client.mjs` · `check-intent-anchor.py`（建 run⇒钉意图的锚点，含"登记炸了也不能让建片失败"）· `check-export-gates.py`。**条数不写在这里**（写了就会烂：这一行曾经停在 15/40/28，现在实际是 55/58/59），以各闸自己打印的汇总为准；右栏加一档工作台 ⇒ 前三套必须同步（`check-workbench-client.mjs` 的 0 号断言就是钉这条的）。
 - ⚠️ 未接入网关的 skill **不得调用**：`product-video-pipeline` 目前直连 `https://zexapi.com`（`SKILL.md:81`、`scripts/poll_task.ps1:3`），绕开统一网关的预扣/结算/审计，且那条 key 实测欠费。改造到 `gateway.py call` 之前，即使被显式调用也要先告知用户这一条、不要直接花钱。
 - ⚠️ **`prompt-reverse` 已上架但范围被砍过**（2026-10-05 用户拍板"只到提示词，不出片"）：它的模型腿在 **8090 引擎进程里直连厂商**（`prompt_reverser.py:570` 的 MiMo、`:694` 的 Grok，通用化/融合走 `gpt_client`）⇒ **不在网关账本上、没有预扣/结算/审计**。所以：**只允许跑视频理解 + 文本改写**；`/api/h3-studio/generate`（出片）、`fuse-product` 之后的生成腿、`publish-rpa` **一律禁调**，用户要出片就报一句"这条不在本 skill"并引导 `/omni`、`/super-clone`、`/hypit-pipeline`（那几条已接网关、会报价会扣分）。把它接进网关是**待办**，不是可以自己扩范围的理由。
-- ⚠️ **`one-shot-video`（一句话生视频）两条腿都是例外 route**（2026-10-06 拍板装上）：编译腿在 8090 引擎进程里直连 `OPENAI_*`（gpt-5.6-sol）/ `SR_GROK_*`（grok-4.6）；生成腿是 Playwright RPA 提交 weeksir.com/video 选 seedance-2.0-renlian（复用 `pipeline/step5_video_generate.py` 的 `run()`）⇒ **不经 `gateway.py`、不在网关账本上**。所以：**禁止编造积分价**，报价按 weeksir 平台实扣（按条）说并等同意；`pipeline/step5_video_generate.py` 是 `D:\video-skill\BOUNDARY.md` 整文件保护的爆款复刻线路，**只调不改**。
+- ⚠️ **`one-shot-video`（一句话生视频）两条腿都是例外 route**（2026-10-06 拍板装上）：编译腿在 8090 引擎进程里直连 `OPENAI_*`（gpt-5.6-sol）/ `SR_GROK_*`（grok-4.6）；生成腿是 Playwright RPA 提交 weeksir.com/video 选 seedance-2.0-renlian（复用 `pipeline/step5_video_generate.py` 的 `run()`）⇒ **不经 `gateway.py`、不在网关账本上**。所以：**禁止编造积分价**，报价按 weeksir 平台实扣（按条）说并等同意；`pipeline/step5_video_generate.py` 是 `backend/BOUNDARY.md` 整文件保护的爆款复刻线路，**只调不改**。
 - ⚠️ **`motion-transfer`（动作迁移·8091）是第 7 档，也是唯一"引擎在别的进程里花真钱"的腿**（2026-10-06 装上）：
    Step5 = Playwright 登录 RunningHub 账号池、操作公共工作流 `2106377827540103169`、等节点 285 出片。
    单价 **60 分/段 = 占位·未实测**（上游按 GPU 秒扣，"1 元=几分"未定）⇒ 报价时必须带上"占位"两个字。
@@ -142,7 +142,8 @@ python scripts/intent.py <skill> [任务名]
   **不再等 agent 想起来跑**。跑完由 runner 回调 `POST /api/skills/form/compiled` 挂第三份唤醒来源（`kind=compiled`），
   agent 被叫到的时候【编译结果已经在盘上】——它要做的是审分镜、报价、建条子、人批过之后提交 wan3.0、盯终态、交付。
   四条例外都不许越：
-  ① 服务端只允许起 `--stage compile`（常量写死 `KICKOFF_STAGE`，改成别的值 = 让服务端自己花钱，闸 K2/K3 红）；
+  ① 服务端只起【写死在常量里的那一步】：交表 ⇒ `KICKOFF_STAGE="compile"`（闸 K2/K3 红），
+     人点批准 ⇒ `KICKOFF_SUBMIT_STAGE="submit"`（闸 K11 红）—— 把这两个常量改成别的值 = 让服务端自己花钱；
   ② 命令**不来自请求体** —— 只有白名单 `KICKOFF_RUNNERS` 里那条 runner、四个固定参数、无 shell、cwd 锁工作区，
      所以这不是"给 8100 加执行端点"（那条禁令照旧有效）；
   ③ 挂号必须对得上 `.compile.pid`（`compiled_report`）—— 谁都能 POST 一下就能凭空造一条待醒 = 注入面；
@@ -155,9 +156,33 @@ python scripts/intent.py <skill> [任务名]
      ⚠️ 顺带一条 UI 债：入口是控制台程序，被【没有控制台的父进程】起时 Windows 会新建一个黑框（客户桌面上凭空一个窗口，
      点 X 还会把跑到一半的编译杀掉）⇒ `main()` 第一句 `_hide_console_window()` 自己摘掉，
      人要盯着输出排障就 `SUPER_CLONE_SHOW_CONSOLE=1`。
-  ⚠️ 花钱那一刀的分工没变：**`approve` 与真提交仍只有 agent 能发起，人点批准窗仍是唯一人证**——
-  理由不是客气，是提交之后要盯终态、失败要补跑、交付要贴图、范围一变要重新报价，那些是 agent 的活。
-  回归 `scripts/check-form-wake.py` 的 **K1–K10d**（含 Popen 打桩验命令形状、pid 牌子双向、ack 三分流、at 幂等）。
+  ⚠️ **建条子仍只有 agent 能发起、人点批准窗仍是唯一人证**；提交之后盯终态、失败补跑、交付贴图、
+  范围变了重新报价 —— 那些是 agent 的活（这句没被"批准即点火"改掉，改掉的只有"真提交由 agent 敲第一下"）。
+- 🔴 **批准 = 点火（2026-10-14 用户定，翻掉上一条里"真提交由 agent 敲第一下"那一半；建条子与人证那半照旧）**：
+  原话"审批条子的时候就是提交wan3.0直接触发，别通过agent，太慢了"。慢的真相不是几十秒，是
+  **会话不在前台就没人醒**（现网 session-cb4687fe：16:14 批完，`form-wake 等着没叫: 原因=agent-not-live`，
+  67 分钟后账本连一笔 preauth 都没有）。所以人点上【批准，开始跑】那一下，8100 在同一个请求里
+  **先起提交腿**（`model_admin.kickoff_submit` → `runner/run.py --from-form --session <id> --stage submit`，
+  牌子 `.submit.pid`、日志 `submit.log`），**再**挂号唤醒。🔴 顺序是死的：反过来 agent 醒来看到"没人提交"
+  就自己 call 一次 = 双提交（2026-10-12 那个并发形状，只是这次并发的是它自己）。
+  为什么这一刀可以让服务端花：批准那一下【已经是完整授权】—— 条子写死了
+  capability/purpose/account/段数/分数上限/会话/提交计划指纹/24h，"该提交什么"已经在服务器上。
+  五道护栏，缺一条不起、每条都要出声（`kickoff_why` 原样进唤醒文案，不许静默）：
+  ① 条子有【人点击】人证 `attest.method=dsh-card-click`；② 未过期；③ 还有剩余段（花完的条子再起=重复消费别人的授权）；
+  ④ 这条 lane 被某档合同 `spend:` 认领**且**在 `KICKOFF_RUNNERS` 白名单里；⑤ 任务目录没有活着的 `.submit.pid`。
+  唤醒文案随之分叉：`kicked_off` ⇒「服务端已替你提交，这一轮你只做交付」；没点成 ⇒ 把**为什么没点**念给 agent、这一条仍由它发起。
+  🔴 配套硬闸（不靠文案自觉）：`gateway.kickoff_collision_problems()` 判在**消费批准之前** ——
+  那张牌上是**别人的活 pid** ⇒ 拒（0 消耗、额度不吃、适配器没被调）；牌子上是自己 / 进程已退出 / 牌子超过
+  `SUBMIT_PID_MAX_AGE`（6h：Windows 会复用 pid，一张没人摘的旧文件不能把任务永久锁死）⇒ 放行，
+  **补跑失败的那几段是合法出口**。捞回（params 带 `job_id`）与没合同认领的腿（h3/motion-rpa）一律不在射程。
+  ⚠️ 判活**不许用 `os.kill(pid,0)`**：Windows 上它对【已退出、但父进程还握着句柄】的子进程照样返回成功，
+  而 8100 正是那个父进程 ⇒ 起的那台跑完了却读成"还在跑"，客户改参数重交被拒、右栏谎报"在跑"。
+  唯一源 = `gateway.pid_alive()`（`GetExitCodeProcess` 比对 `STILL_ACTIVE`），`model_admin._proc_alive` 现在也读它，
+  编译那张 `.compile.pid` 同一套判据（两边各算一份迟早漂，而且漂的方向是"误拦"）。
+  回归 `scripts/check-form-wake.py` 的 **K11–K16**（真跑 CLI 形状、五道护栏逐条、pid 牌子双向、wakeText 分流）
+  + `scripts/check-spend-receipt.py` 的 **B9–B10 / C3 / F 组**（活牌用真起的子进程、死牌是把同一个进程杀掉，
+  同一张文件前后改判 ⇒ 钉的是"进程在不在"而不是"文件在不在"）。旧那条 **K1–K10d**（Popen 打桩验命令形状、
+  pid 牌子双向、ack 三分流、at 幂等）照旧全部有效。
   📄 五步整条流程（谁触发 / 盘上凭据 / 断了会怎样）写在 **`docs/FLOW-five-step-clone.md`** —— 问"这一步该谁做、
   做到哪算完"先看那张表，别在散文里找。
 - agent 读/查参数只有三条命令：`python scripts/intent.py payload`（读客户提交的引擎入参）、
@@ -289,18 +314,60 @@ python scripts/deliver_pack.py <成片绝对路径> --task <任务名> --json
   （拦截器坏了绝不能变成"谁都别想结束"）；预算 = 同一份活最多拦 6 次、每次间隔 ≥90 秒，拦满就放它写报告；
   插件里**不许自己算义务**（只读 8100 的结论，判据两份迟早漂）。
   回归 `check-form-wake.py` 的 **O 组**（值表 + 变异对照 + 只听环回 + "判据只有一份"）与 `check-prime-retry.py` 的
-  **R23–R25b**（号当场落盘 / 被拒不落假号 / 写号排在进轮询之前）。
+  **R6**（号当场落盘、被拒不落假号）。
 
-🔴 **wan3-prime（满血 wan3.0）的重试环在网关适配器内部，不在上层**（2026-10-10 定，闸门 `scripts/check-prime-retry.py`）：这条 lane 平台实测成功率 ~23%（`/v1/balance` 读到 24 败 / 7 成），而**失败不计次**（`billing.charged_calls=0`）。
-⇒ `_yz_prime_run` 一次调用内部最多 4 次尝试、退避 45/120/240s，**每次决定前先读平台对账口**（`_yz_prime_reconcile`，0 分只读）：
-"报未知但平台已建任务" ⇒ 去捞那个号（今天 20:15/20:16 就是 502 带着任务号回来、旧代码没挖，号丢了只能重投）；
-"任务失败且计费 0" ⇒ 同参数重投（免费）；**对账口没回话 ⇒ 一律停**（"读不到"不等于"没建上"，这条是防自己造双花的唯一屏障）。
-⇒ **上层不许再 call 一次来"重试"**：每 call 吃一段批准额度，会把 23% 的成功率变成"用户点四次批准"。
-配额见底（`remainingCalls=0`）时适配器直接拒、0 消耗，并写明"先去 wan3.youzan666.vip 续次数"——**不许拿"闸拦住了"当失败隐瞒**。
-🔴 **2026-10-12 这条 lane 整条搬到 `wan3.youzan666.vip`**：域名与 Key 是**一起换**的一对（旧域那把 `pr-*` 在新域回 401 `KEY_NOT_FOUND`，反之亦然 —— 两家号池各自独立），唯一源 = `config.py` 的 `PRIME_YZ_BASE_URL` + `.env` 的 `PRIME_YZ_API_KEY`。
-新域的 `GET /v1/balance` 把一个 Key 拆成**两个桶**：`balance`/`tasks` = 按【秒】的标准版 `wan3.0-video`，`primeBalance`/`primeTasks` = 按【次】的 `wan3.0-video-prime`，而 `recent` 是**两桶合在一起**的列表 ⇒ 按次的数只从 prime 桶读、`recent` 必须按 `model` 筛（读错桶会把"还在排队的 prime 任务"判成"没建上 ⇒ 重投"= 双花，或把一条标准版片子当 wan3-prime 交付出去）。回归 `check-prime-retry.py` R26–R30。
-🔴 **只接 `wan3.0-video-prime` 这一条**（2026-10-12 用户定）：按秒的标准版 `wan3.0-video` 不建路由、不进价目、不许拿它当"探测便宜的腿"。
-🔴 **素材只走【全能参考】一种模式**（2026-10-12 用户定"只要全能参考，别的模式别接"；现网实测：首尾帧与参考素材一起给 ⇒ `400 REFERENCE_MODE_CONFLICT 首尾帧不能与参考素材混用`）：这条 lane 的入参名单 = `reference_image / reference_video / reference_audio / file` 四类（唯一源 `gateway._PRIME_YZ_MEDIA`），`first_frame`/`last_frame` 在**本地**就拒（0 分、一个请求都不发，判据 `check-prime-retry.py` R31–R33b）。⇒ 想做镜头衔接连续性**不要**用首尾帧喂这条腿：写进 prompt 的文字连续性、或 reference_image 喂角色/产品图，才是这条 lane 的用法。
+🔴 **重试纪律在网关适配器内部，不在上层**（2026-10-10 定）：上层每 call 一次都吃一段批准额度，所以「重试」绝不能靠上层再 call。（旧文写的「4 次重试环/对账口/失败不计次」是 yz-prime 那条的性质，已随它删除；新腿是单次尝试，见下。）
+（下面这段是 2026-10-16 换芯前的历史：yz-prime 有对账口、失败不计次、内部 4 次重试。新腿没有这些性质，见下。）
+🔴 **2026-10-16 这条 lane 换芯到 `api.tianyue.xyz`**（用户定"新的api，只接着一个wan3.0到网关上，之前的wan3.0 满血，删除"）：
+旧的 yz-prime（`wan3.youzan666.vip`，"域名与 Key 一起换、余额两桶"那套）**连适配器带配置整条删除**，唯一源换成
+`config.py` 的 `TIANYUE_BASE_URL` + `.env` 的 `TIANYUE_API_KEY`（模型 `TIANYUE_WAN30_MODEL`）。三条新事实：
+① 素材只收**公网 http/https URL**（本地文件先跑 `gateway.py upload` 拿直链，0 分）；② **没有对账口**
+（`/v1/balance`、列表口都 404）⇒ 适配器是**单次尝试、只捞不重投**（结果未知只拿 job_id 捞，重投=双花）；
+③ 余额不足 POST 直接 403 `insufficient_user_quota`（连建单都不给）——2026-10-16 实测这把 key 余额 ¥0，
+一条真单都没跑过，**计费口径（按次/按秒、单价）未实测**，价目先按次登记占位。回归换了对象：
+`check-prime-retry.py` 现钉新腿的防双花不变量（号落盘/只捞/未知不重发/本地拒/同名不覆盖/跨域剥凭据），12 条。
+
+🔴 **2026-10-30 用户定「wan3.0 固定换」：`video.generate/wan3-prime` 再换芯到 `youzan666.vip` 的 Prime 工作台，模型固定 `wan3.0-video-prime`（按秒计费）**
+- 上面 10-16 那条"唯一源=TIANYUE_*"**只对 `wan30-studio` 还成立**（另一会话 10-21 接的直出工作台，今天没动它）；
+  `wan3-prime` 这个 purpose 现在指 `config.WAN3_PRIME_YZ_BASE_URL` + `.env` 的 `WAN3_PRIME_YZ_API_KEY` / `WAN3_PRIME_YZ_MODEL`。
+  🔴 两条身份**分适配器**（`_yz30_video_run` / `_tianyue_video_run`）：计费口径不同（这家 `billingUnit=second`、有实时价目；tianyue 按次、没有对账口），
+  共用一个适配器就是"人批的价 ≠ 实际花的口径"那一类错（10-22 撤 `TIANYUE_DURATION_MODE` 同形）。
+- 契约是 0 分只读探出来的，不是照抄文档：`POST /v1/tasks`（**必须带 `Idempotency-Key`**，8—100 位 `[A-Za-z0-9_-]`，相同编号不能改任务内容）、
+  `GET /v1/tasks/:id`、`POST /v1/tasks/:id/refresh`（主动核对原线路）、`GET /v1/models`（参数卡）、`POST /v1/assets?kind=&filename=`（素材上传，图 20MB / 视频 100MB / 音频 15MB）。
+  状态机 `queued/submitting/processing/unknown → succeeded/failed`，成片在 `task.videoUrl`，金额 `task.quotedAmount`（单位 ⚡）。
+  入参合法域：duration **2—30 真实秒**、resolution 只 `720P/1080P`、ratio 七档、素材 图≤10/视频≤5/音频≤5/总≤20，数组顺序=引用顺序。
+  ⚠️ `GET /v1/videos/generations` 在这家回 404 —— **旧那套 `/v1/videos/*` 形状在这里不存在**，别照 10-16 的注释改。
+- 这次真正换到三样东西：① **平台侧幂等**（同参数重发它回 `replayed`、不重复预扣 ⇒ "提交后崩溃"第一次有了兜底）；
+  ② **素材直接传它自己的 `/v1/assets`**（视频上限 100MB ⇒ 不再必须先 `gateway.py upload` 拿公网外链）；
+  ③ **单价有出处**（`GET /v1/models` 现读 ⚡/秒）。🔴 但上层纪律**照旧是"先盘上的号、只捞不重投"** —— 平台能给幂等不等于可以拿重发当恢复手段。
+- 🔴 **价目口径从分/段改成分/秒，主人是 `gateway.lane_bills_per_second()`**：`count_from_args` 按秒那条用 **Σ秒 × 分/秒** 算条子上限（读不到 `_submit_plan.json` 的窗口 ⇒ **拒建条子**，绝不按段估一个数 —— 按段估就是把 40 秒三段片批成 12 分，第 2 段被自己的闸拦停）；
+  报价正文与 `prices` 那行的单位词也读同一个函数（`lane_price_unit_label`）。**登记的数 = 4 分/秒 = 占位·未实测**：
+  上游实测 prime 720P=0.15、1080P=0.20 ⚡/秒，而 **⚡→分 的比例这台机器还没定**（1 元=几分未定、账本是记账单位不是钱）
+  ⇒ 报价必须带"占位"两个字，跑完第一条拿 `task.quotedAmount` 与渠道账单回来订数（订 `model_prices.json`，不用改码）。
+- 到手判据升了一格：落盘之后还要 **ffprobe 读得出视频流**（`gateway.yz30_has_video_stream()`）才算成功，
+  只认 `succeeded`/200/`Content-Type` 不算（10-21 那条 457 字节的 S3 `NoSuchKey` 就是这个形状）。
+- 回归换了对象并加了牙：`check-prime-retry.py` 现在是**两组** —— R1–R10 打 `_tianyue_video_run`（wan30-studio 那条），
+  **Y1–Y11 打 `_yz30_video_run`**（现役这条）：幂等 key 由参数派生且真带上、模型名不是这一家就 0 请求拒、duration 超 30 本地拒、
+  素材超上限本地拒、上传回执 `kind` 不一致停在建单之前、未知不重发、号落盘里 `provider=yz30`（换芯时最容易留错的一格，已钉）、
+  读不出视频流不算到手；24 条。`check-engine-single-source.py` 的 M 组补了 **M7/M7b**（锁定位必须现读这家的模型与按秒口径、不许串别家名），
+  并当场抓到一条**假绿**：M4 原来写 `[m in ... for m in models] and len(...)` —— 非空 list 恒真，等于从没咬过（已改 `all()`）。
+🔴 **超级复刻的 wan3.0 使用规则（2026-10-22 用户定，推翻 10-21 的"两条按段长二选一"）：一条片子只走 `ME-WAN3-prime-1080p-1055`，PIX 先不接，也不许失败换档**
+- ⚠️ **2026-10-30 更新：模型名换了（现在是 `wan3.0-video-prime`，见上面那条"wan3.0 固定换"），但这条的规则一个字没变** ——
+  一条片子里只许一条模型、一种计费口径，失败不许换档、换档要回来重新报价。下面这些"怎么切 15 秒/值表/不许悄悄改判据"照旧全部有效，
+  只有涉及**具体模型名/单价口径**的字面（如"按次 60 分/段"）以 10-30 那一块为准。
+- 用户原话"**不然会乱**"：同一条片子里两段用两个模型、两种计费口径 ⇒ 画面与账一起漂。
+- 实现**不改判据、只摘第二条候选**：`.env` 的 `TIANYUE_WAN30_FALLBACK_MODEL` 留空 ⇒ `wan30_accepted_models()` 只剩一条 ⇒ `wan30_pick_1080p_by_duration()` 任何段长都原样返回 prime（它本来就"表里没有第二条就原样返回、不猜、不从价目捞第三条"）。要接回 PIX 只填那一行 + 回来重新报价。
+- 🔴 **超过 15 秒怎么切**（2026-10-22 定，取代旧写法"尾段短于 2s 就向前一段借时"）：每段有**两个窗口**，唯一源 `super_clone_wan3.plan_15s_windows()`——
+  · 时间轴窗口 `start/end` = 这一段在成片里负责的那一段 ⇒ 连续、不重叠，前 15 秒满段 + 多出来的尾巴单独一段，拼起来就是整条；
+  · 参考窗口 `ref_start/ref_end` = 喂给模型看的那一段 ⇒ 尾巴不足 5 秒时**只向前借参考窗口**（例 15.13s：出 `0–15` + 出 `15–15.13`、参考 `10.13–15.13`），生成 5 秒、**只留多出来的那 0.13 秒**（`fit_clip_duration(..., offset=)` 裁掉重复那截 ⇒ 重复的画面不进成片，也不占时间轴）。借满 5 秒**与 PIX 的下限无关了**：参考段只给 0.13 秒 = 模型看不见动作事实，只能猜。
+  · 为什么不再改时间轴：旧写法把 15.13s 切成 13.13+2.00 ⇒ ①批准条子上写明的窗口（0-15s）在盘上不成立，②本该满 15 秒的主段被压成 13.13 秒 = 白丢复刻质量（prime 是质量档，不是价格档）。
+  · 值表：8.7→单段；15.13→15 + 0.13(参考5s)；16→15 + 1(参考5s)；22.5→15+7.5；40→15+15+10；45.2→15+15+15+0.2(参考5s)；60→4×15。回归 `tests/test_super_clone_visibility.py`（4 条，含"换回旧规划器必须红"的变异对照）。
+- 40 秒 = 15 + 15 + 10 ⇒ **三条都按次**（切段本就 ≤15s，SKILL 硬规则 2）；**不许**为省事出 30/40 秒单段。⚠️ 代价要认：那条 10 秒尾巴以前走按秒的 PIX 更便宜，现在按次 60 分/段（报价按段数现读 `prices`，别照旧文案写"一条按秒"）。
+- 🔴 **duration 的两种口径【跟着模型名走】，不再是全局开关**（2026-10-22 撤掉 `TIANYUE_DURATION_MODE`）：名字尾巴 `-se` = 按秒（`duration` 与 `video_duration` 都传真实秒数），无尾巴 = 按次（`duration` 固定传 1、真实秒数只留在 `video_duration`）。判据唯一源 `gateway.wan30_is_per_second()` + `wan30_billing_note()`；一个键管两条不同档本身就是 bug（它为按秒那条设成 seconds 之后，按次那条也被按秒发）。⚠️ `.env` 里若还留着 `TIANYUE_DURATION_MODE=seconds`，**现在没人读它**（我没动 `.env`：另一条会话同一时间在里面改了 FALLBACK 键）。回归 `check-wan30-studio.py` 第 9 组四条（两个方向 + 判据两向 + 信封署名同源）。
+- 为什么仍然不许兜底：换模型=换计费口径，人批的是 A 的价、实际花的是 B 的口径 ⇒ 批的不是跑的；要换档回来重新报价。选择逻辑唯一源 `gateway.wan30_pick_1080p_by_duration()`（纯函数，`check-wan30-studio.py` 第 8 组 + `check-engine-single-source.py` M 组跑值表）。
+- `ME-wan30-1080p-1055` / `ME-wan30-720p-1055` / `S-Wan30-*` / `ME-WAN3-prime-720p-*` / `*-480p-*` / `X-WAN3-*` / `J-wan-*` **不接**：不进价目、不当"探测便宜的腿"。⚠️ 720P 那一档今天由另一条会话按用户另一句指令接进了 `wan30_studio` 手动页（有 12s/3:4 实测出片）——它**不在超级复刻路线里**；要连它一起拆得同时改映射 + studio 模型卡 + 那套断言，得用户点头，别顺手删别人未入库的活。
+- 🔴 **`completed` 不等于有片**（2026-10-21 现网：`task_0PUP4h…` 状态 completed、直链 200、`Content-Type: video/mp4`，内容却是 457 字节的 S3 `NoSuchKey`）。⇒ 拿到号就**当场落盘**，且"到手"的判据必须是 **ffprobe 读得出视频流**，不是状态码。
+🔴 **素材只走【全能参考】一种模式**（2026-10-12 用户定"只要全能参考，别的模式别接"；现网实测：首尾帧与参考素材一起给 ⇒ `400 REFERENCE_MODE_CONFLICT 首尾帧不能与参考素材混用`）：这条 lane 的入参名单 = `image_urls / video_urls / audio_urls` 三类（唯一源 `gateway._WAN30_MEDIA`；本地文件先 upload 拿直链），`first_frame`/`last_frame` 在**本地**就拒（0 分、一个请求都不发，判据 `check-prime-retry.py` R4/R4b）。⇒ 想做镜头衔接连续性**不要**用首尾帧喂这条腿：写进 prompt 的文字连续性、或 reference_image 喂角色/产品图，才是这条 lane 的用法。
 落盘侧另有一条：同名成片不许静默覆盖，旧的会留成 `.prev-<sha8>`（v3 曾把已交付给人看过的那条原地盖掉）。
 
 🔴 **判"失败"之前先看盘**（2026-10-06 实测）：8090 的结构性复刻有 Phase1 已跑完（分镜 JSON + 故事板海报都在 `outputs/sr_<ts>/`、`phase_state.json=after_step3`）却被标成 `failed` 的情况——父进程回显子进程日志时 GBK 崩了。
@@ -365,7 +432,7 @@ python scripts/deliver_pack.py <成片绝对路径> --task <任务名> --json
 
 ## 生成器
 
-本阶段客户只在 DSH 对话。jobs 调用 `D:\video-skill` 现成 Python。不打开 8090。不换对话模型（Agnes 3.0 Flash）。
+本阶段客户只在 DSH 对话。jobs 调用 `backend` 现成 Python。不打开 8090。不换对话模型（Agnes 3.0 Flash）。
 
 商品资料本阶段不建档：出片时在对话里现问产品图和卖点即可。
 
@@ -374,12 +441,12 @@ python scripts/deliver_pack.py <成片绝对路径> --task <任务名> --json
 任何 skill 要调模型（文字 / 图 / 视频 / 看图），一律经 `tool-jobs` 跑统一网关，**不各自硬编码厂商 key/endpoint、不直连供应商**：
 
 ```
-python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <LOOP.member> --json '<params>'
+python backend/gateway.py call <capability> [purpose] --account <LOOP.member> --json '<params>'
 ```
 
 - `capability`：`text.complete` / `image.generate` / `video.generate` / `video.analyze`；`purpose` 看 `gateway.py caps`。
 - 🔴 **要"公网直链"（把本机素材传给别的引擎当外链）就跑 `upload`，别手搓 HTTP**（2026-10-09）：
-   `python D:\video-skill\backend\gateway.py upload <文件> [--key-hint wan3|h3|motion|lipsync] [--account <成员>]`
+   `python backend/gateway.py upload <文件> [--key-hint wan3|h3|motion|lipsync] [--account <成员>]`
    ⇒ 0 分、不计费、不建预扣、不要批准条子，但**记台账**（`gateway.py uploads [N]` 查，里面只有 key 的 sha8）。
    host / 端点 / key 优先级**只在这一处**解析。实测三种死法都跟 key 好坏无关，别再归因成"token 失效"：
    `/openapi/v1/upload_file` **不存在**（却回 HTTP 200，body 里才是 `code:404`，只看状态码会当成功）；
@@ -396,7 +463,7 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    🔴 **引擎单一源（2026-10-10 事故：客户表里锁的是 yz-prime，agent 却念出"RunningHub wan3.0"）**：
    表单锁定位 ↔ 合同 `spend` ↔ 网关 `ROUTES`/价目 ↔ 代码里 `invoke()` 的那一对，四方必须指同一条 lane，
    由 `scripts/check-engine-single-source.py` 钉（含"把 spend 换成网关里没有的路由""摘掉单价登记""换个 provider"三种变异对照）。
-   配套两条硬规矩：① **报价里的上游与单价只许现读** `python D:\video-skill\backend\gateway.py prices`
+   配套两条硬规矩：① **报价里的上游与单价只许现读** `python backend/gateway.py prices`
    （这一行现在自带 provider，如 `video.generate/wan3-prime 60 分 [yz-prime]`），不许凭记忆写厂商标；
    ② 合同值里**不许写行尾注释**（`spend:` 后面的 `#` 说明会被吃进值里 ⇒ 三方比对对不上；`parse_contract` 现在会剥，但别依赖它）。
    ③ 🔴 **入口也不许留第二条引擎的路**（2026-10-10 深夜补）：`runner/run.py --engine` 只有 `choices=["wan3"]`，
@@ -414,6 +481,18 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
    **熔断默认 120 分**（`SUPER_CLONE_ANALYZE_CAP` 可调，打满就停下报数，不许死循环烧分），
    实扣写进 `material_analysis.json` 的 `auto_ran`/`auto_spent`（executor=`pipeline:invoke:video.analyze`）⇒ 报价与交付表读这份。
    代价要认：**看图免批但不免账**（单价现读 prices，6 分/次；实扣按 token，现网单条 14–40 分）。
+   🔴 **看图是一条【有序链】，不是一个 purpose**（2026-10-22 夜用户按当晚实测拍的序）：唯一源 = `.env`/`config` 的
+   `REPLICA_WAN3_ANALYZE_PURPOSE`，串形 `purpose[:次数],…` ⇒ 现值 `magpie_qfmodel:1,magpie_mimo:1,mimo:1`
+   （qoder 的 Qwen3.8-Flash 主 → opencode 的 mimo-v2.6-flash-free 第二 → 小米直连 mimo-v2.6-flash 第三）。
+   判据在 `super_clone_wan3._analyze_lanes()`：**链里点名了网关没有的腿 ⇒ 整条链作废、一条都不发**（半条链会拿一条
+   没人指定的腿跑完、再把回执署成主腿的名字）；一条裸名字（老写法 `mimo_pro`）= 单腿链，不用改码就能回退。
+   当晚判据（同一张真产品图、同一道题，判"结构看对没 / logo 读对没 / 有没有补画面外"）：`qfmodel` 认出紫色旋盖 +
+   读对 `jio` + 明写"规格成分本面未见，不按常识补"｜36.1s；`opencode mimo` 同样对｜37.1s；`mimo-v2.6-flash` 都对｜20.2s｜34 分；
+   🔴 `opencode deepseek` 把真实存在的盖子看成"未开口、无盖子或旋盖"；🔴 `dfmodel`(DeepSeek-Flash) 同错 + logo 读成 `jie` + **374.4s**。
+   🔴 **链上这三条【都不吃视频】**（实测：`qfmodel` 裸问 pt=42 → 带 10.2MB 原片 pt=82，Δ 只有题目文字，模型自己答"没收到视频"；
+   `dfmodel` 同理）⇒ 这条链只服务看图，**分镜腿仍只能小米直连 `mimo-v2.6-flash`**（同题正对照：pt 13→3265、逐秒动作与画面文字全读出来）。
+   回归 `check-engine-single-source.py` 的 **L1/L11/L12/L12b/L12c**（链作废、老写法回退、`:次数` 真被解析、真读一次序对）
+   + `check-material-analysis.py` 的 **M7b**（桩全挂时每条素材按链的序走一遍，一条都不许多）。
    🔴 同一次还封了那条近路：`gateway.py analyze` 以前直连 `call()` 分发器（记账/预扣/结算只在 `invoke()` 里）
    ⇒ 现在它转 `invoke()`，**一条能力只有一个入口**；判据也收成一份 `analysis_missing_paths()`（人话版从它套出来）。
    查"看过没"用只读口 `gateway.py analyses [N]`。回归 `check-material-analysis.py`（M5 结构锚点 / M6 合同手段 /
@@ -535,7 +614,7 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
   - 🔴 **要批的（默认）**：`video.generate` / `video.edit`（超分·去水印）/ `image.edit`（换脸）/ `lipsync`（译制·配音替换）/ `audio.generate`（配音·音乐）/ `transcribe`（ASR）—— **以后新增任何能力自动落到"要批"**，想免批必须在 `SPEND_APPROVAL_EXEMPT` 显式登记一行（闸 G1c 钉这个默认值）。
   - **闸在哪**：`gateway.py` 的 `invoke()` 在 **precheck/preauth 之前**调 `check_spend_approval(...)`；**判据 = `SPEND_APPROVAL_EXEMPT`（免批白名单，默认要批）**；`SPEND_APPROVAL_REQUIRED` 只是它派生出来的视图。闸与文档都从这一份读，别在别处再抄一份能力名。没有批准条子 ⇒ 回 `ok:false, error:"approval_required…"`，**不建 hold、不扣分、不发 HTTP**。
     ⚠️ 免批 ≠ 免账：这些腿仍走同一条 `precheck→preauth→settle→失败回滚`，扣分与留痕照旧；代价要认——**它们现在可以被任何一条会话直接花掉，出事只能事后从账本查，不是事前拦**。
-  - **条子怎么来**：拿到用户明确同意后，agent 跑 `python D:\video-skill\backend\gateway.py approve <cap> [purpose] --count-from <任务目录> --account <成员> --session <这条方案的会话id> --scope "<用户批准的那条方案一句话>"` 建**待批**，然后**批准窗自己弹到桌面上**（人点【批准，开始跑】；页面 `http://127.0.0.1:8100/approval`
+  - **条子怎么来**：拿到用户明确同意后，agent 跑 `python backend/gateway.py approve <cap> [purpose] --count-from <任务目录> --account <成员> --session <这条方案的会话id> --scope "<用户批准的那条方案一句话>"` 建**待批**，然后**批准窗自己弹到桌面上**（人点【批准，开始跑】；页面 `http://127.0.0.1:8100/approval`
     🔴 **段数与分数只许从盘上算**（`--count-from`，2026-10-10 用户裁定"审批一次就行"）：唯一源 = `gateway.py plan_segment_count()`，优先级
     `outputs/_submit_plan.json（管线 Step 0 写的提交计划）` > `TIMELINE.md 的「段」表` > `outputs 下的 seg*/chunk* 段目录（允许嵌两层）` > 单段（并如实说"按单段建的"）。手填 `--count/--credits` 与盘上不一致 ⇒ **拒建条子**，
     因为填少了会在第 2 段被自己的闸拦停、填多了等于替客户多批。
@@ -547,14 +626,18 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
     ⚠️ 强度边界：落点附近没有计划文件 / 免批能力 / **没有指纹的老条子**（2026-10-13 之前建的）一律放行，不假装管得住。
     回归 `scripts/check-approval-count-from.py`（K2e–K2q 段数主人 + M 组指纹，含真写侧↔真读侧 round-trip、临时账本真核销、变异对照）。 是同一条动作口的备选，见下一条"人证"）；查/撤：`gateway.py approvals` / `revoke <id>`。条子写死 能力+purpose+账户+段数+分数上限+24h 过期+**所属会话**+**提交计划指纹**，**换路由、加段数、超额度、过期、换了会话、改了窗口一律再拒**。
     🔴 `--session` 必须带（2026-10-06 事故补的）：不带 = 通用条子，任何会话都能消费别人的批准额度——我当时拿一次不相干的端点探测，就把另一会话签给 video-enhance 封面的 1 段/4 分吃掉了（闸判得"对"，但额度是共享的 ⇒ 谁都能花别人的同意）。已退回额度，规矩写进 `approval_allows` 与回归 G11b-G11e。
-    🔴 **人证 = 一次点击，不要口令、不要【系统】弹窗**（2026-10-08 两易其稿；2026-10-09 弹窗改回来自研窗，回归 `scripts/check-approval-attest.py` P 组）：
+    🔴 **人证 = 一次点击，不要口令、不要任何弹窗**（2026-10-08 两易其稿；2026-10-09 曾改回自研置顶窗；
+       **2026-10-22 用户再定「审批不要弹窗，就是一个审批链接，点了就直接提交任务，别再让 agent 提交 wan3.0」**
+       ⇒ 置顶窗连文件整条摘除（`backend/approval_popup.py` 已删、`gateway.pop_approval_window()` 已删），
+       回归 `scripts/check-approval-attest.py` 的 P 组也从"窗画得对不对"换成"还有没有第二条路 + 链接是不是唯一入口"）：
        `approve` 现在**只建一张【待批 pending】并给出报价，此时 0 额度**；额度只能由"人看到报价之后"的一次核销拿到。
-       - 主路（**唯一许给客户/用户看的路**）：`gateway.py approve` 建完待批会**自己弹置顶批准窗**
-         （`backend/approval_popup.py`，2026-10-09 用户指令"我要出现弹窗进行审批"）；窗里就是那张品牌批准卡
+       - 主路（**唯一许给客户/用户看的路**）：`approve` 输出里那条 **`http://127.0.0.1:8100/approval?session=<这条会话>`**。
+         🔴 必须带 `?session=`（不带 = 客户看到全局空列表，多会话并发时他能替别的方案点头）。页面里就是那张品牌批准卡
          （logo + 要跑几段 / 最多扣多少分 + 这次要做的 + 还剩几分钟作废），点【批准，开始跑】即生效。
-         弹不出来会在 approve 的输出里明说原因 ⇒ 退回备选页 **`http://127.0.0.1:8100/approval`**（同一个动作口，同一份判定）。
-         🔴 窗**不是第二种人证**：额度仍只有服务端 `consume_by_click` 签得出，窗只是它的另一个壳；
-         Enter/空格被显式吃掉（键盘路过不等于点头）、没有任何定时器调签发；**没人点 ⇒ 过期即拒**。
+         🔴 链接**不是第二种人证**：额度仍只有服务端 `consume_by_click` 签得出，壳可以有新的但必须调这同一个口；
+         **没人点 ⇒ 过期即拒**（fail-closed 没变）。
+         ⚠️ 摘窗**不改变"批准即点火"**：人点上那一下，服务端在**同一次请求里**先起提交腿、再挂号（见下一条），
+         所以 agent 那一侧只剩交付，不再提交 wan3.0。
          回归 `check-approval-attest.py` 的 P 组（含"扫违规先剥注释"这条自己的踩坑）。
          🔴 **禁止把任何 `python …gateway.py code/consumed …` 命令交给用户去敲**（2026-10-08 他第四次否："我不是说了不要powershell"、"还要输入powershell口令吗"）。
          `code`/`consumed` 只是运维自测兜底，**不许出现在给客户的消息里**。要签的东西一律：agent 建 pending ⇒ 指他去页面 ⇒ 自己轮询到生效。
@@ -620,8 +703,8 @@ python D:\video-skill\backend\gateway.py call <capability> [purpose] --account <
   - 报价后**不要**在同一轮里顺手调用生成——等用户回话。
   - 回归：`python scripts/check-spend-approval.py`（真值表 + "闸在预扣之前" + 拒绝时账本零变化 + 双向对照）。
 - 为什么走 tool-jobs 而非 MCP/插件：命令契约写在这里 + 各 skill 的 SKILL.md，**跨会话读文件即恢复、不靠 agent 记忆**；而**积分预扣/结算/审计只在网关里**，所以花钱的路径必须收在一处。⚠️ 旧说法"DSH 不加载 MCP"**已作废**（2026-10-05 实测：内核自带 `@deepseek-ai/dsh-mcp-client`，stdio + streamable-http，只是没装配进 cordis yml）——不用 MCP 是**选择**（审计与扣费），不是"不支持"，别再拿它当理由写进新文档。
-- 🔴 **重启常驻服务（8100/8765）前先 `python D:\video-skill\backend\hypit_bridge.py preflight`，必须看到 `safe_to_restart:true`**。它报的是：在途生成腿、在途导出、未结算预扣。2026-10-02 我就是把"查在途"和"杀进程"写进同一条命令，等于没查——带着 3 条在途腿重启，那 3 段被判死（预扣已回滚，0 分损失，但白等了）。遗留预扣用 `gateway.py holds [N]`（只读，带 `age_hours`）/ `holds-rollback <精确id>` **指名**回收，不自动退（会退掉别的进程正在花的分 ⇒ 双花）；🔴 没有批量开关（`all` / `*` / `--all` 一律拒），旧行没有 ts 就显示"不知道年龄"，不猜。
-  - 🔴 **8100 的存活判据是"答不答话"，不是"端口在不在"**（2026-10-11 现网：keep-alive 没设超时，插件 5s 一轮 + 表单页 8s 一轮把连接攒到 21 条、accept 积压打满 ⇒ 端口仍 LISTENING、进程仍活着，但新连接一律被拒，右栏与表单页同时死）。规则只有一份：`D:\video-skill\svc_8100_guard.py`
+- 🔴 **重启常驻服务（8100/8765）前先 `python backend/hypit_bridge.py preflight`，必须看到 `safe_to_restart:true`**。它报的是：在途生成腿、在途导出、未结算预扣。2026-10-02 我就是把"查在途"和"杀进程"写进同一条命令，等于没查——带着 3 条在途腿重启，那 3 段被判死（预扣已回滚，0 分损失，但白等了）。遗留预扣用 `gateway.py holds [N]`（只读，带 `age_hours`）/ `holds-rollback <精确id>` **指名**回收，不自动退（会退掉别的进程正在花的分 ⇒ 双花）；🔴 没有批量开关（`all` / `*` / `--all` 一律拒），旧行没有 ts 就显示"不知道年龄"，不猜。
+  - 🔴 **8100 的存活判据是"答不答话"，不是"端口在不在"**（2026-10-11 现网：keep-alive 没设超时，插件 5s 一轮 + 表单页 8s 一轮把连接攒到 21 条、accept 积压打满 ⇒ 端口仍 LISTENING、进程仍活着，但新连接一律被拒，右栏与表单页同时死）。规则只有一份：`backend/svc_8100_guard.py`
     （`status` 只读 / `sweep` 只掐卡死的那份 / `ensure` 看门狗每一跳 / `restart` **人工重启**）。
     三态 `HEALTHY|WEDGED|DOWN` 由 `classify()` 判，探针拿不到任何 HTTP 应答才算死 —— **404 也算活着**（拿 200 当"活"，路由一改名看门狗就每分钟杀一次健康服务；`/api/health` 在 8100 上根本不存在，用的是 `/api/model/caps`）。
     要手动重启 8100 就 `python svc_8100_guard.py restart`：任务的实例记录会卡成 `LastTaskResult=0x800710E0`（="还在跑"，`/run` 白敲），必须先 `/end` 并**确认 `wscript` 退净**再起。

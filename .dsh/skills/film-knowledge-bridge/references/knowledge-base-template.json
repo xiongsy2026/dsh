@@ -1,0 +1,10 @@
+{
+  "name": "AI STUDIO 洋子本地专业知识库",
+  "root": "__首次使用时选择任意知识库文件夹__",
+  "database": "__运行配置脚本后自动写入__",
+  "catalog": "",
+  "festival_catalog": "",
+  "indexed_documents": 0,
+  "indexed_chunks": 0,
+  "generated_at": ""
+}

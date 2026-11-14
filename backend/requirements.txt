@@ -1,0 +1,41 @@
+# Core web framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# HTTP clients
+httpx==0.26.0
+requests==2.31.0
+aiofiles==23.2.1
+
+# OpenAI SDK
+openai>=1.12.0,<2
+
+# Data processing
+numpy>=1.26.0,<3
+Pillow==10.2.0
+opencv-python-headless>=4.8.0,<5
+
+# Browser automation (Playwright)
+playwright==1.41.1
+
+# Environment
+python-dotenv==1.0.0
+
+# Database
+# sqlite3 is stdlib
+
+# Async utilities
+anyio>=4.0.0
+
+# YAML (for some configs)
+PyYAML>=6.0.1
+
+# Image processing extras
+# imageio[ffmpeg]  # optional, for video processing
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

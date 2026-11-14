@@ -2,7 +2,7 @@
 
 数据源三份，互相对账：
   ① DSH 会话目录   %D%/harness/sessions/--C-dsh--/session-*            ← 谁是真会话
-  ② 意图登记簿     D:/video-skill/.gateway_intent.json                 ← 谁表过态
+  ② 意图登记簿     .gateway_intent.json                 ← 谁表过态
   ③ 盘上痕迹       video_runs/*/run.json 的 session、.gateway_studio.json 的 owners ← 谁跑过
 判定口 8100 的 verdict 必须满足：弹哪个台 == 显式登记；没登记 ⇒ 两台都不弹（痕迹不算数）；任何会话最多一个台。
 
@@ -15,12 +15,13 @@ import os
 import sys
 import time
 import urllib.request
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DSH_SESSIONS = r"C:\Users\Administrator\AppData\Roaming\dsh-desktop\harness\sessions"
 GW = "http://127.0.0.1:8100/api/workbench/presence?session="
-VIDEO_RUNS = os.environ.get("VIDEO_UI_RUNS", r"C:\dsh\video_runs")
-STUDIO_MARK = r"D:\video-skill\.gateway_studio.json"
-INTENT_MARK = r"D:\video-skill\.gateway_intent.json"
+VIDEO_RUNS = os.environ.get("VIDEO_UI_RUNS", os.path.join(WS, r"video_runs"))
+STUDIO_MARK = os.environ.get("HYPIT_STUDIO_MARK") or os.path.join(BACKEND, ".gateway_studio.json")
+INTENT_MARK = os.environ.get("HYPIT_INTENT_MARK") or os.path.join(BACKEND, ".gateway_intent.json")
 SCOPE = sys.argv[1] if len(sys.argv) > 1 else "--C-dsh--"
 
 

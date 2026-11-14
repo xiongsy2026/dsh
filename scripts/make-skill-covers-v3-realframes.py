@@ -17,8 +17,9 @@ import sys
 import tempfile
 
 from PIL import Image, ImageDraw, ImageFilter
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-ROOT = r"C:\dsh"
+ROOT = WS
 OUT = os.path.join(ROOT, "productions", "_skill-covers")
 W, H = 944, 528                    # 2x 输出，dock 里显示 236x132
 ORANGE = (250, 111, 8)             # --dsw-alias-brand-primary，只做点缀

@@ -16,10 +16,13 @@ import os
 import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import gateway as g  # noqa: E402
 
-OUT = r"C:\dsh\productions\_skill-covers"
+OUT = os.path.join(WS, r"productions\_skill-covers")
 os.makedirs(OUT, exist_ok=True)
 
 # 统一视觉系统（§8.6）：同一深炭底 · 单一主体居中偏左 · 橙只做一条光带 · 底部留给叠字 · 无字无商标

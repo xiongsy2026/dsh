@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Framewright 电影化编译工作台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 430px; min-width: 340px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+        .section-title { font-size: 1em; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; color: #c4b5fd; }
+        .field { margin-bottom: 12px; }
+        .field label { display: block; font-size: .82em; color: #9ca3af; margin-bottom: 6px; }
+        .field input, .field textarea, .field select { width: 100%; background: #1e1e36; border: 1px solid #2a2a5c; border-radius: 8px; color: #e0e0e0; padding: 10px 12px; font-size: .9em; font-family: inherit; }
+        .field textarea { min-height: 110px; resize: vertical; }
+        .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: #8b5cf6; }
+        .row2 { display: flex; gap: 10px; }
+        .row2 .field { flex: 1; }
+        .stage-btns { display: flex; flex-direction: column; gap: 8px; }
+        .stage-btn { padding: 12px 14px; border: 2px solid #2a2a5c; border-radius: 10px; background: #1e1e36; color: #e0e0e0; font-size: .88em; cursor: pointer; transition: all .2s; text-align: left; }
+        .stage-btn:hover { border-color: #8b5cf6; }
+        .stage-btn.active { border-color: #8b5cf6; background: #2a2250; }
+        .stage-btn .s-name { font-weight: 600; display: block; }
+        .stage-btn .s-file { font-size: .75em; color: #888; margin-top: 2px; display: block; }
+        .action-btn { width: 100%; padding: 13px; border: none; border-radius: 10px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all .2s; }
+        .action-btn.primary { background: linear-gradient(90deg, #8b5cf6, #06b6d4); color: #fff; }
+        .action-btn.primary:hover { filter: brightness(1.15); }
+        .action-btn.primary:disabled { opacity: .5; cursor: not-allowed; }
+        .action-btn.secondary { background: #1e1e36; color: #c4b5fd; border: 1px solid #2a2a5c; margin-top: 10px; }
+        .action-btn.secondary:hover { border-color: #8b5cf6; }
+        .hint { font-size: .75em; color: #6b7280; line-height: 1.6; }
+        .status-line { font-size: .78em; color: #9ca3af; padding: 8px 12px; background: #1e1e36; border-radius: 8px; }
+        .status-line b { color: #22d3ee; }
+        .output-panel { flex: 1; padding: 28px; overflow-y: auto; background: #0f0f1a; }
+        .placeholder { text-align: center; padding: 80px 20px; color: #555; font-size: 1.05em; }
+        .result-card { background: #16162a; border-radius: 14px; padding: 22px; margin-bottom: 20px; border: 1px solid #2a2a5c; }
+        .result-card .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .result-card .card-header h3 { font-size: 1.05em; }
+        .card-index { background: #8b5cf6; color: #fff; padding: 3px 12px; border-radius: 20px; font-size: .78em; font-weight: 600; }
+        pre.prompt-body { background: #0d0d19; border: 1px solid #2a2a5c; border-radius: 10px; padding: 16px; white-space: pre-wrap; word-break: break-word; font-size: .85em; line-height: 1.7; max-height: 420px; overflow-y: auto; font-family: "Cascadia Code", Consolas, monospace; }
+        .handoff-body { background: #0d0d19; border: 1px solid #2a2a5c; border-radius: 10px; padding: 16px; white-space: pre-wrap; word-break: break-word; font-size: .84em; line-height: 1.7; }
+        .file-path { font-family: Consolas, monospace; font-size: .82em; color: #22d3ee; background: #0d0d19; padding: 10px 14px; border-radius: 8px; border: 1px solid #2a2a5c; word-break: break-all; margin-bottom: 12px; }
+        .valid-badge { padding: 3px 12px; border-radius: 12px; font-size: .78em; font-weight: 600; }
+        .valid-badge.ok { background: #065f46; color: #6ee7b7; }
+        .valid-badge.fail { background: #7f1d1d; color: #fca5a5; }
+        .loading-dots::after { content: "..."; animation: dots 1.2s steps(4) infinite; }
+        @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>FRAMEWRIGHT</h1>
+        <span class="tag">导演主导 · 电影化编译工作台</span>
+    </div>
+    <span class="tag" id="versionTag">v-</span>
+</div>
+<div class="main">
+    <div class="input-panel">
+        <div class="status-line" id="skillStatus">检测 Framewright 安装状态...</div>
+
+        <div>
+            <div class="section-title">① 导演进场 Unified Director Intake</div>
+            <div class="row2">
+                <div class="field"><label>项目 project_slug</label><input id="projectSlug" value="my-film"></div>
+                <div class="field"><label>生成单元 unit_slug</label><input id="unitSlug" value="scene-01"></div>
+            </div>
+            <div class="field">
+                <label>场景 / 剧本片段 / 视觉简述</label>
+                <textarea id="brief" placeholder="例：雨夜天台，女主角背对镜头望着城市灯火，回头时眼里有泪光但忍住不落……"></textarea>
+            </div>
+            <div class="field">
+                <label>参考素材（每行一个：路径或 URL）</label>
+                <textarea id="assets" style="min-height:64px;" placeholder="角色参考图 / 视频参考 / 音频参考"></textarea>
+            </div>
+            <div class="field">
+                <label>导演补充（可选）</label>
+                <textarea id="extra" style="min-height:56px;" placeholder="风格、约束、必须保留的细节……"></textarea>
+            </div>
+            <button class="action-btn primary" id="btnIntake" onclick="runIntake()">提交 Intake → 复述与决策问题</button>
+            <div class="hint" style="margin-top:8px;">按规范先给 UNDERSTANDING / PRODUCTION READING / DECISIONS，不产出提示词。</div>
+        </div>
+
+        <div>
+            <div class="section-title">② 编译参数（每次只编译一个阶段）</div>
+            <div class="field">
+                <label>激活阶段 Stage</label>
+                <div class="stage-btns" id="stageBtns"></div>
+            </div>
+            <div class="field">
+                <label>导演模式 Director Mode</label>
+                <select id="directorMode">
+                    <option value="auteur">auteur（自编自导，提供完整镜头结构）</option>
+                    <option value="screenwriter">screenwriter（授权推断镜头结构）</option>
+                    <option value="apprentice">apprentice（保守执行）</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>目标模型 Target（目标模型决定方言，只加载一个 adapter）</label>
+                <select id="target"></select>
+            </div>
+            <div class="field">
+                <label>已批准的素材 / Production Spine（必填）</label>
+                <textarea id="materials" placeholder="把批准的意图、镜头决策、参考素材权威填在这里"></textarea>
+            </div>
+            <div class="field">
+                <label>Production Spine 补充（可选）</label>
+                <textarea id="spine" style="min-height:56px;" placeholder="look development、连续性、锁定台词……"></textarea>
+            </div>
+            <div class="field">
+                <label>对 DECISIONS 的回答（可选）</label>
+                <textarea id="answers" style="min-height:56px;"></textarea>
+            </div>
+            <button class="action-btn primary" id="btnCompile" onclick="runCompile()">通过，编译吧 → 保存 .txt 提示词</button>
+            <button class="action-btn secondary" onclick="fillMaterials()">↑ 把 Intake 结果带入 Production Spine</button>
+        </div>
+    </div>
+
+    <div class="output-panel" id="outputPanel">
+        <div class="placeholder">工作流程：Intake 复述与决策 → 确认 Production Spine → 选择一个阶段 → 编译交付<br><br>
+        产出保存到 <code>Framewright/outputs/[project_slug]/[unit_slug]/prompt_*.txt</code>，并跑官方校验器</div>
+    </div>
+</div>
+
+<script>
+    let STATUS = null;
+    let lastIntake = "";
+
+    async function loadStatus() {
+        try {
+            const r = await fetch("/api/framewright/status");
+            STATUS = await r.json();
+            document.getElementById("versionTag").textContent = "Framewright v" + (STATUS.version || "?");
+            document.getElementById("skillStatus").innerHTML = STATUS.installed
+                ? `Skill 已安装 <b>${STATUS.skill_dir}</b> · 规范 v<b>${STATUS.version}</b>`
+                : `<span style="color:#fca5a5">Skill 未安装（skills/framewright 缺失）</span>`;
+            renderStages();
+        } catch (e) {
+            document.getElementById("skillStatus").innerHTML = '<span style="color:#fca5a5">服务不可达</span>';
+        }
+    }
+
+    function renderStages() {
+        const box = document.getElementById("stageBtns");
+        box.innerHTML = (STATUS.stages || []).map((s, i) =>
+            `<button class="stage-btn ${i === 2 ? "active" : ""}" data-stage="${s.id}" onclick="selectStage('${s.id}')">
+                <span class="s-name">${s.label}</span><span class="s-file">→ ${s.file}</span>
+            </button>`).join("");
+        selectStage("video_prompt");
+    }
+
+    function selectStage(stage) {
+        document.querySelectorAll(".stage-btn").forEach(b => b.classList.toggle("active", b.dataset.stage === stage));
+        const sel = document.getElementById("target");
+        const targets = stage === "video_prompt" ? STATUS.video_targets : STATUS.image_targets;
+        sel.innerHTML = targets.map(t => {
+            const def = (stage === "video_prompt" && t.id === "seedance_2_5") ? " selected" : "";
+            return `<option value="${t.id}"${def}>${t.label}</option>`;
+        }).join("");
+    }
+
+    function currentStage() {
+        const b = document.querySelector(".stage-btn.active");
+        return b ? b.dataset.stage : "video_prompt";
+    }
+
+    function renderIntake(text) {
+        lastIntake = text;
+        document.getElementById("outputPanel").innerHTML = `
+            <div class="result-card">
+                <div class="card-header"><h3>导演进场复述 · Unified Director Intake</h3><span class="card-index">STEP 1-2</span></div>
+                <div class="handoff-body">${escapeHtml(text)}</div>
+            </div>
+            <div class="result-card">
+                <div class="card-header"><h3>下一步</h3><span class="card-index">STEP 3</span></div>
+                <div class="handoff-body">把 DECISIONS 的回答填入右栏「对 DECISIONS 的回答」，确认 Production Spine 后点击「通过，编译吧」。
+                编译只针对当前选中的一个阶段，按规范跨过 Approved Compile Boundary 后不再重开创作问题。</div>
+            </div>`;
+    }
+
+    function fillMaterials() {
+        if (!lastIntake) { alert("请先运行 Intake"); return; }
+        const m = document.getElementById("materials");
+        m.value = (m.value ? m.value + "\n\n" : "") + lastIntake;
+    }
+
+    async function runIntake() {
+        const brief = document.getElementById("brief").value.trim();
+        if (!brief) { alert("请填写场景/剧本片段/视觉简述"); return; }
+        const btn = document.getElementById("btnIntake");
+        btn.disabled = true;
+        btn.innerHTML = '编译中<span class="loading-dots"></span>';
+        document.getElementById("outputPanel").innerHTML = '<div class="placeholder">Framewright 正在进行 Unified Director Intake<span class="loading-dots"></span></div>';
+        try {
+            const r = await fetch("/api/framewright/intake", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    brief,
+                    assets: document.getElementById("assets").value.split("\n").map(s => s.trim()).filter(Boolean),
+                    extra: document.getElementById("extra").value
+                })
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || "Intake 失败");
+            renderIntake(d.review);
+        } catch (e) {
+            document.getElementById("outputPanel").innerHTML = `<div class="placeholder" style="color:#fca5a5">错误：${escapeHtml(e.message)}</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "提交 Intake → 复述与决策问题";
+        }
+    }
+
+    async function runCompile() {
+        const materials = document.getElementById("materials").value.trim();
+        if (!materials) { alert("请填写已批准的素材/Production Spine"); return; }
+        const btn = document.getElementById("btnCompile");
+        btn.disabled = true;
+        btn.innerHTML = '编译中<span class="loading-dots"></span>';
+        document.getElementById("outputPanel").innerHTML = '<div class="placeholder">Framewright 正在编译并校验<span class="loading-dots"></span></div>';
+        try {
+            const r = await fetch("/api/framewright/compile", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    project_slug: document.getElementById("projectSlug").value || "project",
+                    unit_slug: document.getElementById("unitSlug").value || "unit",
+                    stage: currentStage(),
+                    target: document.getElementById("target").value,
+                    director_mode: document.getElementById("directorMode").value,
+                    materials,
+                    spine: document.getElementById("spine").value,
+                    answers: document.getElementById("answers").value
+                })
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || "编译失败");
+            renderCompile(d);
+        } catch (e) {
+            document.getElementById("outputPanel").innerHTML = `<div class="placeholder" style="color:#fca5a5">错误：${escapeHtml(e.message)}</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "通过，编译吧 → 保存 .txt 提示词";
+        }
+    }
+
+    function renderCompile(d) {
+        const validOk = d.validation && d.validation.ok;
+        document.getElementById("outputPanel").innerHTML = `
+            <div class="result-card">
+                <div class="card-header">
+                    <h3>提示词工件 · ${escapeHtml(d.stage)}</h3>
+                    <span class="valid-badge ${validOk ? "ok" : "fail"}">${validOk ? "校验 PASS" : "校验未通过"}</span>
+                </div>
+                <div class="file-path">已保存：${escapeHtml(d.file)}</div>
+                <pre class="prompt-body">${escapeHtml(d.clean_prompt)}</pre>
+            </div>
+            <div class="result-card">
+                <div class="card-header"><h3>交付说明 Handoff（含 INTENT DELTA）</h3><span class="card-index">${escapeHtml(d.target)} · ${escapeHtml(d.director_mode)}</span></div>
+                <div class="handoff-body">${escapeHtml(d.handoff)}</div>
+            </div>
+            <div class="result-card">
+                <div class="card-header"><h3>官方校验器输出</h3><span class="card-index">validate_framewright</span></div>
+                <div class="handoff-body">${escapeHtml((d.validation && d.validation.output) || "无输出")}</div>
+            </div>`;
+    }
+
+    function escapeHtml(s) {
+        return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    loadStatus();
+</script>
+</body>
+</html>

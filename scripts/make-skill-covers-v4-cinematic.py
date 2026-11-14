@@ -15,10 +15,13 @@ import os
 import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import gateway as g  # noqa: E402
 
-OUT = r"C:\dsh\productions\_skill-covers"
+OUT = os.path.join(WS, r"productions\_skill-covers")
 # 统一质感尾注（这就是"像一家"的来源：同一套镜头语言，不是同一句负面词）
 CINE = ("cinematic film still, shot on 35mm anamorphic lens, teal shadows with warm amber highlights, "
         "volumetric haze, gentle film grain, shallow depth of field, subject placed inside a real "

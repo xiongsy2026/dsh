@@ -11,6 +11,22 @@ const SRC = "C:/dsh/plugins/ops-gateway/lib/client.js";
 const SRC_TXT = readFileSync(SRC, "utf8");
 const KEY = "weeksir-pipeline-view", HKEY = "weeksir-hypit-view", MGKEY = "weeksir-model-gateway";
 const FKEY = "weeksir-film-view";   // 2026-10-03 另一会话加的 film 看板台 ⇒ 僵尸页签对账要认它
+const PRKEY = "weeksir-prompt-reverse-view";   // 2026-10-05 第 6 档：提示词反推（8090）
+const MTKEY = "weeksir-motion-transfer-view";  // 2026-10-06 第 7 档：动作迁移（已下线）
+const FFKEY = "weeksir-skill-form-view";       // 2026-10-09 输入表单台（8100 托管 /ui/<skill>）
+// 闸认得的"会话级自动台"全集。加一档必须同时改这里 + presence 侧，否则 0 号断言先红（数量对不上）。
+const AUTO_KEYS = [KEY, HKEY, FKEY, PRKEY, MTKEY, FFKEY].sort();
+
+// 🔴 端口白名单（2026-10-09，docs/PRD-input-form-single-port.md G4/M2）：
+//    "UI 口太多"是商业化交付难度的根因，所以这条不写进文档靠人记，写成闸。
+//    主口 = 8100；例外只许是【点名的存量冻结线】，且各只许它自己那条线用。
+//      8765 = omni 台（产品 2026-10-09 定：omni 整条不动）
+//      5179 = hypit 官方 studio（同上）
+//    8090 已经在 2026-10-09 从名单里【删掉了】：提示词反推建完字段表、输入搬进 8100 表单台之后，
+//    那一档只剩 retired 条目（不含任何端口），右栏代码行里再出现 :8090 就红（0f 钉这条）。
+//    名单只许变短：例外端口若没人用而还留在名单里 = 骗自己"已收敛"，0e 会红。
+const UI_PORT = "8100";
+const EXCEPTION_PORTS = { "8765": ["omni"], "5179": ["hypit"] };
 const fails = [];
 let total = 0;
 const check = (name, got, want) => {
@@ -19,6 +35,71 @@ const check = (name, got, want) => {
   console.log((a === b ? "PASS " : "FAIL ") + name, "=>", a);
   if (a !== b) fails.push([name, a, b]);
 };
+
+// 0 号：WORKBENCHES 里"会话级自动台"的数量必须和闸认识的名单一致。
+//    为什么要这条：1d/12c 拿一份写死的名单当期望值，加一档忘了改闸 ⇒ 那两条会红得莫名其妙；
+//    这条先把"表和闸必须同步改"挑明，红了就说人话。
+check("0 WORKBENCHES 的 session 级自动台数 = 闸名单数（加档必改闸）",
+      (SRC_TXT.match(/scope:\s*"session",\s*auto:\s*true/g) || []).length, AUTO_KEYS.length);
+
+// 0b 🔴 端口白名单：交互面每多一个口，客户机的交付难度与出错面就多一份 —— 所以这条不许靠人记。
+//     判据取"表里每一条 fallback/url 的端口"：8100 无限；8765 只许 omni；5179 只许 hypit。
+// 🔴 扫法抽成函数（scanBenches/violations）不是重构洁癖：下面 0g 要用【同一套判据】去跑三种坏法，
+//    判据若只能对真文件跑一次，那"它到底还灵不灵"就只剩口头记录（2026-10-09 验收点名的正是这条）。
+function scanBenches(txt) {
+  const wb = txt.slice(txt.indexOf("const WORKBENCHES"), txt.indexOf("const byKey"));
+  return (wb.match(/\{[^{}]*\}/g) || []).map(seg => {
+    const m = seg.match(/skill:\s*"?([\w-]+)"?/);
+    const ports = [...seg.matchAll(/:(\d{4,5})\b/g)].map(x => x[1]);
+    return { skill: m ? m[1] : "?", ports: [...new Set(ports)] };
+  });
+}
+function violations(pb) {
+  const bad = pb.filter(b => b.ports.some(pt => {
+    if (pt === UI_PORT) return false;
+    const owners = EXCEPTION_PORTS[pt];
+    return !owners || !owners.includes(b.skill);
+  }));
+  const used = [...new Set(pb.flatMap(b => b.ports).filter(x => x !== UI_PORT))].sort();
+  return {
+    bad: bad.map(b => b.skill + ":" + b.ports.join("/")),
+    used: used,
+    stale: Object.keys(EXCEPTION_PORTS).filter(x => !used.includes(x)),
+    form: pb.filter(b => b.skill === "form"),
+  };
+}
+const perBench = scanBenches(SRC_TXT);
+const V = violations(perBench);
+check("0b 每一档的 UI 端口要么走主口 8100，要么是点名过的存量例外（且只有那条线能用）", V.bad, []);
+check("0c 实际用到的例外端口必须逐个都在例外名单里（口数只许减不许增）",
+      V.used.filter(x => !(x in EXCEPTION_PORTS)), []);
+check("0d 表单档：有且只有一档，且段内【不许硬编任何端口】（url 只能由判定口给，插件不猜第二份）",
+      [V.form.length, V.form[0] ? V.form[0].ports : null], [1, []]);
+check("0e 例外名单里每个端口都真被某档在用（不留已废弃的例外骗自己「已收敛」）", V.stale, []);
+
+// 0g 🔴 白名单自证：三种坏法必须让【同一套判据】变红。
+//     每条都先断言"文本真的被改了"（没改到的变异=恒绿的假对照，比没对照更坏）。
+const mutate = (tag, from, to) => {
+  if (!SRC_TXT.includes(from)) return { missing: tag + ":锚点不在文件里" };
+  const t = SRC_TXT.replace(from, to);
+  if (t === SRC_TXT) return { missing: tag + ":替换后文本一字未动" };
+  return violations(scanBenches(t));
+};
+const M1 = mutate("m1", 'fallback: "http://127.0.0.1:8765/"', 'fallback: "http://127.0.0.1:9999/"');
+check("0g-m1 存量例外偷偷改指 :9999 ⇒ 0b 红 + 口数变多（0c 也红）",
+      [M1.bad || M1.missing, (M1.used || []).includes("9999")], [["omni:9999"], true]);
+const M2 = mutate("m2", "{ key: MGKEY,",
+  '{ key: "weeksir-ghost-view", skill: "ghost", scope: "session", auto: true, fallback: "http://127.0.0.1:9999/" },\n      { key: MGKEY,');
+check("0g-m2 新加一档乱指端口 ⇒ 0b/0c 一起红（白名单不是只防旧档）",
+      [(M2.bad || M2.missing).length > 0, (M2.used || []).includes("9999")], [true, true]);
+const M3 = mutate("m3", 'fallback: "http://localhost:5179/"', 'fallback: "http://127.0.0.1:8100/hypit"');
+check("0g-m3 真把 5179 合进主口了 ⇒ 0e 必须红（例外名单里留着没人用的口=骗自己已收敛）",
+      [M3.stale || M3.missing, M3.bad], [["5179"], []]);
+// 0f 🔴 8090 彻底退出右栏（2026-10-09）：剥掉注释后的【代码行】里不许再出现 :8090。
+//     为什么按代码行而不是整文件：历史写在注释里是有用的（下线原因、判定口仍探那个进程），
+//     但代码里一旦出现 :8090，就是有人又把引擎页面摆回右栏 —— 那正是要收敛掉的东西。
+const CODE_TXT = SRC_TXT.split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+check("0f 代码行里零命中 :8090（引擎页面不再进右栏，历史只留在注释里）", /:8090\b/.test(CODE_TXT), false);
 
 // 假时钟：presence 有 5 秒缓存，测试里靠推钟跨过去
 const realNow = Date.now;
@@ -66,6 +147,23 @@ const hypit = (intent, up = true, run = "productions/hypit-e2e/assemble.svrun") 
   ({ intent: intent, up: up, port: 5181,   // 🔴 故意不用 5179：iframe 里出现 5179 就说明代码又回落到 fallback 端口了
      run: up ? run : "", reason: up ? "" : "studio-down",
      how_to_start: up ? "" : "hypit studio --run " + run + " --port 5179", run_verified: up });
+// 第 6 档（2026-10-09 工作台【下线】）：输入搬进 8100 表单台 ⇒ 判定口把这一档顶成 intent=False（reason=form-is-input）。
+// url 里带 8090 是【线上真实形状】（判定口仍真探那个引擎进程，地址只当信息给 agent），
+// 台里不许用它 —— 7b-m 就是钉这一点的：出现 :8090 就是有人又把引擎页面摆回右栏。
+const reverse = (intent, up = true) => ({ intent, up, alive: up,
+  url: "http://127.0.0.1:8090/prompt-reverse", task: "反推爆款01",
+  how_to_start: up ? "" : "在 backend/ 目录下起 uvicorn 8090", reason: intent ? "form-is-input" : "no-intent" });
+// 表单台（2026-10-09 新增档）：形状是 2026-10-09 从线上 presence 抄下来的真实回包，不是编的。
+//   有意图 = 这条会话登记的档【配了字段表】；url 由判定口给（它才知道是哪个技能、哪条会话）。
+const form = (intent, skill = "one-shot-video") => ({ intent, up: true, alive: true,
+  source: intent ? "explicit" : "", skill: intent ? skill : "", intent_skill: intent ? skill : "",
+  task: intent ? "鼻贴一句话出片" : "",
+  url: intent ? ("http://127.0.0.1:8100/ui/" + skill + "?session=s") : "",
+  reason: intent ? "" : "no-intent" });
+// 第 7 档（2026-10-08 工作台【下线】）：presence 的 intent 恒 False（reason=workbench-retired）。
+// intent 参数只用于"判定口意外回 true"的变异对照 —— client 侧 retired 双保险必须顶住。
+const motion = (intent = false) => ({ intent, up: false, alive: false,
+  reason: intent ? "" : "workbench-retired" });
 
 // ── 装载插件 ────────────────────────────────────────────────────────────────────
 let loaded = null;
@@ -92,7 +190,9 @@ function makeCtx(sidRef, titles = {}) {
               subscribe: fn => calls.subs.push(fn) },
       binding: id => ({ session: { rename: t => { calls.renames.push([id, t]); return Promise.resolve({}); } } }),
     },
-    setInterval: fn => { calls.ticks.push(fn); if (!calls.tick) calls.tick = fn; return 1; },
+    // 真源的形状：定时器走 ctx.timer.setInterval（inject 名单里有 timer），ctx.timer 不在时退回全局 setInterval。
+    // 老闸把假 ctx 写成 ctx.setInterval（那是被 guard 拒的读法），改完真源后这里就接不到回调 ⇒ calls.tick=null ⇒ 崩。
+    timer: { setInterval: fn => { calls.ticks.push(fn); if (!calls.tick) calls.tick = fn; return 1; } },
   };
   return { ctx, calls };
 }
@@ -123,7 +223,7 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   check("1 新会话不猜意图：一条页签都不弹", a.calls.open.map(o => o[0]), []);
   // 1d 🔴 首次判定为"无意图"也要去关 —— 清掉旧版本（hypit 曾弹进每条会话）留下的僵尸页签。
   //    这条就是用户报"无关会话里出现这个提示"的根因：只等下降沿的话，僵尸页签永远留着。
-  check("1d 首次无意图也会去关僵尸页签（本会话两个台都试）", closedKeys(a.calls, sid.v), [FKEY, HKEY, KEY].sort());
+  check("1d 首次无意图也会去关僵尸页签（会话级自动台全试一遍）", closedKeys(a.calls, sid.v), AUTO_KEYS);
 
   // 2) 说了做 omni ⇒ 只弹流水线
   payload = { omni: omni(true), hypit: hypit(false, false) };
@@ -160,6 +260,56 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
   // 7) 持续为真不重复弹
   await run(a.calls, 3);
   check("7 持续为真不重复弹", a.calls.open.filter(o => o[0] === HKEY).length, 2);
+
+  // 7b) 第 6 档（2026-10-09 工作台【下线】）：prompt-reverse 的输入搬进 8100 表单台 ⇒ 引擎台一个都不弹。
+  //     判定口那边由 form-is-input 顶掉 intent；client 这边 retired 是双保险（7b-m 变异对照钉它）。
+  const openBefore7b = a.calls.open.length;
+  payload["prompt-reverse"] = reverse(false);        // 真实形状（线上实测）：intent=False + reason=form-is-input
+  payload["form"] = form(true, "prompt-reverse");
+  await run(a.calls);
+  check("7b 反推档不再自动弹引擎台，弹的是表单台（只补一档）",
+        [a.calls.open.length - openBefore7b, a.calls.open[a.calls.open.length - 1][0]], [1, FFKEY]);
+  // 变异对照：判定口意外回 intent:true（顶替逻辑坏了/表单台没登记）⇒ retired 必须仍然不弹
+  payload["prompt-reverse"] = reverse(true);
+  await run(a.calls, 2);
+  check("7b-m 判定口意外回 intent:true ⇒ PRKEY 的 retired 双保险顶住，不弹也不摆 8090 页面",
+        [a.calls.open.length - openBefore7b, (await bodyJson(PRKEY, sid.v)).includes(":8090")], [1, false]);
+
+  // 7d) 第 7 档（2026-10-08 工作台【下线】）：登记 motion-transfer ⇒ 一个台都不弹；
+  //     僵尸页签清理仍覆盖 MTKEY（1d 那条钉着：旧版本弹过的台要能被关掉）。
+  const openBefore7d = a.calls.open.length;
+  payload["motion-transfer"] = motion(false);       // 真实形状：intent 恒 False + workbench-retired
+  await run(a.calls);
+  check("7d 登记 motion-transfer 也不弹台（第 7 档工作台已下线）", a.calls.open.length - openBefore7d, 0);
+  // 变异对照：判定口意外回 intent:true —— client 的 retired 双保险必须顶住，且不摆死页面
+  payload["motion-transfer"] = motion(true);
+  await run(a.calls, 2);
+  const g7d = await bodyJson(MTKEY, sid.v);
+  check("7d2 判定口意外回 intent:true 也不弹（retired 双保险），页面只说已下线、不指 8091",
+        [a.calls.open.length - openBefore7d, g7d.includes("已下线"), g7d.includes("8091")], [0, true, false]);
+  delete payload["motion-transfer"];
+
+  // 7e) 表单台行为（2026-10-09 补：这一档此前只钉过"表里有它 + 不硬编端口"，没钉过它到底画什么）。
+  //     🔴 地址必须来自判定口：插件一旦自己拼 "/ui/<skill>"，就是第二份"谁该出表"的判据。
+  payload["form"] = form(true, "one-shot-video");
+  await run(a.calls, 2);
+  const g7e = await bodyJson(FFKEY, sid.v);
+  check("7e 有表单意图 ⇒ iframe 开判定口给的 8100 /ui/<skill>（地址不在插件里拼第二份）",
+        [g7e.includes("127.0.0.1:8100/ui/one-shot-video?session="), g7e.includes('"tag":"iframe"')], [true, true]);
+  // 判定口说"登记的档没配字段表" ⇒ 关台，不多摆一张空表（和"新会话零 UI"是同一条判据）
+  const closeMark7e = a.calls.close.length;
+  payload["form"] = { intent: false, up: true, alive: true, reason: "intent-has-no-form" };
+  await run(a.calls, 2);
+  check("7e2 登记的档没配字段表 ⇒ 表单台关掉（不画一张空表占右栏）",
+        closedKeys(a.calls, sid.v, closeMark7e), [FFKEY]);
+  // 无意图时不给「我就是要看」：这一档没有兜底页，硬显 = 塞一张不知道属于谁的表。
+  // 🔴 反向对照 = 上面 10b（hypit 没意图时按钮【必须】在）—— 两条一起才证明判的是"有没有兜底页"，不是恒真。
+  const g7e3 = await bodyJson(FFKEY, sid.v);
+  check("7e3 无意图的表单台只说「先点技能」，不给「我就是要看」、也不画 iframe",
+        [g7e3.includes("我就是要看"), g7e3.includes('"tag":"iframe"'), g7e3.includes("intent-has-no-form")],
+        [false, false, true]);
+  delete payload["prompt-reverse"];
+  delete payload["form"];
 
   // 8) 运维台永不自动弹，但手动开要出台
   const b = makeCtx({ v: "session-OPS" });
@@ -229,7 +379,7 @@ const run = async (calls, n = 1) => { for (let i = 0; i < n; i++) { advance(); c
         d.calls.close.length, closes12);
   await run(d.calls, 9);                       // 累计 120 秒 > 90 秒容忍窗
   check("12c 哑过 90 秒 ⇒ 认输关掉（fail-closed，不是永远挂着）",
-        closedKeys(d.calls, "session-FLAP", closes12), [FKEY, HKEY, KEY].sort());
+        closedKeys(d.calls, "session-FLAP", closes12), AUTO_KEYS);
   SILENT = false;
   await run(d.calls);
   check("13b 判定口回来 ⇒ 重新弹（上膛没坏）", d.calls.open.length, 4);
@@ -362,7 +512,10 @@ check("19z 查看器起来的上升沿把视图交还官方 studio（自绘台�
     await tickTitle(e.calls);
     check("20c 换流水线 ⇒ 剥掉旧前缀再挂新的（不叠罗汉）", e.calls.renames[1], [ref.v, "[hypit] 鼻贴成片方案"]);
     check("20d 标题前缀是一条独立的 setInterval，不只在 apply 时跑一次",
-          [e.calls.ticks.length, SRC_TXT.includes("ctx.setInterval(titlePrefixTick, 30000)")], [2, true]);
+          [e.calls.ticks.length, SRC_TXT.includes("every(titlePrefixTick, 30000)")], [2, true]);
+  check("20d2 定时器只走 ctx.timer.setInterval，并且带『读不到就退回全局』的守卫（裸 ctx.setInterval 会被 guard 抛）",
+    [SRC_TXT.includes("typeof ctx.timer.setInterval === \"function\""), SRC_TXT.includes("ctx.setInterval(")],
+    [true, false]);
   }
 
   {   // 内核 maxTitleBytes=80，超了直接拒 rename ⇒ 必须自己按 UTF-8 字节截，且不能切出半个汉字

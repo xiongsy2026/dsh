@@ -21,10 +21,13 @@ import os
 import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import gateway as g  # noqa: E402
 
-OUT = r"C:\dsh\productions\_skill-covers"
+OUT = os.path.join(WS, r"productions\_skill-covers")
 ALL = "--all" in sys.argv
 
 # 统一"电商棚拍"质感尾注 —— 让五张像一家的来源（不是同一句负面词，是同一套镜头语言）

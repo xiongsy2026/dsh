@@ -9,7 +9,10 @@ led = os.path.join(tmp, "delivery.json")
 os.environ["DELIVERY_LEDGER"] = led
 os.environ["DSH_WORKSPACE"] = tmp
 os.environ["HYPIT_JOBS_DB"] = os.path.join(tmp, "jobs.sqlite")
-sys.path.insert(0, r"D:\video-skill\backend")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 import model_admin as M  # noqa: E402
 import delivery_ledger as L  # noqa: E402
 
@@ -58,7 +61,7 @@ check("10 台账损坏 ⇒ known:false（读不到 ≠ 没欠账）",
       (lambda x: [x["known"], "error" in x])(M.delivery_pending_view("session-A")), [False, True])
 os.environ["DELIVERY_LEDGER"] = led
 
-src = open(os.path.join(r"D:\video-skill\backend", "model_admin.py"), encoding="utf-8").read()
+src = open(os.path.join(BACKEND, "model_admin.py"), encoding="utf-8").read()
 seg = src[src.find('"/api/delivery/pending"'):]
 seg = seg[:seg.find("elif")]
 check("11 路由只读：这个分支里不许出现 POST/写盘/扣费调用",

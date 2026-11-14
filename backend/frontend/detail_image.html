@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>详情图生成 · image2</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 440px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .field { margin-bottom: 16px; }
+        .field-label { font-size: .82em; color: #a5a5c8; margin-bottom: 6px; display: block; }
+        .field-label .hint { color: #666; font-size: .9em; margin-left: 4px; }
+        .text-field, .select-field { width: 100%; box-sizing: border-box; padding: 12px 14px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .95em; outline: none; font-family: inherit; transition: border .2s; }
+        .text-field:focus, .select-field:focus { border-color: #6c3ce0; }
+        textarea.text-field { resize: vertical; min-height: 70px; line-height: 1.5; }
+        .count-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+        .count-card { background: #1e1e36; border: 2px solid #3a3a5c; border-radius: 8px; padding: 10px 4px; cursor: pointer; text-align: center; transition: all .2s; font-size: .9em; font-weight: 600; color: #ccc; }
+        .count-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .count-card.active { border-color: #6c3ce0; background: #2a1e4a; color: #a5b4fc; }
+        .ratio-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+        .ratio-card { background: #1e1e36; border: 2px solid #3a3a5c; border-radius: 8px; padding: 10px 4px; cursor: pointer; text-align: center; transition: all .2s; }
+        .ratio-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .ratio-card.active { border-color: #6c3ce0; background: #2a1e4a; }
+        .ratio-card .label { font-size: .82em; color: #ccc; }
+        .ratio-card.active .label { color: #a5b4fc; }
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .thumbs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+        .thumb-item { position: relative; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden; background: #1e1e36; border: 1px solid #3a3a5c; }
+        .thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .thumb-remove { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.75); color: #f87171; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: .8em; display: flex; align-items: center; justify-content: center; line-height: 1; }
+        .thumb-remove:hover { background: rgba(239,68,68,.85); color: #fff; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; transition: all .2s; letter-spacing: 1px; }
+        .run-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+        .history-section { margin-top: 20px; }
+        .history-item { display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1a1a30;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s;border:1px solid transparent; }
+        .history-item:hover { border-color:#6c3ce0; }
+        .history-item .h-info { flex:1;min-width:0; }
+        .history-item .h-title { font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+        .history-item .h-meta { font-size:.7em;color:#666;margin-top:2px; }
+        .history-item .h-status { font-size:.7em;padding:2px 8px;border-radius:10px;white-space:nowrap; }
+        .h-status.completed { background:#065f46;color:#6ee7b7; }
+        .h-status.failed { background:#7f1d1d;color:#fca5a5; }
+        .h-status.running { background:#1e3a5f;color:#60a5fa; }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .empty-state { text-align: center; padding: 80px 20px; color: #555; }
+        .empty-state .emoji { font-size: 3em; margin-bottom: 12px; }
+        .empty-state .title { font-size: 1.1em; color: #aaa; margin-bottom: 6px; }
+        .empty-state .desc { font-size: .85em; color: #666; line-height: 1.6; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+        .progress-bar { height: 6px; background: #2a2a44; border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #6c3ce0, #3b82f6); transition: width .5s; border-radius: 3px; }
+        .progress-label { font-size: .78em; color: #888; margin-bottom: 12px; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 200px; overflow-y: auto; line-height: 1.7; }
+        .log-line.running { color: #60a5fa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .result-section { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .result-section h3 { margin-bottom: 16px; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }
+        .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+        .image-card { background: #1e1e36; border-radius: 12px; overflow: hidden; border: 1px solid #2a2a44; transition: all .2s; }
+        .image-card:hover { border-color: #6c3ce0; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(108,60,224,.2); }
+        .image-card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; cursor: zoom-in; }
+        .image-card .info { padding: 12px; }
+        .image-card .title { font-size: .9em; font-weight: 600; color: #ddd; margin-bottom: 4px; }
+        .image-card .prompt { font-size: .72em; color: #666; line-height: 1.5; max-height: 60px; overflow-y: auto; }
+        .image-card .actions { padding: 0 12px 12px; display: flex; gap: 8px; }
+        .image-card .desc-toggle { width: 100%; padding: 8px 12px; background: #16162a; border: none; border-top: 1px solid #2a2a44; color: #60a5fa; font-size: .78em; cursor: pointer; text-align: left; transition: background .2s; }
+        .image-card .desc-toggle:hover { background: #1e1e36; }
+        .image-card .desc-box { padding: 0 12px 12px; display: none; }
+        .image-card .desc-box.open { display: block; }
+        .image-card .desc-content { font-size: .74em; color: #aaa; line-height: 1.7; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; background: #0d0d1a; border-radius: 6px; padding: 10px; }
+        .image-card .desc-content h1,.image-card .desc-content h2,.image-card .desc-content h3 { color: #ddd; margin: 8px 0 4px; }
+        .image-card .desc-content h1 { font-size: 1.15em; }
+        .image-card .desc-content h2 { font-size: 1.05em; }
+        .image-card .desc-content h3 { font-size: 1em; }
+        .image-card .desc-content strong { color: #c0c0d8; }
+        .image-card .desc-content ul,.image-card .desc-content ol { padding-left: 18px; margin: 4px 0; }
+        .image-card .desc-content p { margin: 4px 0; }
+        .image-card .desc-content code { background: #1e1e36; padding: 1px 4px; border-radius: 3px; }
+        .dl-btn { flex: 1; text-align: center; padding: 6px; background: #2a2a44; border-radius: 6px; color: #60a5fa; text-decoration: none; font-size: .8em; transition: background .2s; }
+        .dl-btn:hover { background: #3a3a5c; }
+        .scene-list { background: #0d0d1a; border-radius: 10px; padding: 14px; }
+        .scene-item { padding: 10px 0; border-bottom: 1px solid #1e1e36; }
+        .scene-item:last-child { border-bottom: none; }
+        .scene-item .s-title { font-size: .85em; color: #a5b4fc; margin-bottom: 4px; font-weight: 600; }
+        .scene-item .s-subtitle { font-size: .78em; color: #c4b5fd; margin-bottom: 6px; }
+        .scene-item .s-detail { font-size: .73em; color: #9ca3af; line-height: 1.6; margin: 4px 0; }
+        .scene-item .s-detail b { color: #cbd5e1; font-weight: 500; }
+        .scene-item .s-prompt { font-size: .72em; color: #6b7280; line-height: 1.5; margin-top: 4px; }
+        .scene-item .s-prompt b { color: #9ca3af; font-weight: 500; }
+        .scene-item .s-status { font-size: .7em; padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
+        .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: none; align-items: center; justify-content: center; z-index: 1000; cursor: zoom-out; }
+        .lightbox.show { display: flex; }
+        .lightbox img { max-width: 92%; max-height: 92%; border-radius: 12px; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <a href="/" class="back-btn">← 返回</a>
+        <h1>详情图生成</h1>
+        <span class="tag">image2 · 产品场景图</span>
+    </div>
+
+    <div class="main">
+        <!-- 左侧输入面板 -->
+        <div class="input-panel">
+            <div class="section-title"><span class="dot dot-required"></span>产品图</div>
+            <div class="upload-card" id="upload-card">
+                <input type="file" id="file-input" accept="image/*" multiple>
+                <div class="icon">📁</div>
+                <div class="label">点击或拖拽上传产品图（可多张）</div>
+            </div>
+            <div class="thumbs-grid" id="thumbs-grid"></div>
+
+            <div class="section-title"><span class="dot dot-required"></span>产品名</div>
+            <div class="field">
+                <input type="text" class="text-field" id="product-name" placeholder="如：便携式蓝牙音箱">
+            </div>
+
+            <div class="section-title"><span class="dot dot-required"></span>生成数量</div>
+            <div class="count-grid" id="count-grid">
+                <div class="count-card" data-count="1">1</div>
+                <div class="count-card" data-count="2">2</div>
+                <div class="count-card active" data-count="4">4</div>
+                <div class="count-card" data-count="6">6</div>
+                <div class="count-card" data-count="3">3</div>
+                <div class="count-card" data-count="5">5</div>
+                <div class="count-card" data-count="7">7</div>
+                <div class="count-card" data-count="8">8</div>
+            </div>
+
+            <div class="section-title"><span class="dot dot-optional"></span>画面比例</div>
+            <div class="ratio-grid" id="ratio-grid">
+                <div class="ratio-card active" data-ratio="3:4 (Portrait Standard)"><div class="label">3:4 竖版</div></div>
+                <div class="ratio-card" data-ratio="1:1 (Square)"><div class="label">1:1 方形</div></div>
+                <div class="ratio-card" data-ratio="4:3 (Standard)"><div class="label">4:3 横版</div></div>
+                <div class="ratio-card" data-ratio="9:16 (Portrait Widescreen)"><div class="label">9:16 竖屏</div></div>
+                <div class="ratio-card" data-ratio="16:9 (Widescreen)"><div class="label">16:9 宽屏</div></div>
+                <div class="ratio-card" data-ratio="2:3 (Portrait Photo)"><div class="label">2:3 竖照</div></div>
+            </div>
+
+            <div class="section-title"><span class="dot dot-optional"></span>场景要求</div>
+            <div class="field">
+                <textarea class="text-field" id="scene-style" placeholder="可选：如 居家日常、户外旅行、送礼场景、极简白底 等"></textarea>
+            </div>
+
+            <button class="run-btn" id="run-btn" disabled>开始生成详情图</button>
+
+            <div class="history-section">
+                <div class="section-title" style="margin-top:24px;">历史记录</div>
+                <div id="history-list"></div>
+            </div>
+        </div>
+
+        <!-- 右侧输出面板 -->
+        <div class="output-panel" id="output-panel">
+            <div class="empty-state" id="empty-state">
+                <div class="emoji">🖼️</div>
+                <div class="title">详情图生成</div>
+                <div class="desc">上传产品图 + 填写产品名 → LLM 推理 N 个差异化场景 → image2 图生图生成电商详情图<br>支持产品图作参考保证还原度、可选场景要求、多种画幅</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="lightbox" id="lightbox"><img id="lightbox-img" src=""></div>
+
+    <script>
+        // === 状态 ===
+        let uploadedImages = [];   // [{path, url, name}]
+        let selectedCount = 4;
+        let selectedRatio = "3:4 (Portrait Standard)";
+        let currentTaskId = null;
+        let pollTimer = null;
+
+        // === 文件上传 ===
+        const uploadCard = document.getElementById("upload-card");
+        const fileInput = document.getElementById("file-input");
+        const thumbsGrid = document.getElementById("thumbs-grid");
+
+        uploadCard.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", async (e) => {
+            const files = Array.from(e.target.files);
+            for (const f of files) {
+                const fd = new FormData();
+                fd.append("file", f);
+                try {
+                    const r = await fetch("/api/detail-image/upload", { method: "POST", body: fd });
+                    const d = await r.json();
+                    if (d.success) {
+                        uploadedImages.push({ path: d.path, url: d.url, name: f.name });
+                    }
+                } catch (err) { console.error(err); }
+            }
+            fileInput.value = "";
+            renderThumbs();
+            updateRunBtn();
+        });
+
+        function renderThumbs() {
+            thumbsGrid.innerHTML = uploadedImages.map((img, i) => `
+                <div class="thumb-item">
+                    <img src="${img.url}" alt="${img.name}">
+                    <button class="thumb-remove" onclick="removeImage(${i})">×</button>
+                </div>
+            `).join("");
+            uploadCard.classList.toggle("has-file", uploadedImages.length > 0);
+            if (uploadedImages.length === 0) {
+                uploadCard.querySelector(".filename").textContent = "";
+            }
+        }
+
+        window.removeImage = (i) => {
+            uploadedImages.splice(i, 1);
+            renderThumbs();
+            updateRunBtn();
+        };
+
+        // === 数量选择 ===
+        document.querySelectorAll(".count-card").forEach(card => {
+            card.addEventListener("click", () => {
+                document.querySelectorAll(".count-card").forEach(c => c.classList.remove("active"));
+                card.classList.add("active");
+                selectedCount = parseInt(card.dataset.count);
+            });
+        });
+
+        // === 比例选择 ===
+        document.querySelectorAll(".ratio-card").forEach(card => {
+            card.addEventListener("click", () => {
+                document.querySelectorAll(".ratio-card").forEach(c => c.classList.remove("active"));
+                card.classList.add("active");
+                selectedRatio = card.dataset.ratio;
+            });
+        });
+
+        // === 运行按钮状态 ===
+        function updateRunBtn() {
+            const btn = document.getElementById("run-btn");
+            btn.disabled = uploadedImages.length === 0 || !document.getElementById("product-name").value.trim() || currentTaskId !== null;
+        }
+        document.getElementById("product-name").addEventListener("input", updateRunBtn);
+
+        // === 开始生成 ===
+        document.getElementById("run-btn").addEventListener("click", async () => {
+            const btn = document.getElementById("run-btn");
+            const productName = document.getElementById("product-name").value.trim();
+            const sceneStyle = document.getElementById("scene-style").value.trim();
+            if (!uploadedImages.length || !productName) return;
+
+            btn.disabled = true;
+            btn.classList.add("running");
+            btn.textContent = "生成中...";
+
+            try {
+                const r = await fetch("/api/detail-image/run", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        product_name: productName,
+                        product_images: uploadedImages.map(i => i.path),
+                        count: selectedCount,
+                        aspect_ratio: selectedRatio,
+                        scene_style: sceneStyle,
+                        engine: "image2",
+                    }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    currentTaskId = d.task_id;
+                    startPolling();
+                } else {
+                    alert("启动失败: " + (d.error || "未知错误"));
+                    btn.disabled = false;
+                    btn.classList.remove("running");
+                    btn.textContent = "开始生成详情图";
+                }
+            } catch (e) {
+                alert("请求失败: " + e.message);
+                btn.disabled = false;
+                btn.classList.remove("running");
+                btn.textContent = "开始生成详情图";
+            }
+        });
+
+        // === 轮询任务状态 ===
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollStatus();
+            pollTimer = setInterval(pollStatus, 3000);
+        }
+
+        async function pollStatus() {
+            if (!currentTaskId) return;
+            try {
+                const r = await fetch(`/api/detail-image/status/${currentTaskId}`);
+                const task = await r.json();
+                if (task.status === "not_found") {
+                    clearInterval(pollTimer);
+                    return;
+                }
+                renderTask(task);
+                if (task.status === "completed" || task.status === "failed") {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                    currentTaskId = null;
+                    const btn = document.getElementById("run-btn");
+                    btn.disabled = false;
+                    btn.classList.remove("running");
+                    btn.textContent = "开始生成详情图";
+                    loadHistory();
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // === 渲染任务状态 ===
+        function renderTask(task) {
+            const panel = document.getElementById("output-panel");
+            const statusMap = { running: "badge-running", completed: "badge-completed", failed: "badge-failed" };
+            const statusText = { running: "生成中", completed: "已完成", failed: "失败" };
+            const badge = statusMap[task.status] || "badge-idle";
+
+            const logs = (task.logs || []).map(l => {
+                let cls = "";
+                if (l.includes("✓")) cls = "done";
+                else if (l.includes("✗")) cls = "error";
+                else cls = "running";
+                return `<div class="log-line ${cls}">${l}</div>`;
+            }).join("");
+
+            // 场景提示词列表
+            const scenes = task.outputs?.scenes || [];
+            const sceneList = scenes.length ? `
+                <div class="result-section">
+                    <h3>📝 详情页策划方案（${scenes.length} 屏）</h3>
+                    <div class="scene-list">
+                        ${scenes.map((s, i) => {
+                            const sceneName = s.scene || s.title || ("场景" + (i+1));
+                            const title = s.title || "";
+                            const subtitle = s.subtitle || "";
+                            const layout = s.layout || "";
+                            const style = s.style || "";
+                            const lighting = s.lighting || "";
+                            const prompt = s.prompt || "";
+                            const hasDetail = layout || style || lighting;
+                            return `
+                            <div class="scene-item">
+                                <div class="s-title">${i+1}. ${sceneName}${title ? ' ｜ ' + title : ''}</div>
+                                ${subtitle ? `<div class="s-subtitle">${subtitle}</div>` : ""}
+                                ${hasDetail ? `
+                                    <div class="s-detail">
+                                        ${layout ? `<div><b>信息布局：</b>${layout}</div>` : ""}
+                                        ${style ? `<div><b>风格素材：</b>${style}</div>` : ""}
+                                        ${lighting ? `<div><b>光影：</b>${lighting}</div>` : ""}
+                                    </div>
+                                ` : ""}
+                                ${prompt ? `<div class="s-prompt"><b>AI 描述：</b>${prompt.length > 240 ? prompt.substring(0, 240) + "..." : prompt}</div>` : ""}
+                            </div>
+                        `}).join("")}
+                    </div>
+                </div>
+            ` : "";
+
+            // 生成图片网格
+            const images = task.outputs?.images || [];
+            const imageGrid = images.length ? `
+                <div class="result-section">
+                    <h3>🎨 生成结果（${images.length} 张）</h3>
+                    <div class="image-grid">
+                        ${images.map((img, idx) => {
+                            const desc = img.description || "";
+                            const hasDesc = desc.trim().length > 0;
+                            const sceneName = img.scene || "";
+                            const displayTitle = sceneName ? `${sceneName}｜${img.title}` : (img.title || `场景${idx+1}`);
+                            return `
+                            <div class="image-card">
+                                <img src="${img.image_url}" alt="${displayTitle}" onclick="openLightbox('${img.image_url}')">
+                                <div class="info">
+                                    <div class="title">${displayTitle}</div>
+                                    ${img.subtitle ? `<div class="subtitle" style="font-size:.72em;color:#9ca3af;margin-top:2px;">${img.subtitle}</div>` : ""}
+                                </div>
+                                <div class="actions">
+                                    <a class="dl-btn" href="${img.image_url}" download="${img.title || 'detail'}.png">下载</a>
+                                </div>
+                                ${hasDesc ? `
+                                    <button class="desc-toggle" onclick="toggleDesc(${idx})">📝 查看详情页文案</button>
+                                    <div class="desc-box" id="desc-${idx}">
+                                        <div class="desc-content">${renderMarkdown(desc)}</div>
+                                    </div>
+                                ` : ""}
+                            </div>
+                        `}).join("")}
+                    </div>
+                </div>
+            ` : "";
+
+            // 单场景任务状态
+            const sceneTasks = task.scene_tasks || [];
+            const taskProgress = sceneTasks.length ? `
+                <div style="margin-top:12px;font-size:.78em;color:#888;">
+                    ${sceneTasks.map(st => {
+                        const s = st.status || "pending";
+                        const cls = s === "downloaded" || s === "SUCCESS" ? "done" : s === "FAILED" ? "error" : "running";
+                        return `<span style="margin-right:8px;">场景${st.scene_index+1}: <span class="${cls}" style="color:${cls==='done'?'#4ade80':cls==='error'?'#f87171':'#60a5fa'}">${s}</span></span>`;
+                    }).join("")}
+                </div>
+            ` : "";
+
+            panel.innerHTML = `
+                <div class="status-panel">
+                    <div class="status-header">
+                        <span class="status-badge ${badge}">${statusText[task.status] || task.status}</span>
+                        <span style="font-size:.8em;color:#666;">${task.step || ""}</span>
+                    </div>
+                    <div class="progress-bar"><div class="progress-fill" style="width:${task.progress||0}%"></div></div>
+                    <div class="progress-label">进度 ${task.progress||0}%</div>
+                    ${taskProgress}
+                    ${logs ? `<div class="log-box">${logs}</div>` : ""}
+                    ${task.error ? `<div style="margin-top:12px;color:#f87171;font-size:.85em;">⚠ ${task.error}</div>` : ""}
+                </div>
+                ${sceneList}
+                ${imageGrid}
+            `;
+        }
+
+        // === 历史记录 ===
+        async function loadHistory() {
+            try {
+                const r = await fetch("/api/detail-image/history");
+                const d = await r.json();
+                const list = document.getElementById("history-list");
+                if (!d.history || !d.history.length) {
+                    list.innerHTML = `<div style="font-size:.8em;color:#555;padding:8px;">暂无历史记录</div>`;
+                    return;
+                }
+                list.innerHTML = d.history.map(h => {
+                    const statusCls = h.status === "completed" ? "completed" : h.status === "failed" ? "failed" : "running";
+                    const statusText = h.status === "completed" ? "完成" : h.status === "failed" ? "失败" : "运行中";
+                    const time = new Date((h.created_at||0)*1000).toLocaleString("zh-CN");
+                    return `
+                        <div class="history-item" onclick="loadTask('${h.task_id}')">
+                            <div class="h-info">
+                                <div class="h-title">${h.product_name || "未命名"} · ${h.count||0}张</div>
+                                <div class="h-meta">${time} · ${h.image_count||0} 图</div>
+                            </div>
+                            <span class="h-status ${statusCls}">${statusText}</span>
+                        </div>
+                    `;
+                }).join("");
+            } catch (e) { console.error(e); }
+        }
+
+        window.loadTask = async (taskId) => {
+            const r = await fetch(`/api/detail-image/status/${taskId}`);
+            const task = await r.json();
+            if (task.status === "running") {
+                currentTaskId = taskId;
+                startPolling();
+            } else {
+                // 已完成/失败的历史任务：仅展示结果，不占用 currentTaskId，避免锁死"开始生成"按钮
+                currentTaskId = null;
+                renderTask(task);
+                updateRunBtn();
+            }
+        };
+
+        // === Lightbox ===
+        window.openLightbox = (url) => {
+            document.getElementById("lightbox-img").src = url;
+            document.getElementById("lightbox").classList.add("show");
+        };
+        document.getElementById("lightbox").addEventListener("click", () => {
+            document.getElementById("lightbox").classList.remove("show");
+        });
+
+        // === 详情页文案展开/折叠 ===
+        window.toggleDesc = (idx) => {
+            const box = document.getElementById("desc-" + idx);
+            if (!box) return;
+            const open = box.classList.toggle("open");
+            const btn = box.previousElementSibling;
+            if (btn) btn.textContent = open ? "📝 收起详情页文案" : "📝 查看详情页文案";
+        };
+
+        // === 极简 Markdown 渲染（转义 + 基础语法） ===
+        function renderMarkdown(md) {
+            if (!md) return "";
+            let s = String(md);
+            s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            // 代码块
+            s = s.replace(/```([\s\S]*?)```/g, (_, c) => `<pre><code>${c}</code></pre>`);
+            // 标题
+            s = s.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>")
+                 .replace(/^##\s+(.+)$/gm, "<h2>$1</h2>")
+                 .replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
+            // 粗体/斜体
+            s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+                 .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+            // 列表
+            s = s.replace(/^\s*[-*]\s+(.+)$/gm, "<li>$1</li>");
+            s = s.replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>");
+            s = s.replace(/<\/ul>\s*<ul>/g, "");
+            // 段落（空行分段）
+            s = s.split(/\n{2,}/).map(b => /(^<(h\d|ul|ol|pre)|^<li)/.test(b.trim()) ? b : `<p>${b.replace(/\n/g, "<br>")}</p>`).join("\n");
+            return s;
+        }
+
+        // === 初始化 ===
+        updateRunBtn();
+        loadHistory();
+    </script>
+</body>
+</html>

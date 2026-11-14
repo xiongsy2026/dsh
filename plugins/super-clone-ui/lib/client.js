@@ -94,8 +94,12 @@ body {
       document.body && document.body.setAttribute("data-ds-dark-theme", "");
     }
 
-    function BrandMark() {
-      return h("img", { className: "sc-mark", src: WEEKSIR_LOGO, alt: "WEEKSIR" });
+    // 官方槽会传 { size: 24 }（dsh-client-ui-sidebar/lib/client.js:218 宽栏 / :249 窄栏）。
+    // 🔴 尺寸必须同时写进 img 属性：原来只靠样式表里的 .sc-mark{width:28px} ⇒ 样式表一旦没进页面
+    //    （插件半加载、或插件链里有人抛错），这张 256×222 的图就按原始尺寸铺开、被 24px 的行裁成一条。
+    function BrandMark(props) {
+      const size = (props && props.size) || 24;
+      return h("img", { className: "sc-mark", src: WEEKSIR_LOGO, alt: "WEEKSIR", width: size, height: size });
     }
 
     function BrandName() {
@@ -750,7 +754,7 @@ body {
     // 皮肤全用 DSH/Weeksir 主题 var()，自动跟随 super-clone-ui 的橙色品牌；点击 = setDraft("/skill ") 填进输入框不自动发。
     const SKILL_DOCK_CSS_ID = "ws-skill-dock-css";
     // 排查"到底加载了哪一版 dock"用（选择器是启动时扫盘的快照，改完要 Ctrl+R 才生效）
-    const SKILL_DOCK_REV = "dock-20261004s";
+    const SKILL_DOCK_REV = "dock-20261014a";   // 重启后在控制台 [skill-dock] 那行核对：加载的是不是这版
     // 展示元数据：title/tagline/cover/order 只在这一处（PRD §4 说该住 SKILL.md 的 display 块，
     // 但 skills.list 目前不回传自定义 frontmatter —— 等能回传再把这张表搬过去，不留两份）。
     // 封面 v2（2026-10-04）：画面内容按 PRD §8.6「功能 → 画面动作」逐张设计，一套管线出全套；
@@ -767,6 +771,33 @@ body {
       // v3-clean 是 v1 那批里唯一没商标问题的，但主体仍是白鞋、和另外两张撞车 ⇒ 一并换 v2。
       "video-dewatermark": { title: "视频去水印", tagline: "清掉 Sora/Seedance 的文字与图标", order: 5,
                             cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-video-dewatermark-v4.png" },
+      // 2026-10-05 第 6 条：提示词反推。🔴 故意不写 cover —— 封面要逐张人眼确认（SOP §5.2 铁律），
+      //   没签字的图不许上屏，卡片走"首字母 + 橙渐变"兜底。
+      // 2026-10-06 第 6 条封面：gpt-image2.5 出 3 版候选（12 分），用户回「A」选定。
+      //   画面 = 深炭底 + 左侧竖屏剧照（藏蓝大衣/红包）+ 橙色斜光带 + 右侧三块分镜卡与无字符刻度轨（功能反推：成片拆回结构）。
+      //   人眼过：无文字/数字/商标/水印；1536×1024 居中裁 472×264（dock 的 .cv 是 16:9 容器，标题在图下方不叠字，故底部留白被压不影响排版）。
+      //   ⚠️ 那只红包是 Kelly 式金锁梯形（继承自用户真实素材），A 里只作小道具；商标联想风险由用户选定承担，已记录。
+      "prompt-reverse": { title: "提示词反推", tagline: "爆款视频反推成可复用提示词", order: 6,
+                          cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-prompt-reverse-v4.png" },
+      // 2026-10-05 第 7 条：视频高清修复。基础工具 skill（video.edit/enhance 网关腿）。
+      //   封面 c1 已人眼签核（橙色光带 + 袜子 + 竖屏，无文字/商标/人脸），缩 472×264 落 v4。
+      "video-enhance": { title: "视频高清修复", tagline: "本地视频升 4K / 1080p 清晰版", order: 7,
+                        cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-video-enhance-v4.png" },
+      // 2026-10-06 第 8 条：一句话生视频。封面 = 候选 A（image2 出 3 版候选 A/B/C，用户拍板选 A），
+       //   裁 16:9 中心裁切、无字无品牌，命名 cover-one-shot-video.png。
+      "one-shot-video": { title: "一句话生视频", tagline: "一句话出片，商品视频即刻生成", order: 8,
+                        cover: "http://127.0.0.1:8100/api/film/file?task=_skill-covers&rel=cover-one-shot-video.png" },
+       // 2026-10-07 第 9 条：声音克隆（直连 RunningHub OpenAPI，不经网关，例外腿）。
+       //   封面尚未出图，卡片走首字母 + 橙渐变兜底，待出图签核后补 cover 字段。
+       "voice-clone": { title: "声音克隆", tagline: "参考音频克隆音色，合成口播", order: 9 },
+      // 2026-10-06 第 10 条：动作迁移。引擎=本机 8091 五步工作室，第五步是 RunningHub 浏览器 RPA（按条计费）。
+      //   🔴 故意不写 cover：封面要逐张人眼签字（SOP §5.2），出图本身还要花 4 分/张 ⇒ 先走"首字母 + 橙渐变"兜底。
+      "motion-transfer": { title: "动作迁移", tagline: "借爆款视频的动作，换成你的模特和商品", order: 10 },
+      // 2026-10-14 第 11 条：TVC 广告导演（上游 tvc-director 装进技能库）。纯提示词档 —— 无引擎腿、
+      //   不登记意图、不挂右栏台，产物是 Nano Banana Pro 关键帧提示词 + Seedance Multi-Phase 视频提示词。
+      //   🔴 故意不写 cover：出图要花钱且必须逐张人眼签字（SOP §5.2），这条也从没真跑出一条 TVC 成片
+      //   ⇒ 按"没真跑过的能力宁可不配图"先走"首字母 + 橙渐变"兜底，等有真产物再拿它当封面。
+      "tvc-director": { title: "TVC广告导演", tagline: "产品广告的多宫格分镜与关键帧提示词", order: 11 },
     };
     // 白名单：只把这几条露给客户（其余 30 条是内部/提示词库技能，以前留空 = 全量倒给客户看）
     const SKILL_DOCK_ALLOW = Object.keys(SKILL_DOCK_META);
@@ -1021,7 +1052,7 @@ body {
     //   ① 只用内核的 data-* 语义属性选元素，绝不依赖 CSS Modules 的哈希 class（升级会漂）；
     //   ② 不搬 React 节点 —— 只 setAttribute + 组首插一个头（全文件仅此一处插节点）；
     //   ③ 官方折过的（打了 data-turn-process-hidden）立刻让位，不做第二套折叠。
-    const WS_TURN_REV = "turn-fold-20261005d";
+    const WS_TURN_REV = "turn-fold-20261009a";   // 上一版是 20261005d：计时器读错成员，分组没挂上
     const WS_TURN_CSS_ID = "ws-turn-fold-css";
     const WS_FLOW_ITEM = "[data-chat-flow-kind][data-chat-turn]";
     // 永远留在正文里的 kind（客户说的话、报错、轮次收尾、官方那条折叠行）；其余一律收进组 ——
@@ -1147,7 +1178,13 @@ body {
         const mo = new MutationObserver(run);
         mo.observe(document.body, { childList: true, subtree: true });
         // 组头的秒数在"没有 DOM 变化"时也要走字（内核不会重绘我们插的头）⇒ 1 秒一跳
-        if (ctx && typeof ctx.setInterval === "function") ctx.setInterval(run, 1000);
+        // 🔴 只能读 ctx.timer（它在 inject 名单里）。`ctx.setInterval` 是没注入的成员，Cordis 的
+        //    守卫代理一读就抛 "cannot get property 'setInterval' without inject"，被外层 try 咽掉
+        //    ⇒ 分组静默挂不上、秒数不走（renderer 的 console 不进 harness.log，所以看不出来）。
+        const every = (ctx && ctx.timer && typeof ctx.timer.setInterval === "function")
+          ? (fn, ms) => ctx.timer.setInterval(fn, ms)
+          : (fn, ms) => setInterval(fn, ms);
+        every(run, 1000);
         try { console.log("[ws-turn-fold] mounted", WS_TURN_REV); } catch (e) {}
       } catch (e) {
         try { console.warn("[ws-turn-fold] 挂载失败:", e && e.message); } catch (e2) {}
@@ -1183,7 +1220,136 @@ body {
       } catch (e) {
         try { console.warn("[skill-dock] 挂载失败（槽不存在或签名变了）:", e && e.message); } catch (e2) {}
       }
+      registerWeeksirCardHooks(ctx);
     }
+
+    // ── 交付卡上的【下载视频】与【你还可以】（2026-10-08 改挂点，docs/ADR-turn-tail-next-step.md）─
+    // 🔴 为什么不再抢 conversation.chat.turnTail：那是 chain 槽、"首个 select 非 null 独占"
+    //    （dsh-client-ui-renderer/lib/client.js:831-849）。我们一抢，官方交付卡整张不渲染 ——
+    //    原生预览/原生菜单/原生下载项全跟着没了。用户口径"下载控件要和 dsh 原生的一样"
+    //    ⇒ 改成【官方组件长 UI、我们出策略】：官方补丁只读四个可选全局钩子，
+    //      钩子缺席时它退回逐字节原生（补丁：scripts/patch-deliverables-weeksir.py）。
+    // 判据不变：推荐必须由本轮真实落盘的产物推出来，推不出来就整行不画（凭空推荐 = 广告）。
+    // 自绘块已退役 ⇒ 版本指纹改打在钩子注册上（window.__weeksirCardRev）
+    const TURN_TAIL_MAX = 3;                       // 用户拍定：一次最多 3 条
+    const TURN_TAIL_POOL = ["video-enhance", "video-dewatermark", "super-clone", "omni"];
+    // 🔴 不进池的：product-video-pipeline（直连 zexapi·未接网关）、motion-transfer（单价占位·
+    //    花钱在 8091 那个进程）、voice-clone（账本外例外腿）—— 见 ADR D4。
+    const TURN_TAIL_RULES = {
+      "omni": ["video-enhance", "video-dewatermark", "super-clone"],
+      "super-clone": ["video-enhance", "video-dewatermark", "omni"],
+      "one-shot-video": ["video-enhance", "video-dewatermark", "super-clone"],
+      "short-drama": ["video-enhance", "video-dewatermark", "super-clone"],
+      "video-dewatermark": ["video-enhance", "super-clone"],
+      "video-enhance": ["video-dewatermark", "super-clone"],
+      "hypit-pipeline": ["video-enhance", "super-clone"],
+    };
+    const TT_VIDEO = /\.(mp4|mov|webm|m4v|avi|mkv)$/i;
+    const TT_IMAGE = /\.(png|jpe?g|webp|gif|bmp)$/i;
+    const TT_TEXT = /\.(md|txt|json|csv|ya?ml|srt|ass)$/i;
+
+    // 纯函数：不碰 DOM、不碰网络 ⇒ 闸能整块抠出来跑值表。
+    function turnTailRecommendations(producedPaths, usedSkill) {
+      // 脏输入不许抛：select 每帧都跑，抛一次就整块 turnTail 空屏（闸 R5 钉这条）。
+      const raw = Array.isArray(producedPaths) ? producedPaths
+        : (typeof producedPaths === "string" && producedPaths ? [producedPaths] : []);
+      const skill = typeof usedSkill === "string" ? usedSkill : "";
+      const paths = raw.filter(function (p) { return typeof p === "string" && p; });
+      const out = [];
+      const seen = {};
+      const push = function (id) {
+        if (!id || seen[id] || id === skill) return;
+        if (TURN_TAIL_POOL.indexOf(id) < 0) return;
+        seen[id] = 1; out.push(id);
+      };
+      (TURN_TAIL_RULES[skill] || []).forEach(push);
+      const hasVideo = paths.some(function (p) { return TT_VIDEO.test(p); });
+      const hasImage = paths.some(function (p) { return TT_IMAGE.test(p); });
+      const onlyText = paths.length > 0 && paths.every(function (p) { return TT_TEXT.test(p); });
+      if (hasVideo) { push("video-enhance"); push("video-dewatermark"); }
+      if (hasImage && !hasVideo) { push("super-clone"); push("omni"); }
+      if (onlyText) return [];                    // 只有文案/提示词 = 没有可加工的产物，不推荐
+      return out.slice(0, TURN_TAIL_MAX);
+    }
+
+    // 可下载扩展名：🔴 必须 ⊆ 服务端 model_admin.py 的 FILM_DOWNLOADABLE，
+    // 否则按钮点出 404 = 拿名字顶着它不具备的东西。由 scripts/check-weeksir-card-hooks.py 读那份权威源对账。
+    const WEEKSIR_DL_EXT = ["mp4", "mov", "webm", "png", "jpg", "jpeg", "webp"];
+    const WEEKSIR_DL_BASE = "http://127.0.0.1:8100/api/film/file";
+    const WEEKSIR_CARD_REV = "weeksir-card-hooks-20261008a";
+
+    // 纯函数：绝对路径 → 可下载直链。映射不出来就 null（宁可不画按钮，也不给一个点了没反应的）。
+    function weeksirDownloadUrl(absPath) {
+      const s = String(absPath || "").replace(/\\/g, "/");
+      const m = s.match(/(?:^|\/)productions\/([^/]+)\/(.+)$/);
+      if (!m) return null;
+      const rel = m[2];
+      const ext = (rel.match(/\.([A-Za-z0-9]+)$/) || [])[1];
+      if (!ext || WEEKSIR_DL_EXT.indexOf(ext.toLowerCase()) < 0) return null;
+      return WEEKSIR_DL_BASE + "?task=" + encodeURIComponent(m[1]) + "&rel=" + encodeURIComponent(rel) + "&dl=1";
+    }
+
+    function weeksirTriggerDownload(url) {
+      try {
+        const a = document.createElement("a");
+        a.href = String(url || "");
+        a.rel = "noopener";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { try { a.remove(); } catch (e) {} }, 0);
+      } catch (e) {}
+    }
+
+    // matched = 官方那份 {produced, presented}。判据吃【两者】：
+    // 🔴 只吃 produced 时成片回合恒不触发（成片是引擎落盘、由 agent 显式 present 的，不在 produced 里）。
+    function weeksirRecsFromMatched(matched) {
+      const paths = [];
+      ((matched && matched.produced) || []).forEach(function (x) {
+        const p = x && (x.path || x);
+        if (typeof p === "string" && p) paths.push(p);
+      });
+      ((matched && matched.presented) || []).forEach(function (x) {
+        const p = x && (x.path || x);
+        if (typeof p === "string" && p) paths.push(p);
+      });
+      return turnTailRecommendations(paths, "").map(function (id) {
+        const meta = (typeof SKILL_DOCK_META !== "undefined" && SKILL_DOCK_META[id]) || {};
+        return { id: id, label: meta.title || id, tagline: meta.tagline || "" };
+      });
+    }
+
+    function registerWeeksirCardHooks(ctx) {
+      try {
+        window.__weeksirCardRev = WEEKSIR_CARD_REV;
+        window.__weeksirDownloadUrl = weeksirDownloadUrl;
+        window.__weeksirDownload = weeksirTriggerDownload;
+        window.__weeksirTurnRecs = weeksirRecsFromMatched;
+        window.__weeksirPickRec = function (id) {
+          // 🔴 只把 /技能 填进输入框：不建 run、不挂台、不花钱（判定权仍在用户点 /skill）
+          const list = typeof SKILLS !== "undefined" ? SKILLS : [];
+          const s = list.filter(function (x) { return x && x.id === id; })[0] || null;
+          try {
+            if (s && s.prompt) setSkillPrompt(s.prompt);
+            else if (s) setSkillPrompt("/" + s.id + " ");
+          } catch (e) {
+            try { console.warn("[weeksir-card] 填不进输入框:", e && e.message); } catch (e2) {}
+          }
+        };
+        try { console.log("[weeksir-card] 四个钩子已注册（官方交付卡读它们）", WEEKSIR_CARD_REV); } catch (e) {}
+      } catch (e) {
+        try { console.warn("[weeksir-card] 钩子注册失败（官方卡会退回纯原生）:", e && e.message); } catch (e2) {}
+      }
+    }
+
+    // ── 对话内技能表单：2026-10-09 整块下线，输入口改到右栏页签（docs/PRD-input-form-single-port.md §4.3）
+    //   四条纪律一条没松：① 仍只在【意图登记之后】出现（门控在 8100 那一份 show）；
+    //   ② 一寸不碰 composer（不 setDraft / 不 addAttachments / 不 submit / 不代发）；
+    //   ③ 字段表唯一源 = 各 SKILL.md 的 form: 段，插件里不出现第二份；
+    //   ④ 同一件事不留两个入口 → 这里连「一行提示」都不挂：turnTail 是 chain 槽、首个 select 非 null 独占
+    //      （dsh-client-ui-renderer/lib/client.js:831-849），我们一挂就把官方交付卡整张顶掉（原生预览/菜单/下载全没）。
+    //   表单页本体：${VIDEO_SKILL_HOME}/backend/skill_form_page.py（8100 出 /ui/<skill>）；要告知客户由 agent 在正文里说。
+
 
     exports.apply = apply;
     exports.inject = inject;

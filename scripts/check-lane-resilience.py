@@ -9,9 +9,13 @@ import sys
 import urllib.error
 import urllib.request
 
-os.environ.setdefault("HYPIT_JOBS_DB", r"C:\dsh\_scratch_b\lane_selftest.sqlite")
-sys.path.insert(0, r"D:\video-skill")
-sys.path.insert(0, r"D:\video-skill\backend")
+os.environ.setdefault("HYPIT_JOBS_DB", os.path.join(WS, r"_scratch_b\lane_selftest.sqlite"))
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 
 import hypit_bridge as hb        # noqa: E402
 from backend import gateway as gw  # noqa: E402
@@ -216,7 +220,7 @@ from backend.services import runninghub_client as rh         # noqa: E402
 
 h5 = {}
 # H3 现在会先验参考文件真的在盘上（不存在的文件白烧一次 GPU + 一笔预扣），所以夹具得是真文件
-_SCR = r"C:\dsh\_scratch_b"
+_SCR = os.path.join(WS, r"_scratch_b")
 os.makedirs(_SCR, exist_ok=True)
 A1, A2 = os.path.join(_SCR, "a.jpg"), os.path.join(_SCR, "b.jpg")
 for _f in (A1, A2):
@@ -289,7 +293,7 @@ try:
           [False, "2013508786110730241", True])
 
     # ── ⑥ rv2v：视频出动作 + 图片换主体（socks 那种"动作照原片、鞋换新鞋"）──────────
-    SCR = r"C:\dsh\_scratch_b"
+    SCR = os.path.join(WS, r"_scratch_b")
     os.makedirs(SCR, exist_ok=True)
     CLIP = os.path.join(SCR, "rv2v_clip.mp4")
     IMG1 = os.path.join(SCR, "shoe1.jpg")

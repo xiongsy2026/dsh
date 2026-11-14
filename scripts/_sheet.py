@@ -6,8 +6,9 @@ import os
 import sys
 
 from PIL import Image
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-OUT = r"C:\dsh\productions\_skill-covers"
+OUT = os.path.join(WS, r"productions\_skill-covers")
 tag = sys.argv[1] if len(sys.argv) > 1 else "v4"
 only = sys.argv[2:]
 ids = ["super-clone", "hypit-pipeline", "omni", "short-drama", "video-dewatermark"]

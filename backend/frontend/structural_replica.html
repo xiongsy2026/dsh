@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>结构性复刻工作流</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .topbar-right { display: flex; align-items: center; gap: 12px; }
+        .back-btn, .new-task-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover, .new-task-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 440px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .text-field { width:100%;box-sizing:border-box;margin-bottom:16px;padding:12px 14px;background:#1e1e36;border:1px solid #3a3a5c;border-radius:8px;color:#fff;font-size:.95em;outline:none; font-family: inherit; }
+        .text-field:focus { border-color:#6c3ce0; }
+        textarea.text-field { min-height: 96px; resize: vertical; line-height: 1.5; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; transition: all .2s; letter-spacing: 1px; }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+        .history-section { margin-top: 20px; }
+        .history-item { display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1a1a30;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s;border:1px solid transparent; }
+        .history-item:hover { border-color:#6c3ce0; }
+        .history-item .h-info { flex:1;min-width:0; }
+        .history-item .h-title { font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+        .history-item .h-meta { font-size:.7em;color:#666;margin-top:2px; }
+        .history-item .h-status { font-size:.7em;padding:2px 8px;border-radius:10px;white-space:nowrap; }
+        .h-status.ok { background:#065f46;color:#6ee7b7; }
+        .h-status.fail { background:#7f1d1d;color:#fca5a5; }
+        .h-status.review { background:#78350f;color:#fbbf24; }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        .badge-review { background: #78350f; color: #fbbf24; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+        .status-error { margin-top: 10px; padding: 10px 14px; background: #451a1a; border-radius: 8px; color: #fca5a5; font-size: .85em; }
+        .retry-btn { margin-top: 10px; padding: 8px 18px; border-radius: 8px; background: #1e3a5f; color: #60a5fa; border: 1px solid #2a4a6f; cursor: pointer; font-size: .9em; font-weight: 600; transition: background .2s; }
+        .retry-btn:hover { background: #2a4a6f; }
+        .retry-btn:disabled { opacity: .6; cursor: not-allowed; }
+        .retry-hint { margin-top: 6px; font-size: .75em; color: #888; }
+        .steps-bar { display: flex; gap: 4px; margin-bottom: 12px; }
+        .step-item { flex: 1; height: 6px; border-radius: 3px; background: #2a2a44; transition: background .3s; }
+        .step-item.active { background: #3b82f6; }
+        .step-item.done { background: #22c55e; }
+        .step-labels { display: flex; gap: 4px; margin-bottom: 16px; font-size: .7em; color: #666; }
+        .step-labels span { flex: 1; text-align: center; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 220px; overflow-y: auto; line-height: 1.7; }
+        .log-line.running { color: #60a5fa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .review-section { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; display: none; }
+        .review-section h3 { margin-bottom: 16px; font-size: 1.1em; color: #fbbf24; }
+        .review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 1200px) { .review-grid { grid-template-columns: 1fr; } }
+        .review-item { background: #1e1e36; border-radius: 12px; overflow: hidden; border: 1px solid #2a2a5c; }
+        .review-item .rv-label { padding: 10px 16px; background: #1e1e36; color: #a5a5c8; font-size: .9em; font-weight: 600; border-bottom: 1px solid #2a2a5c; }
+        .review-item .rv-img-wrap { padding: 12px; display: flex; justify-content: center; background: #0e0e1e; }
+        .review-item .rv-img-wrap img { max-width: 100%; border-radius: 8px; display: block; }
+        .review-item .rv-json-wrap { padding: 14px 16px; background: #0e0e1e; max-height: 320px; overflow: auto; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .76em; color: #c8c8e0; line-height: 1.55; white-space: pre; }
+        .review-item .rv-caption { padding: 8px 16px 12px; font-size: .78em; color: #888; text-align: center; }
+        .review-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; padding-top: 16px; border-top: 1px solid #2a2a5c; }
+        /* 驳回修改意见输入区 */
+        .reject-form {
+            margin-top: 16px; padding: 16px; background: #1a1a2e;
+            border: 1px solid #3a3a6c; border-radius: 10px;
+        }
+        .reject-form-title {
+            font-size: .9em; color: #a78bfa; font-weight: 600; margin-bottom: 10px;
+        }
+        .reject-form textarea {
+            width: 100%; min-height: 120px; padding: 10px;
+            background: #16162a; border: 1px solid #2a2a5c; border-radius: 8px;
+            color: #e0e0e0; font-size: .85em; font-family: inherit; line-height: 1.5;
+            resize: vertical;
+        }
+        .reject-form textarea:focus { outline: none; border-color: #6c3ce0; }
+        .reject-form-actions {
+            display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px;
+        }
+        .btn-secondary { background: #ef4444; color: #fff; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: .95em; font-weight: 600; transition: all .2s; }
+        .btn-secondary:hover { background: #dc2626; }
+        .btn-primary { background: #10b981; color: #fff; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: .95em; font-weight: 600; transition: all .2s; }
+        .btn-primary:hover { background: #059669; }
+        .btn-secondary:disabled, .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+        .video-result { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; }
+        .video-result h3 { margin-bottom: 16px; font-size: 1.1em; }
+        .video-player { width: 100%; border-radius: 10px; background: #000; max-height: 520px; }
+        .video-placeholder { width: 100%; height: 280px; border-radius: 10px; background: #1e1e36; display: flex; align-items: center; justify-content: center; color: #555; font-size: 1.2em; }
+        .result-links { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: #1e1e36; color: #60a5fa; text-decoration: none; font-size: .9em; transition: background .2s; }
+        .result-link:hover { background: #2a2a5c; }
+        .result-link.publish-link { background: linear-gradient(90deg, #10b981, #06b6d4); color: #fff; }
+        .product-preview-grid { display: none; margin-top: 8px; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+        .h3-tip { font-size: .78em; color: #fbbf24; margin-top: -8px; margin-bottom: 16px; padding: 8px 12px; background: rgba(251,191,36,.08); border-radius: 6px; border-left: 3px solid #fbbf24; }
+        .engine-switch { display: flex; gap: 8px; margin-bottom: 16px; }
+        .engine-opt { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; cursor: pointer; transition: all .15s; background: rgba(255,255,255,.03); }
+        .engine-opt input { display: none; }
+        .engine-opt:hover { border-color: rgba(108,60,224,.5); }
+        .engine-opt.active { border-color: #6c3ce0; background: rgba(108,60,224,.12); box-shadow: 0 0 0 1px #6c3ce0 inset; }
+        .engine-name { font-size: .95em; font-weight: 600; color: #fff; }
+        .engine-desc { font-size: .72em; color: rgba(255,255,255,.6); }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>STRUCTURAL REPLICA</h1>
+        <span class="tag">结构性复刻 · 3步工作流</span>
+    </div>
+    <div class="topbar-right">
+        <button class="new-task-btn" id="newTaskBtn" onclick="newTask()" title="清空当前页面状态，开始一个新任务（支持多标签页并发）">➕ 新建任务</button>
+    </div>
+</div>
+<div class="main">
+    <div class="input-panel">
+        <div class="section-title"><span class="dot dot-required"></span> 参考视频（必选）</div>
+        <div class="upload-card" id="videoCard" onclick="document.getElementById('videoInput').click()">
+            <div class="icon">🎬</div><div class="label">点击上传参考视频（原爆款视频）</div>
+            <input type="file" id="videoInput" accept="video/*"><div class="filename" id="videoFilename"></div>
+        </div>
+
+        <div class="section-title"><span class="dot dot-required"></span> 产品名称（必填）</div>
+        <input class="text-field" id="productNameInput" type="text" maxlength="100" placeholder="例如：泡脚桶" autocomplete="off">
+
+        <div class="section-title"><span class="dot dot-required"></span> 卖点描述（必填）</div>
+        <textarea class="text-field" id="sellingPointsInput" placeholder="例如：八层加厚，长效锁温，可以泡到小腿的三阴交和足三里，折叠设计，便携、好收纳"></textarea>
+
+        <div class="section-title"><span class="dot dot-required"></span> 产品图（必选，最多5张）</div>
+        <div class="upload-card" id="productCard" onclick="document.getElementById('productInput').click()">
+            <div class="icon">📦</div><div class="label">点击上传产品多角度图（可多选）</div>
+            <input type="file" id="productInput" accept="image/*" multiple><div class="filename" id="productFilename"></div>
+        </div>
+        <div id="productPreviewGrid" class="product-preview-grid"></div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 推理引擎（结构迁移）</div>
+        <div class="engine-switch" id="engineSwitch">
+            <label class="engine-opt active" data-engine="grok">
+                <input type="radio" name="reasoningEngine" value="grok" checked>
+                <span class="engine-name">Grok</span>
+                <span class="engine-desc">grok-4.6 · 结构迁移推荐</span>
+            </label>
+            <label class="engine-opt" data-engine="gpt">
+                <input type="radio" name="reasoningEngine" value="gpt">
+                <span class="engine-name">GPT</span>
+                <span class="engine-desc">gpt-5.5 · 备选推理</span>
+            </label>
+        </div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 视频模型（Step4 生成）</div>
+        <div class="engine-switch" id="videoModelSwitch">
+            <label class="engine-opt active" data-model="h3">
+                <input type="radio" name="videoModel" value="h3" checked>
+                <span class="engine-name">H3 标准 API</span>
+                <span class="engine-desc">2K 满血 · 5-30分钟 · 推荐</span>
+            </label>
+            <label class="engine-opt" data-model="seedance">
+                <input type="radio" name="videoModel" value="seedance">
+                <span class="engine-name">SEEDANCE 2.0</span>
+                <span class="engine-desc">seedance-2.0-renlian · 浏览器自动化</span>
+            </label>
+        </div>
+
+        <div class="h3-tip" id="h3Tip">
+            ℹ️ 视频由 <b>H3 标准 API</b> 生成（2K 满血模型，15秒，约5-30分钟）。<br>
+            流程：Step1 MiMo分镜 → Step3 Image2故事板海报 → Step4 H3视频。
+        </div>
+
+        <button class="run-btn" id="runBtn" onclick="startWorkflow()">🚀 启动结构性复刻</button>
+
+        <div class="history-section">
+            <div class="section-title">📋 历史记录</div>
+            <div id="historyList" style="max-height:300px;overflow-y:auto;">
+                <div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="output-panel">
+        <div class="status-panel">
+            <div class="status-header">
+                <span>工作流状态</span>
+                <span class="status-badge badge-idle" id="statusBadge">等待输入</span>
+                <span style="margin-left:auto;color:#888;font-size:.8em;" id="phaseLabel"></span>
+            </div>
+            <div class="steps-bar">
+                <div class="step-item" id="step1"></div>
+                <div class="step-item" id="step3"></div>
+                <div class="step-item" id="step4"></div>
+            </div>
+            <div class="step-labels">
+                <span>Step1 · MiMo分镜</span>
+                <span>Step3 · 故事板海报</span>
+                <span>Step4 · H3视频</span>
+            </div>
+            <div class="status-error" id="statusError" style="display:none;"></div>
+            <div id="retryPanel" style="display:none;">
+                <button class="retry-btn" id="retryBtn">从失败步骤重试</button>
+                <div class="retry-hint">已完成的步骤将自动跳过，仅重跑失败的那一步</div>
+            </div>
+            <div class="log-box" id="logBox"><div class="log-line">等待启动工作流...</div></div>
+        </div>
+
+        <div class="review-section" id="reviewSection">
+            <h3>🔍 待审核内容（Phase1 完成，请确认故事板海报后执行视频生成）</h3>
+            <div class="review-grid">
+                <div class="review-item" id="rvStoryboard" style="display:none;">
+                    <div class="rv-label">📋 Step1 · 分镜脚本 JSON（15s）</div>
+                    <div class="rv-json-wrap" id="rvStoryboardJson"></div>
+                    <div class="rv-caption">MiMo 生成的 15 秒分镜结构</div>
+                </div>
+                <div class="review-item" id="rvPoster" style="display:none;">
+                    <div class="rv-label">🖼️ Step3 · 故事板海报（4K）</div>
+                    <div class="rv-img-wrap"><img id="rvPosterImg" alt="故事板海报"></div>
+                    <div class="rv-caption">Image2 生成的电商分镜故事板海报</div>
+                </div>
+            </div>
+            <div class="review-actions">
+                <button class="btn-secondary" id="rejectBtn" onclick="toggleRejectForm()">↩ 不满意，重新生成</button>
+                <button class="btn-primary" id="approveBtn" onclick="submitApprove()">✓ 满意，执行视频生成</button>
+            </div>
+
+            <!-- 驳回修改意见输入区 -->
+            <div class="reject-form" id="rejectForm" style="display:none;">
+                <div class="reject-form-title">📝 修改意见</div>
+                <textarea id="rejectReason" placeholder="请输入修改意见，例如：&#10;1. 第3个镜头产品展示太短，延长到2秒&#10;2. 口播文案不够吸引人，需要强化痛点&#10;3. 整体节奏太慢，前3秒要更抓人&#10;4. 产品出场方式不够自然&#10;&#10;修改意见会传给 LLM 重新推理分镜，并重新生成故事板图片。"></textarea>
+                <div class="reject-form-actions">
+                    <button class="btn-secondary" onclick="cancelReject()">取消</button>
+                    <button class="btn-primary" id="submitRejectBtn" onclick="submitRejectWithReason()">🔄 提交并重新生成</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="video-result">
+            <h3>📺 视频输出</h3>
+            <div id="videoArea"><div class="video-placeholder">视频生成后将在此展示</div></div>
+            <div class="result-links" id="resultLinks" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const state = {
+    videoPath: null,
+    productPaths: [],
+    taskId: null,
+    polling: null,
+    lastLogCount: 0,
+};
+
+// ─── URL task_id 恢复 ───
+function getTaskIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('task_id') || params.get('taskId');
+}
+
+function updateUrlTaskId(taskId) {
+    if (!taskId) return;
+    const url = new URL(window.location);
+    url.searchParams.set('task_id', taskId);
+    window.history.replaceState({}, '', url);
+}
+
+function newTask() {
+    state.taskId = null;
+    state.videoPath = null;
+    state.productPaths = [];
+    state.lastLogCount = 0;
+    if (state.polling) { clearInterval(state.polling); state.polling = null; }
+    const url = new URL(window.location);
+    url.searchParams.delete('task_id');
+    window.history.replaceState({}, '', url);
+    location.reload();
+}
+
+// ─── 视频上传 ───
+const VIDEO_WARN_MB = 15; // 超过此大小后端会自动压缩，前端仅做提示
+document.getElementById('videoInput').addEventListener('change', async (e) => {
+    if (e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const card = document.getElementById('videoCard');
+    const filenameEl = document.getElementById('videoFilename');
+    const sizeMb = file.size / 1024 / 1024;
+    // 大视频提示：后端会自动压缩到 15MB 以下
+    if (sizeMb > VIDEO_WARN_MB) {
+        filenameEl.textContent = `⏳ 视频较大（${sizeMb.toFixed(1)}MB），正在上传并自动压缩...`;
+    } else {
+        filenameEl.textContent = `⏳ 上传中... ${sizeMb.toFixed(1)}MB`;
+    }
+    card.classList.remove('has-file');
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const resp = await fetch('/api/upload/video', { method: 'POST', body: formData });
+        let result = null;
+        try { result = await resp.json(); } catch (_) { /* 非 JSON 响应 */ }
+        if (resp.ok && result && result.success) {
+            state.videoPath = result.file_path;
+            card.classList.add('has-file');
+            const finalMb = result.size ? (result.size / 1024 / 1024).toFixed(1) : sizeMb.toFixed(1);
+            filenameEl.textContent = `✓ ${file.name}（${finalMb}MB${sizeMb > VIDEO_WARN_MB ? '，已压缩' : ''}）`;
+        } else {
+            const detail = (result && (result.detail || result.message)) || `HTTP ${resp.status}`;
+            filenameEl.textContent = `✗ 上传失败: ${detail}`;
+            card.classList.remove('has-file');
+            state.videoPath = null;
+        }
+    } catch (err) {
+        filenameEl.textContent = `✗ 上传失败: ${err.message || '网络异常'}`;
+        card.classList.remove('has-file');
+        state.videoPath = null;
+    } finally {
+        e.target.value = ''; // 允许重新选择同一文件
+    }
+});
+
+// ─── 产品图多选上传（最多5张）───
+(function setupProductMultiUpload() {
+    const input = document.getElementById('productInput');
+    const card = document.getElementById('productCard');
+    const filenameEl = document.getElementById('productFilename');
+    const grid = document.getElementById('productPreviewGrid');
+    function updateProductUi() {
+        Array.from(grid.children).forEach((item, index) => {
+            const num = item.querySelector('.reference-number');
+            if (num) num.textContent = index + 1;
+        });
+        filenameEl.textContent = state.productPaths.length > 0
+            ? `✓ 已上传 ${state.productPaths.length}/5 张产品图`
+            : '未上传产品图';
+        card.classList.toggle('has-file', state.productPaths.length > 0);
+        grid.style.display = state.productPaths.length > 0 ? 'grid' : 'none';
+    }
+    input.addEventListener('change', async (e) => {
+        const remaining = 5 - state.productPaths.length;
+        if (remaining <= 0) { alert('最多只能上传5张产品图'); input.value = ''; return; }
+        const files = Array.from(e.target.files).slice(0, remaining);
+        if (files.length === 0) return;
+        grid.style.display = 'grid';
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const resp = await fetch('/api/upload/image', { method: 'POST', body: formData });
+                let result = null;
+                try { result = await resp.json(); } catch (_) {}
+                if (resp.ok && result && result.success) {
+                    state.productPaths.push(result.file_path);
+                    const number = state.productPaths.length;
+                    const url = URL.createObjectURL(file);
+                    const wrap = document.createElement('div');
+                    wrap.dataset.path = result.file_path;
+                    wrap.style.cssText = 'position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;border:2px solid #4a90e2;';
+                    wrap.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;"><div class="reference-number" style="position:absolute;top:2px;left:2px;background:rgba(74,144,226,0.9);color:#fff;font-size:11px;padding:1px 6px;border-radius:4px;font-weight:bold;">${number}</div><button type="button" title="删除" style="position:absolute;top:2px;right:2px;width:22px;height:22px;border:0;border-radius:50%;background:rgba(220,53,69,.95);color:#fff;font-size:15px;line-height:20px;cursor:pointer;padding:0;">×</button>`;
+                    wrap.querySelector('button').addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        const index = state.productPaths.indexOf(wrap.dataset.path);
+                        if (index >= 0) state.productPaths.splice(index, 1);
+                        URL.revokeObjectURL(url);
+                        wrap.remove();
+                        updateProductUi();
+                    });
+                    grid.appendChild(wrap);
+                } else {
+                    const detail = (result && (result.detail || result.message)) || `HTTP ${resp.status}`;
+                    alert(`图片「${file.name}」上传失败: ${detail}`);
+                }
+            } catch (err) {
+                alert(`图片「${file.name}」上传失败: ${err.message || '网络异常'}`);
+            }
+        }
+        input.value = '';
+        updateProductUi();
+    });
+})();
+
+// ─── 推理引擎 / 视频模型 切换 ───
+document.querySelectorAll('.engine-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+        // 只在同一组内切换
+        const group = opt.closest('.engine-switch');
+        group.querySelectorAll('.engine-opt').forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        opt.querySelector('input').checked = true;
+        // 视频模型切换时更新 Step4 标签和提示
+        if (group.id === 'videoModelSwitch') {
+            const model = opt.querySelector('input').value;
+            const step4Label = document.querySelectorAll('.step-labels span')[2];
+            if (step4Label) step4Label.textContent = model === 'seedance' ? 'Step4 · SEEDANCE视频' : 'Step4 · H3视频';
+            const tip = document.getElementById('h3Tip');
+            if (tip) {
+                tip.innerHTML = model === 'seedance'
+                    ? 'ℹ️ 视频由 <b>SEEDANCE 2.0</b> 生成（seedance-2.0-renlian，weeksir.com 浏览器自动化，15秒）。<br>流程：Step1 MiMo分镜 → Step3 Image2故事板海报 → Step4 SEEDANCE视频。'
+                    : 'ℹ️ 视频由 <b>H3 标准 API</b> 生成（2K 满血模型，15秒，约5-30分钟）。<br>流程：Step1 MiMo分镜 → Step3 Image2故事板海报 → Step4 H3视频。';
+            }
+        }
+    });
+});
+
+// ─── 启动工作流 ───
+async function startWorkflow() {
+    if (!state.videoPath) { alert('请先上传参考视频'); return; }
+    const productName = document.getElementById('productNameInput').value.trim();
+    if (!productName) { alert('请输入产品名称'); return; }
+    const sellingPoints = document.getElementById('sellingPointsInput').value.trim();
+    if (!sellingPoints) { alert('请输入卖点描述'); return; }
+    if (state.productPaths.length === 0) { alert('请至少上传1张产品图'); return; }
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '⏳ Phase1 执行中...';
+
+    setBadge('running', '执行中');
+    setStep('step1', 'active');
+    addLog('启动结构性复刻 Phase1：MiMo 分镜 + Image2 故事板海报...', 'running');
+    document.getElementById('reviewSection').style.display = 'none';
+    document.getElementById('resultLinks').style.display = 'none';
+    document.getElementById('videoArea').innerHTML = '<div class="video-placeholder">Phase1 执行中...</div>';
+    // 启动时隐藏错误和重试按钮
+    document.getElementById('statusError').style.display = 'none';
+    document.getElementById('retryPanel').style.display = 'none';
+
+    try {
+        const reasoningEngine = document.querySelector('input[name="reasoningEngine"]:checked')?.value || 'grok';
+        const videoModel = document.querySelector('input[name="videoModel"]:checked')?.value || 'h3';
+        const resp = await fetch('/api/structural-replica/run-phased', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_path: state.videoPath,
+                product_name: productName,
+                selling_points: sellingPoints,
+                product_image_paths: state.productPaths,
+                reasoning_engine: reasoningEngine,
+                video_model: videoModel,
+            }),
+        });
+        const result = await resp.json();
+        if (!result.success) throw new Error(result.detail || '启动失败');
+        state.taskId = result.task_id;
+        updateUrlTaskId(state.taskId);
+        state.lastLogCount = 0;
+        addLog(`任务已创建: ${state.taskId}`, 'done');
+        startPolling();
+    } catch (err) {
+        addLog('启动失败: ' + err.message, 'error');
+        setBadge('failed', '启动失败');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '🚀 启动结构性复刻';
+    }
+}
+
+// ─── 轮询状态 ───
+function startPolling() {
+    if (state.polling) clearInterval(state.polling);
+    state.polling = setInterval(pollOnce, 2500);
+    pollOnce();
+}
+
+async function pollOnce() {
+    if (!state.taskId) return;
+    try {
+        const resp = await fetch(`/api/structural-replica/status/${state.taskId}`);
+        const data = await resp.json();
+        updateUi(data);
+        if (data.status === 'awaiting_review') {
+            stopPolling();
+            await loadReview();
+        } else if (data.status === 'completed') {
+            stopPolling();
+            finalizeSuccess(data);
+        } else if (data.status === 'failed') {
+            stopPolling();
+            finalizeFailed(data);
+        }
+    } catch (err) {
+        addLog('状态查询失败: ' + err.message, 'error');
+    }
+}
+
+function stopPolling() {
+    if (state.polling) { clearInterval(state.polling); state.polling = null; }
+}
+
+// ─── 更新 UI ───
+function updateUi(data) {
+    document.getElementById('phaseLabel').textContent = data.step_name || '';
+    const phase = data.phase || '';
+    // 3 步指示：step1(MiMo分镜) / step3(故事板海报) / step4(H3视频)
+    setStep('step1', (phase === 'phase_1' || phase === 'redo_phase_1') ? 'active' :
+                    (['after_step3', 'phase_2', 'after_step4'].includes(phase) ? 'done' : ''));
+    setStep('step3', ['after_step3', 'phase_2', 'after_step4'].includes(phase) ? 'done' :
+                     (phase === 'phase_1' || phase === 'redo_phase_1' ? 'active' : ''));
+    setStep('step4', phase === 'after_step4' ? 'done' : (phase === 'phase_2' ? 'active' : ''));
+
+    // badge
+    if (data.status === 'running') { setBadge('running', '执行中'); }
+    else if (data.status === 'awaiting_review') { setBadge('review', '待审核'); }
+    else if (data.status === 'completed') { setBadge('completed', '已完成'); }
+    else if (data.status === 'failed') { setBadge('failed', '失败'); }
+
+    // logs（增量）
+    const logs = data.logs || [];
+    if (logs.length > state.lastLogCount) {
+        for (let i = state.lastLogCount; i < logs.length; i++) {
+            const line = logs[i];
+            let cls = '';
+            if (/error|失败|异常|traceback/i.test(line)) cls = 'error';
+            else if (/完成|✓|done/i.test(line)) cls = 'done';
+            else cls = 'running';
+            addLog(line, cls);
+        }
+        state.lastLogCount = logs.length;
+    }
+}
+
+function setStep(id, status) {
+    const el = document.getElementById(id);
+    el.classList.remove('active', 'done');
+    if (status) el.classList.add(status);
+}
+
+function setBadge(cls, text) {
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'status-badge badge-' + cls;
+    badge.textContent = text;
+}
+
+function addLog(msg, cls = '') {
+    const box = document.getElementById('logBox');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    line.textContent = msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+}
+
+// ─── 加载审核内容 ───
+async function loadReview() {
+    if (!state.taskId) return;
+    try {
+        const resp = await fetch(`/api/structural-replica/review/${state.taskId}`);
+        const data = await resp.json();
+        if (!data.review) {
+            document.getElementById('reviewSection').style.display = 'none';
+            return;
+        }
+        const review = data.review;
+        const section = document.getElementById('reviewSection');
+        section.style.display = 'block';
+
+        // 分镜 JSON
+        if (review.storyboard_json_url) {
+            document.getElementById('rvStoryboard').style.display = 'block';
+            try {
+                const jResp = await fetch(review.storyboard_json_url);
+                const jData = await jResp.json();
+                document.getElementById('rvStoryboardJson').textContent = JSON.stringify(jData, null, 2);
+            } catch (e) {
+                document.getElementById('rvStoryboardJson').textContent = '加载失败: ' + e.message;
+            }
+        } else {
+            document.getElementById('rvStoryboard').style.display = 'none';
+        }
+
+        // 故事板海报
+        if (review.poster_url) {
+            document.getElementById('rvPoster').style.display = 'block';
+            document.getElementById('rvPosterImg').src = review.poster_url + '?_t=' + Date.now();
+        } else {
+            document.getElementById('rvPoster').style.display = 'none';
+        }
+
+        // 启用按钮
+        document.getElementById('approveBtn').disabled = false;
+        document.getElementById('rejectBtn').disabled = false;
+        const btn = document.getElementById('runBtn');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '⏸ 等待审核';
+        addLog('Phase1 完成，等待审核故事板海报', 'done');
+    } catch (err) {
+        addLog('加载审核内容失败: ' + err.message, 'error');
+    }
+}
+
+// ─── 审核通过 ───
+async function submitApprove() {
+    if (!state.taskId) return;
+    document.getElementById('approveBtn').disabled = true;
+    document.getElementById('rejectBtn').disabled = true;
+    addLog('审核通过，启动 Phase2：H3 标准视频生成（2K 满血，最长 1 小时）...', 'running');
+    try {
+        const resp = await fetch(`/api/structural-replica/approve/${state.taskId}`, { method: 'POST' });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.detail || '启动 Phase2 失败');
+        document.getElementById('reviewSection').style.display = 'none';
+        setBadge('running', 'Phase2 执行中');
+        setStep('step4', 'active');
+        document.getElementById('videoArea').innerHTML = '<div class="video-placeholder">H3 视频生成中（2K 满血，30秒轮询，最长 1 小时）...</div>';
+        const btn = document.getElementById('runBtn');
+        btn.disabled = true;
+        btn.classList.add('running');
+        btn.textContent = '⏳ Phase2 执行中';
+        state.lastLogCount = 0;
+        startPolling();
+    } catch (err) {
+        addLog('启动 Phase2 失败: ' + err.message, 'error');
+        document.getElementById('approveBtn').disabled = false;
+        document.getElementById('rejectBtn').disabled = false;
+    }
+}
+
+// ─── 审核驳回（重做 Phase1）───
+function toggleRejectForm() {
+    // 显示/隐藏修改意见输入区
+    const form = document.getElementById('rejectForm');
+    if (form.style.display === 'none') {
+        form.style.display = 'block';
+        document.getElementById('rejectBtn').textContent = '↩ 收起';
+        setTimeout(() => document.getElementById('rejectReason').focus(), 50);
+    } else {
+        form.style.display = 'none';
+        document.getElementById('rejectBtn').textContent = '↩ 不满意，重新生成';
+    }
+}
+
+function cancelReject() {
+    document.getElementById('rejectForm').style.display = 'none';
+    document.getElementById('rejectBtn').textContent = '↩ 不满意，重新生成';
+}
+
+async function submitRejectWithReason() {
+    if (!state.taskId) return;
+    const reason = document.getElementById('rejectReason').value.trim();
+    if (!reason) {
+        alert('请输入修改意见，LLM 将根据修改意见重新推理分镜');
+        return;
+    }
+    document.getElementById('approveBtn').disabled = true;
+    document.getElementById('rejectBtn').disabled = true;
+    document.getElementById('submitRejectBtn').disabled = true;
+    addLog('审核驳回，重做 Phase1：根据修改意见重新推理分镜 + 生成故事板海报...', 'running');
+    addLog('修改意见：' + reason, 'info');
+    try {
+        const resp = await fetch(`/api/structural-replica/reject/${state.taskId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.detail || '重做失败');
+        document.getElementById('reviewSection').style.display = 'none';
+        document.getElementById('rejectForm').style.display = 'none';
+        setBadge('running', '重做 Phase1');
+        setStep('step1', 'active');
+        setStep('step3', '');
+        state.lastLogCount = 0;
+        const btn = document.getElementById('runBtn');
+        btn.disabled = true;
+        btn.classList.add('running');
+        btn.textContent = '⏳ 重做 Phase1';
+        startPolling();
+    } catch (err) {
+        addLog('重做失败: ' + err.message, 'error');
+        document.getElementById('approveBtn').disabled = false;
+        document.getElementById('rejectBtn').disabled = false;
+        document.getElementById('submitRejectBtn').disabled = false;
+    }
+}
+
+// ─── 完成与失败 ───
+function finalizeSuccess(data) {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.classList.remove('running');
+    btn.textContent = '🚀 启动结构性复刻';
+    addLog('视频生成完成！', 'done');
+    // 成功时隐藏错误和重试按钮
+    const errBox = document.getElementById('statusError');
+    if (errBox) errBox.style.display = 'none';
+    const retryPanel = document.getElementById('retryPanel');
+    if (retryPanel) retryPanel.style.display = 'none';
+
+    const result = data.result || {};
+    const review = data.review || {};
+    let videoUrl = result.video_url;
+    if (!videoUrl && review.video) {
+        try {
+            const rel = review.video.replace(/\\/g, '/').split('/outputs/')[1];
+            if (rel) videoUrl = '/outputs/' + rel;
+        } catch (e) {}
+    }
+
+    if (videoUrl) {
+        document.getElementById('videoArea').innerHTML = `<video class="video-player" src="${videoUrl}" controls autoplay loop></video>`;
+        const links = document.getElementById('resultLinks');
+        links.style.display = 'flex';
+        links.innerHTML = `
+            <a class="result-link" href="${videoUrl}" target="_blank" download>⬇ 下载视频</a>
+            <a class="result-link publish-link" href="/publish?video=${encodeURIComponent(videoUrl)}&title=${encodeURIComponent(document.getElementById('productNameInput').value.trim())}">📤 去发布工作台</a>
+        `;
+    } else {
+        document.getElementById('videoArea').innerHTML = '<div class="video-placeholder">视频生成完成但路径缺失</div>';
+    }
+    loadHistory();
+}
+
+function finalizeFailed(data) {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.classList.remove('running');
+    btn.textContent = '🚀 启动结构性复刻';
+    addLog('任务失败: ' + (data.error || '未知错误'), 'error');
+    if (data.traceback) {
+        const shortTb = String(data.traceback).split('\n').slice(-5).join('\n');
+        addLog(shortTb, 'error');
+    }
+    // 显示错误信息和"从失败步骤重试"按钮
+    const errBox = document.getElementById('statusError');
+    if (errBox) {
+        errBox.style.display = 'block';
+        errBox.textContent = '❌ ' + (data.error || '未知错误');
+    }
+    const retryPanel = document.getElementById('retryPanel');
+    if (retryPanel && state.taskId) {
+        retryPanel.style.display = 'block';
+        const retryBtn = document.getElementById('retryBtn');
+        retryBtn.disabled = false;
+        retryBtn.textContent = '从失败步骤重试';
+    }
+}
+
+// ─── 从失败步骤重试（断点续传，已完成的步骤自动跳过）───
+document.getElementById('retryBtn').addEventListener('click', async () => {
+    if (!state.taskId) return;
+    if (!confirm('确认从失败步骤重试？（已完成的步骤会自动跳过）')) return;
+    const btn = document.getElementById('retryBtn');
+    btn.disabled = true;
+    btn.textContent = '重试中...';
+    try {
+        const r = await fetch(`/api/structural-replica/resume/${state.taskId}`, {method:'POST'});
+        const d = await r.json();
+        if (d.success) {
+            document.getElementById('retryPanel').style.display = 'none';
+            document.getElementById('statusError').style.display = 'none';
+            document.getElementById('logBox').innerHTML = '';
+            startPolling();
+        } else {
+            alert(d.detail || '重试失败');
+            btn.disabled = false;
+            btn.textContent = '从失败步骤重试';
+        }
+    } catch (err) {
+        alert('重试请求失败: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '从失败步骤重试';
+    }
+});
+
+// ─── 历史记录 ───
+async function loadHistory() {
+    try {
+        const resp = await fetch('/api/structural-replica/history');
+        const data = await resp.json();
+        const list = document.getElementById('historyList');
+        const history = data.history || [];
+        if (history.length === 0) {
+            list.innerHTML = '<div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>';
+            return;
+        }
+        list.innerHTML = history.map(h => {
+            const tid = h.task_id;
+            const video = h.video_path || '';
+            const runDir = h.run_dir || '';
+            const status = h.status || 'completed';
+            const statusCls = status === 'failed' ? 'fail' : (status === 'awaiting_review' ? 'review' : 'ok');
+            const statusText = status === 'failed' ? '失败' : (status === 'awaiting_review' ? '待审核' : '已完成');
+            const videoUrl = h.video_path ? `/outputs/${video.replace(/\\/g,'/').split('/outputs/')[1]}` : '';
+            return `<div class="history-item" onclick="window.location.href='/structural-replica?task_id=${tid}'">
+                <div class="h-info">
+                    <div class="h-title">${tid}</div>
+                    <div class="h-meta">${runDir}</div>
+                </div>
+                <span class="h-status ${statusCls}">${statusText}</span>
+                ${videoUrl ? `<a class="result-link" href="${videoUrl}" target="_blank" style="padding:4px 12px;font-size:.8em;" onclick="event.stopPropagation()">▶ 播放</a>` : ''}
+            </div>`;
+        }).join('');
+    } catch (err) { /* 忽略 */ }
+}
+
+// ─── 恢复任务 ───
+async function restoreTask(taskId) {
+    state.taskId = taskId;
+    updateUrlTaskId(taskId);
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '⏳ 恢复任务中...';
+    setBadge('running', '恢复中');
+    addLog(`恢复任务: ${taskId}`, 'running');
+    // 先拉一次状态获取已有日志
+    try {
+        const resp = await fetch(`/api/structural-replica/status/${taskId}`);
+        const data = await resp.json();
+        if (data.status === 'not_found') {
+            addLog('任务不存在（可能服务已重启），请重新启动', 'error');
+            setBadge('idle', '待启动');
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '🚀 启动结构性复刻';
+            state.taskId = null;
+            const url = new URL(window.location);
+            url.searchParams.delete('task_id');
+            url.searchParams.delete('taskId');
+            window.history.replaceState({}, '', url);
+            return;
+        }
+        updateUi(data);
+        if (data.status === 'awaiting_review') {
+            await loadReview();
+        } else if (data.status === 'completed') {
+            finalizeSuccess(data);
+        } else if (data.status === 'failed') {
+            finalizeFailed(data);
+        } else {
+            // 还在运行，继续轮询
+            btn.textContent = '⏳ 执行中';
+            startPolling();
+        }
+    } catch (err) {
+        addLog('恢复失败: ' + err.message, 'error');
+        setBadge('failed', '恢复失败');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '🚀 启动结构性复刻';
+    }
+}
+
+// 初始加载
+loadHistory();
+const urlTaskId = getTaskIdFromUrl();
+if (urlTaskId) {
+    restoreTask(urlTaskId);
+}
+</script>
+</body>
+</html>

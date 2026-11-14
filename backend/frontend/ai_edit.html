@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 剪辑工作台</title>
+<style>
+:root { color-scheme: dark; --bg:#0b0f14; --panel:#111821; --panel2:#17212c; --line:#263442; --text:#e7edf3; --muted:#82909d; --accent:#5eead4; --blue:#7dd3fc; }
+* { box-sizing:border-box; }
+body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.app { height:100vh; display:grid; grid-template-columns:390px minmax(0,1fr); grid-template-rows:56px minmax(0,1fr); }
+.topbar { grid-column:1/-1; display:flex; align-items:center; gap:14px; padding:0 18px; border-bottom:1px solid var(--line); background:#0d141b; }
+.back { color:var(--muted); text-decoration:none; font-size:13px; }
+.title { font-weight:650; letter-spacing:.2px; }
+.tag { color:var(--accent); border:1px solid #28584f; padding:4px 8px; border-radius:5px; font-size:11px; }
+.sidebar { min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--line); background:var(--panel); }
+.section { padding:16px; border-bottom:1px solid var(--line); }
+.section h2 { margin:0 0 12px; font-size:13px; font-weight:650; }
+.field { margin-bottom:10px; }
+.label { display:block; margin-bottom:6px; color:var(--muted); font-size:11px; }
+input, select, textarea { width:100%; border:1px solid var(--line); border-radius:6px; background:#0d141b; color:var(--text); outline:none; font:inherit; }
+input, select { height:35px; padding:0 10px; font-size:12px; }
+textarea { resize:none; padding:10px; font-size:13px; line-height:1.45; }
+input:focus, select:focus, textarea:focus { border-color:#3e8f87; }
+.file-row { display:flex; gap:7px; }
+.file-row input { flex:1; }
+button { border:1px solid var(--line); border-radius:6px; background:var(--panel2); color:var(--text); cursor:pointer; font:inherit; }
+button:hover:not(:disabled) { border-color:#4c8b84; }
+button:disabled { opacity:.45; cursor:not-allowed; }
+.small-btn { padding:0 10px; font-size:12px; white-space:nowrap; }
+.primary { width:100%; min-height:36px; border-color:#287d70; background:#15433d; color:var(--accent); font-weight:650; }
+.chat { min-height:0; flex:1; display:flex; flex-direction:column; }
+.chat-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px 8px; }
+.status { color:var(--muted); font-size:11px; }
+.messages { min-height:0; flex:1; overflow:auto; padding:4px 16px 14px; }
+.message { margin:9px 0; padding:9px 10px; border-radius:7px; font-size:12px; line-height:1.5; white-space:pre-wrap; }
+.message.agent { background:#18232d; border-left:2px solid var(--blue); }
+.message.user { background:#153a36; border-left:2px solid var(--accent); }
+.message.system { color:var(--muted); background:#10171e; }
+.composer { padding:12px 16px 16px; border-top:1px solid var(--line); }
+.composer-row { display:flex; gap:8px; margin-top:8px; }
+.send { width:72px; color:var(--accent); }
+.preview { min-width:0; min-height:0; display:flex; flex-direction:column; background:#090d12; }
+.preview-head { height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 18px; border-bottom:1px solid var(--line); }
+.preview-title { font-size:13px; font-weight:650; }
+.preview-actions { display:flex; gap:8px; }
+.preview-actions button { padding:7px 11px; font-size:12px; }
+.preview-stage { min-height:0; flex:1; padding:18px; display:flex; align-items:center; justify-content:center; }
+.preview-frame { width:min(100%,1200px); height:100%; min-height:420px; border:1px solid var(--line); border-radius:8px; background:#050709; overflow:hidden; }
+.preview-frame iframe { width:100%; height:100%; border:0; background:#050709; }
+.placeholder { height:100%; display:grid; place-items:center; color:var(--muted); font-size:13px; text-align:center; padding:24px; }
+.history { max-height:140px; overflow:auto; margin-top:10px; }
+.history-item { display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-top:1px solid #202c37; font-size:11px; cursor:pointer; }
+.history-item:hover { color:var(--accent); }
+.history-item span:last-child { color:var(--muted); }
+@media (max-width:850px) {
+  .app { height:auto; min-height:100vh; display:flex; flex-direction:column; }
+  .topbar { min-height:56px; }
+  .sidebar { min-height:620px; border-right:0; border-bottom:1px solid var(--line); }
+  .preview { min-height:560px; }
+  .preview-stage { padding:10px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar"><a class="back" href="/">← 首页</a><div class="title">AI 剪辑工作台</div><span class="tag" id="engineTag">OpenMontage · AGPL-3.0</span></header>
+  <aside class="sidebar">
+    <section class="section">
+      <h2>素材</h2>
+      <div class="field"><span class="label">主视频</span><div class="file-row"><input id="mainVideo" placeholder="选择或粘贴视频路径"><button class="small-btn" onclick="chooseFile('mainVideo','video/*')">选择</button></div></div>
+      <div class="field"><span class="label">B-roll 素材路径，每行一个</span><textarea id="brollVideos" rows="3" placeholder="可选：每行一个素材路径"></textarea></div>
+      <div class="field"><span class="label">剪辑工作流</span><select id="workflowEngine" onchange="updateEngineUI()"><option value="openmontage">OpenMontage</option><option value="hyperframes">HyperFrames</option></select></div>
+      <div class="field"><span class="label">智能分析模型</span><select id="engine"><option value="gpt">GPT</option><option value="grok">Grok</option></select></div>
+      <button id="createBtn" class="primary" onclick="createProject()">创建 AI 剪辑工程</button>
+      <div id="history" class="history"></div>
+    </section>
+    <section class="chat">
+      <div class="chat-head"><h2 style="margin:0;font-size:13px">Agent 对话</h2><span id="taskStatus" class="status">未创建工程</span></div>
+      <div id="messages" class="messages"><div class="message system">先创建工程，然后直接告诉 Agent 怎么剪，例如：把工厂设备画面提前到“源头工厂”这句话，并保留结尾主播出镜。</div></div>
+      <div class="composer"><textarea id="instruction" rows="3" placeholder="描述你要怎么改剪辑..."></textarea><div class="composer-row"><button class="send" id="sendBtn" onclick="sendInstruction()" disabled>发送</button><button class="small-btn" onclick="addMessage('system','支持自然语言修改 B-roll 切入时机、时长和结尾保留。')">示例</button></div></div>
+    </section>
+  </aside>
+  <main class="preview">
+    <div class="preview-head"><div class="preview-title" id="previewTitle">OpenMontage Backlot</div><div class="preview-actions"><button onclick="refreshPreview()">刷新预览</button><button id="renderBtn" onclick="renderVideo()" disabled>导出 MP4</button></div></div>
+    <div class="preview-stage"><div class="preview-frame" id="previewFrame"><div class="placeholder">创建工程后，这里显示 HyperFrames Studio 预览</div></div></div>
+  </main>
+</div>
+<script>
+let taskId = null;
+let pollTimer = null;
+const $ = id => document.getElementById(id);
+const initialMainVideo = new URLSearchParams(location.search).get('main_video');
+if (initialMainVideo) $('mainVideo').value = initialMainVideo;
+function updateEngineUI() { const open=$('workflowEngine').value==='openmontage'; $('engineTag').textContent=open?'OpenMontage · AGPL-3.0':'Agent × HyperFrames'; $('previewTitle').textContent=open?'OpenMontage Backlot':'HyperFrames 预览'; const p=$('previewFrame').querySelector('.placeholder'); if(p)p.textContent=open?'创建工程后，这里显示 OpenMontage Backlot 审片板':'创建工程后，这里显示 HyperFrames Studio 预览'; }
+function addMessage(role, content) { const el=document.createElement('div'); el.className='message '+role; el.textContent=content; $('messages').appendChild(el); $('messages').scrollTop=$('messages').scrollHeight; }
+function setStatus(text) { $('taskStatus').textContent=text; }
+function chooseFile(inputId, accept) { const input=document.createElement('input'); input.type='file'; input.accept=accept; input.onchange=()=>{ if(input.files[0]) $(inputId).value=input.files[0].path || input.files[0].name; }; input.click(); }
+async function createProject() {
+  const main_video=$('mainVideo').value.trim(); if(!main_video){ addMessage('system','请先填写主视频路径。'); return; }
+  $('createBtn').disabled=true; setStatus('分析中'); addMessage('agent','正在分析主视频并生成初始剪辑方案...');
+  try { const res=await fetch('/api/ai-edit/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({main_video,broll_videos:$('brollVideos').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean),engine:$('engine').value,workflow_engine:$('workflowEngine').value})}); const data=await res.json(); if(!res.ok) throw new Error(data.detail||'创建失败'); taskId=data.task_id; $('sendBtn').disabled=false; $('renderBtn').disabled=false; poll(); loadHistory(); } catch(e){ addMessage('system',e.message); setStatus('失败'); $('createBtn').disabled=false; }
+}
+async function poll() { if(!taskId)return; clearInterval(pollTimer); pollTimer=setInterval(async()=>{ try{const res=await fetch('/api/ai-edit/status?task_id='+encodeURIComponent(taskId)); const data=await res.json(); if(data.status){setStatus(data.message||data.status); if(data.preview_url) setPreview(data.preview_url); if(data.status==='READY'||data.status==='UPDATED'){clearInterval(pollTimer); addMessage('agent','剪辑工程已准备好，可以在左侧继续描述修改。'); $('createBtn').disabled=false; loadHistory();} if(data.status==='FAILED'){clearInterval(pollTimer); addMessage('system',data.error||data.message); $('createBtn').disabled=false;}}}catch(e){}},2000); }
+function setPreview(url) { $('previewFrame').innerHTML='<iframe title="HyperFrames 预览" src="'+url+'"></iframe>'; }
+async function sendInstruction() { const message=$('instruction').value.trim(); if(!taskId||!message)return; $('sendBtn').disabled=true; addMessage('user',message); $('instruction').value=''; setStatus('Agent 修改中'); try{const res=await fetch('/api/ai-edit/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:taskId,message,engine:$('engine').value})}); const data=await res.json(); if(!res.ok)throw new Error(data.detail||'修改失败'); addMessage('agent','剪辑方案已更新，右侧预览已刷新。'); if(data.task?.preview_url)setPreview(data.task.preview_url); }catch(e){addMessage('system',e.message);}finally{$('sendBtn').disabled=false;setStatus('可继续修改');loadHistory();} }
+async function refreshPreview(){if(!taskId)return;const res=await fetch('/api/ai-edit/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:taskId})});const data=await res.json();if(data.preview_url)setPreview(data.preview_url);}
+async function renderVideo(){if(!taskId)return; $('renderBtn').disabled=true;setStatus('导出中');try{const res=await fetch('/api/ai-edit/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:taskId})});const data=await res.json();if(!res.ok)throw new Error(data.detail||'导出失败');addMessage('agent','MP4 已导出。');const a=document.createElement('a');a.href=data.url;a.target='_blank';a.textContent='打开导出视频';a.style.color='var(--accent)';$('messages').appendChild(a);setStatus('已导出');}catch(e){addMessage('system',e.message);setStatus('导出失败');}finally{$('renderBtn').disabled=false;} }
+async function loadHistory(){try{const res=await fetch('/api/ai-edit/history');const data=await res.json();$('history').innerHTML=(data.history||[]).map(t=>'<div class="history-item" onclick="loadTask(\''+t.task_id+'\')"><span>'+t.task_id+' · '+(t.message||t.status)+'</span><span>'+t.status+'</span></div>').join('');}catch(e){}}
+async function loadTask(id){const res=await fetch('/api/ai-edit/status?task_id='+encodeURIComponent(id));const t=await res.json();if(!t.success)return;taskId=id;$('mainVideo').value=t.main_video||'';$('brollVideos').value=(t.broll_videos||[]).join('\n');$('workflowEngine').value=t.workflow_engine||'hyperframes';$('engine').value=t.engine||'gpt';updateEngineUI();$('sendBtn').disabled=false;$('renderBtn').disabled=false;setStatus(t.message||t.status);if(t.preview_url)setPreview(t.preview_url);(t.messages||[]).forEach(m=>addMessage(m.role,m.content));if(t.status==='RUNNING')poll();}
+updateEngineUI();
+loadHistory();
+</script>
+</body>
+</html>

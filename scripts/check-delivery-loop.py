@@ -9,7 +9,10 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, r"D:\video-skill\backend")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 import delivery_ledger as L  # noqa: E402
 
 fails = []
@@ -134,7 +137,7 @@ for s in SIBS:
         print((r.stderr or "")[-400:])
 
 # V7 不双花：查询失败/超时都要把 job_id 带回来（据此续查），否则"重提交"就没有拦头
-gw = open(os.path.join("D:", "video-skill", "backend", "gateway.py"), encoding="utf-8").read()
+gw = open(os.path.join(BACKEND, "gateway.py"), encoding="utf-8").read()
 check("V7 去水印：失败路径都回 job_id 且明写不重提交",
       [gw.count(chr(34) + "job_id" + chr(34) + ": tid") >= 3, ("别重提交" in gw or "不重提交" in gw)], [True, True])
 

@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>海螺 H3 Studio</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #06b6d4 0%, #6c3ce0 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 460px; min-width: 380px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+
+        /* 模式切换 */
+        .mode-switch { display: flex; gap: 8px; margin-bottom: 20px; background: #1e1e36; padding: 6px; border-radius: 10px; border: 1px solid #3a3a5c; }
+        .mode-btn { flex: 1; padding: 10px 12px; border: none; border-radius: 7px; background: transparent; color: #888; font-size: .9em; cursor: pointer; transition: all .2s; font-weight: 600; }
+        .mode-btn.active { background: linear-gradient(90deg, #06b6d4, #6c3ce0); color: #fff; box-shadow: 0 4px 14px rgba(108,60,224,.35); }
+        .mode-btn:hover:not(.active) { color: #c0c0e0; }
+
+        .mode-desc { font-size: .78em; color: #888; margin-bottom: 18px; line-height: 1.6; padding: 10px 12px; background: #1a1a30; border-radius: 8px; border-left: 3px solid #06b6d4; }
+
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 16px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 12px; position: relative; }
+        .upload-card:hover { border-color: #06b6d4; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 1.8em; margin-bottom: 4px; }
+        .upload-card .label { font-size: .85em; color: #aaa; }
+        .upload-card .filename { margin-top: 6px; font-size: .8em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .upload-card .preview-img { max-width: 100%; max-height: 100px; border-radius: 6px; margin-top: 6px; object-fit: cover; }
+        .upload-card .remove-btn { position: absolute; top: 6px; right: 6px; background: rgba(239,68,68,.85); color: #fff; border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: .8em; display: none; }
+        .upload-card.has-file .remove-btn { display: block; }
+
+        .frame-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .frame-row .upload-card { margin-bottom: 0; }
+        .frame-row .upload-card .icon { font-size: 1.6em; }
+
+        .text-field { width:100%;box-sizing:border-box;margin-bottom:16px;padding:12px 14px;background:#1e1e36;border:1px solid #3a3a5c;border-radius:8px;color:#fff;font-size:.95em;outline:none;resize:vertical;font-family:inherit; }
+        .text-field:focus { border-color:#06b6d4; }
+
+        .param-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .param-row .param-item { flex: 1; }
+        .param-item label { display: block; font-size: .82em; color: #a5a5c8; margin-bottom: 6px; }
+        .param-item select, .param-item input { width: 100%; padding: 8px 12px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #e0e0e0; font-size: .9em; outline: none; }
+        .param-item select:focus, .param-item input:focus { border-color: #06b6d4; }
+        .param-item select option { background: #1e1e36; color: #e0e0e0; }
+
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #06b6d4, #6c3ce0); color: #fff; transition: all .2s; letter-spacing: 1px; margin-top: 8px; }
+        .compile-btn { width: 100%; padding: 12px; border: none; border-radius: 10px; font-size: 1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #f59e0b, #ef4444); color: #fff; transition: all .2s; margin-top: 4px; }
+        .compile-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(245,158,11,.4); }
+        .compile-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .recompile-btn { background: #2a2a44; color: #a5a5c8; border: 1px solid #3a3a5c; padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: .8em; }
+        .recompile-btn:hover { background: #3a3a5c; color: #fff; }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(6,182,212,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
+
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        .progress-bar-wrap { background: #2a2a44; border-radius: 6px; height: 10px; margin-bottom: 16px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #06b6d4, #6c3ce0); transition: width .4s; width: 0%; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 260px; overflow-y: auto; line-height: 1.7; white-space: pre-wrap; word-break: break-all; }
+        .log-line.running { color: #60a5fa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .video-result { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; }
+        .video-result h3 { margin-bottom: 16px; font-size: 1.1em; }
+        .video-player { width: 100%; border-radius: 10px; background: #000; max-height: 520px; }
+        .video-placeholder { width: 100%; height: 320px; border-radius: 10px; background: #1e1e36; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #555; font-size: 1.2em; gap: 12px; }
+        .video-placeholder .ph-icon { font-size: 3em; }
+        .result-links { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: #1e1e36; color: #60a5fa; text-decoration: none; font-size: .9em; transition: background .2s; }
+        .result-link:hover { background: #2a2a5c; }
+
+        /* API 差异说明面板 */
+        .api-info { background: #16162a; border-radius: 14px; padding: 20px; margin-bottom: 20px; border: 1px solid #2a2a44; }
+        .api-info h3 { font-size: 1em; margin-bottom: 12px; color: #c0c0e0; }
+        .api-info table { width: 100%; border-collapse: collapse; font-size: .78em; }
+        .api-info th, .api-info td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #2a2a44; color: #a5a5c8; }
+        .api-info th { color: #06b6d4; font-weight: 600; }
+        .api-info td.code { font-family: "Cascadia Code", "Fira Code", monospace; color: #fbbf24; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>H3 STUDIO</h1>
+        <span class="tag">海螺 H3 视频生成</span>
+    </div>
+    <span class="tag" id="modeTag">多参模式</span>
+</div>
+<div class="main">
+    <div class="input-panel">
+        <!-- 渠道切换 -->
+        <div class="section-title"><span class="dot dot-required"></span> 渠道</div>
+        <div class="mode-switch" id="channelSwitch">
+            <button class="mode-btn active" id="channelRunninghub" onclick="switchChannel('runninghub')">🔧 RunningHub</button>
+            <button class="mode-btn" id="channelManxue" onclick="switchChannel('manxue')">🎭 1人漫剧 H3</button>
+        </div>
+        <div class="mode-desc" id="channelDesc">
+            <b>RunningHub：</b>ComfyUI 工作流，支持多参模式（1-3张参考图）和首尾帧模式，分辨率可选（0.4/0.7/1.0 MP）。
+        </div>
+
+        <!-- 模式切换 -->
+        <div class="mode-switch">
+            <button class="mode-btn active" id="modeReference" onclick="switchMode('reference')">🖼️ 多参模式</button>
+            <button class="mode-btn" id="modeFirstLast" onclick="switchMode('first_last_frame')">🎬 首尾帧模式</button>
+        </div>
+        <div class="mode-desc" id="modeDesc">
+            <b>多参模式：</b>上传 1-3 张参考图 + 提示词，AI 综合参考图生成视频。适用于产品/人物多角度参考。
+        </div>
+
+        <!-- 多参模式：参考图列表 -->
+        <div id="referenceSection">
+            <div class="section-title"><span class="dot dot-required"></span> 参考图（1-3张）</div>
+            <div id="referenceList"></div>
+            <div class="upload-card" id="addRefCard" onclick="addReferenceSlot()">
+                <div class="icon">➕</div>
+                <div class="label" id="addRefLabel">添加参考图（最多3张）</div>
+            </div>
+        </div>
+
+        <!-- 首尾帧模式 -->
+        <div id="firstLastSection" style="display:none;">
+            <div class="section-title"><span class="dot dot-required"></span> 首帧 / 尾帧</div>
+            <div class="frame-row">
+                <div class="upload-card" id="firstCard" onclick="document.getElementById('firstInput').click()">
+                    <div class="icon">🟢</div>
+                    <div class="label">首帧</div>
+                    <input type="file" id="firstInput" accept="image/*">
+                    <div class="filename" id="firstFilename"></div>
+                    <button class="remove-btn" onclick="event.stopPropagation();clearFrame('first')">×</button>
+                </div>
+                <div class="upload-card" id="lastCard" onclick="document.getElementById('lastInput').click()">
+                    <div class="icon">🔴</div>
+                    <div class="label">尾帧</div>
+                    <input type="file" id="lastInput" accept="image/*">
+                    <div class="filename" id="lastFilename"></div>
+                    <button class="remove-btn" onclick="event.stopPropagation();clearFrame('last')">×</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 提示词（主输入框，默认可见，可直接手填或由下方自然语言生成） -->
+        <div class="section-title" style="margin-top:18px; display:flex; justify-content:space-between; align-items:center;">
+            <span><span class="dot dot-required"></span> 提示词 <span id="h3ModeTag" style="font-size:.75em; background:#1e3a5f; color:#60a5fa; padding:2px 8px; border-radius:10px; margin-left:6px; display:none;">T2VA</span></span>
+        </div>
+        <textarea class="text-field" id="promptInput" rows="8" placeholder="可直接输入提示词，或用下方「自然语言描述」自动生成。例如：[Shot 1] 特写镜头，模特穿着白色连衣裙转身，镜头缓慢推进..." maxlength="8000"></textarea>
+
+        <!-- 自然语言描述（可选，用于编译生成 H3 提示词） -->
+        <div class="section-title" style="margin-top:14px;"><span class="dot dot-optional"></span> 自然语言描述（可选，用于生成 H3 提示词）</div>
+        <textarea class="text-field" id="userDescInput" rows="3" placeholder="用大白话描述你想要的视频，例如：一个小女孩在公园里追蝴蝶，阳光明媚，笑声清脆，镜头跟着她跑..." maxlength="2000"></textarea>
+        <button class="compile-btn" id="compileBtn" onclick="compileH3Prompt()">✨ 生成 H3 提示词</button>
+
+        <!-- 参数 -->
+        <div class="section-title"><span class="dot dot-optional"></span> 参数设置</div>
+        <div class="param-row">
+            <div class="param-item">
+                <label>时长（秒）</label>
+                <select id="paramDuration">
+                    <option value="6" selected>6 秒</option>
+                    <option value="5">5 秒</option>
+                    <option value="10">10 秒</option>
+                    <option value="15">15 秒</option>
+                </select>
+            </div>
+            <div class="param-item">
+                <label>画面比例</label>
+                <select id="paramRatio">
+                    <option value="9:16" selected>9:16 竖屏</option>
+                    <option value="16:9">16:9 横屏</option>
+                    <option value="1:1">1:1 正方</option>
+                    <option value="4:3">4:3 标准</option>
+                    <option value="3:4">3:4 竖标</option>
+                </select>
+            </div>
+        </div>
+        <div class="param-row" id="megapixelsRow">
+            <div class="param-item">
+                <label>分辨率（多参模式）</label>
+                <select id="paramMegapixels">
+                    <option value="0.4">0.4 MP（快）</option>
+                    <option value="0.7" selected>0.7 MP（平衡）</option>
+                    <option value="1.0">1.0 MP（高清）</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="run-btn" id="runBtn" onclick="startGenerate()">🚀 开始生成视频</button>
+    </div>
+
+    <div class="output-panel">
+        <!-- API 差异说明 -->
+        <div class="api-info">
+            <h3>📋 工作流 API 差异分析</h3>
+            <table>
+                <tr><th>维度</th><th>多参模式 (reference)</th><th>首尾帧模式 (first_last_frame)</th></tr>
+                <tr><td>接口</td><td class="code">/run/ai-app/{appId}</td><td class="code">/run/ai-app/{appId}</td></tr>
+                <tr><td>App ID</td><td class="code">2084321869104242689</td><td class="code">2084086089706459137</td></tr>
+                <tr><td>图片节点</td><td class="code">143 / 137 / 139（1-3张）</td><td class="code">6（首）/ 4（尾）</td></tr>
+                <tr><td>Prompt 节点</td><td class="code">144 + 138</td><td class="code">8</td></tr>
+                <tr><td>时长字段</td><td class="code">node 132 → value</td><td class="code">node 7 → duration_seconds</td></tr>
+                <tr><td>比例字段</td><td class="code">node 115 → aspect_ratio（字符串）</td><td class="code">node 24 → select（数字）</td></tr>
+                <tr><td>分辨率</td><td class="code">node 115 → megapixels</td><td>—</td></tr>
+            </table>
+        </div>
+
+        <div class="status-panel">
+            <div class="status-header">
+                <span class="status-badge badge-idle" id="statusBadge">等待提交</span>
+                <span id="taskIdDisplay" style="font-size:.8em;color:#666;"></span>
+            </div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+            <div class="log-box" id="logBox">
+                <div class="log-line">等待提交任务...</div>
+            </div>
+        </div>
+
+        <div class="video-result" id="videoResultSection" style="display:none;">
+            <h3>生成结果</h3>
+            <video class="video-player" id="resultVideo" controls loop></video>
+            <div class="result-links" id="resultLinks"></div>
+        </div>
+
+        <div class="video-placeholder" id="videoPlaceholder">
+            <div class="ph-icon">🎬</div>
+            <div>选择模式，上传图片，开始生成 H3 视频</div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── 状态 ──
+let currentChannel = 'runninghub'; // "runninghub" | "manxue"
+let currentMode = 'reference';
+let referenceImages = []; // [{path, name, file}]
+let firstFrame = null;    // {path, name, file}
+let lastFrame = null;
+let currentTaskId = null;
+let pollTimer = null;
+
+// ── 渠道切换 ──
+function switchChannel(channel) {
+    currentChannel = channel;
+    document.getElementById('channelRunninghub').classList.toggle('active', channel === 'runninghub');
+    document.getElementById('channelManxue').classList.toggle('active', channel === 'manxue');
+
+    // 更新渠道说明
+    const desc = document.getElementById('channelDesc');
+    if (channel === 'manxue') {
+        desc.innerHTML = '<b>1人漫剧 H3（manxueapi 网关）：</b>MiniMax H3 原生 API，固定 768p 分辨率，支持 5/10/15 秒，含原生音频。'
+            + '<br><b>模式映射：</b>无图→T2VA；1张图→I2VA（首帧）；2张图/首尾帧→FL2VA（首尾帧）。多参模式取前2张参考图作首尾帧。';
+    } else {
+        desc.innerHTML = '<b>RunningHub：</b>ComfyUI 工作流，支持多参模式（1-3张参考图）和首尾帧模式，分辨率可选（0.4/0.7/1.0 MP）。';
+    }
+
+    // 更新时长选项
+    const durSelect = document.getElementById('paramDuration');
+    const curDur = durSelect.value;
+    if (channel === 'manxue') {
+        // manxue 仅支持 5/10/15
+        durSelect.innerHTML = `
+            <option value="5">5 秒</option>
+            <option value="10" selected>10 秒</option>
+            <option value="15">15 秒</option>
+        `;
+        // 如果当前是 6，自动切换到 10
+        if (!['5', '10', '15'].includes(curDur)) {
+            durSelect.value = '10';
+        } else {
+            durSelect.value = curDur;
+        }
+    } else {
+        // RunningHub 支持 6 等任意值
+        durSelect.innerHTML = `
+            <option value="6" selected>6 秒</option>
+            <option value="5">5 秒</option>
+            <option value="10">10 秒</option>
+            <option value="15">15 秒</option>
+        `;
+        durSelect.value = ['5', '6', '10', '15'].includes(curDur) ? curDur : '6';
+    }
+
+    // 顶部 tag
+    document.getElementById('modeTag').textContent =
+        (channel === 'manxue' ? '1人漫剧' : 'RunningHub') + ' · ' +
+        (currentMode === 'reference' ? '多参模式' : '首尾帧模式');
+}
+
+// ── 模式切换 ──
+function switchMode(mode) {
+    currentMode = mode;
+    document.getElementById('modeReference').classList.toggle('active', mode === 'reference');
+    document.getElementById('modeFirstLast').classList.toggle('active', mode === 'first_last_frame');
+    document.getElementById('referenceSection').style.display = mode === 'reference' ? 'block' : 'none';
+    document.getElementById('firstLastSection').style.display = mode === 'first_last_frame' ? 'block' : 'none';
+    document.getElementById('megapixelsRow').style.display = (mode === 'reference' && currentChannel === 'runninghub') ? 'flex' : 'none';
+    document.getElementById('modeTag').textContent =
+        (currentChannel === 'manxue' ? '1人漫剧' : 'RunningHub') + ' · ' +
+        (mode === 'reference' ? '多参模式' : '首尾帧模式');
+    document.getElementById('modeDesc').innerHTML = mode === 'reference'
+        ? '<b>多参模式：</b>上传 1-3 张参考图 + 提示词，AI 综合参考图生成视频。适用于产品/人物多角度参考。'
+        : '<b>首尾帧模式：</b>上传首帧 + 尾帧各 1 张，AI 生成两帧之间的过渡视频。适用于明确起止画面的转场动画。';
+    updateAddRefLabel();
+}
+
+// ── 多参模式：动态参考图槽位 ──
+function renderReferenceList() {
+    const list = document.getElementById('referenceList');
+    list.innerHTML = '';
+    referenceImages.forEach((item, idx) => {
+        const card = document.createElement('div');
+        card.className = 'upload-card has-file';
+        card.onclick = () => document.getElementById('refInput_' + idx).click();
+        card.innerHTML = `
+            <div class="icon">🖼️</div>
+            <div class="label">参考图 ${idx + 1}</div>
+            <div class="filename">${item.name}</div>
+            <button class="remove-btn" onclick="event.stopPropagation();removeReference(${idx})">×</button>
+            <input type="file" id="refInput_${idx}" accept="image/*" onchange="replaceReference(${idx}, this.files[0])">
+        `;
+        // 预览图
+        if (item.file) {
+            const img = document.createElement('img');
+            img.className = 'preview-img';
+            img.src = URL.createObjectURL(item.file);
+            card.appendChild(img);
+        }
+        list.appendChild(card);
+    });
+    updateAddRefLabel();
+}
+
+function updateAddRefLabel() {
+    const card = document.getElementById('addRefCard');
+    const label = document.getElementById('addRefLabel');
+    if (referenceImages.length >= 3) {
+        card.style.display = 'none';
+    } else {
+        card.style.display = 'block';
+        label.textContent = `添加参考图（已上传 ${referenceImages.length}/3 张）`;
+    }
+}
+
+function addReferenceSlot() {
+    if (referenceImages.length >= 3) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        uploadImage(file, (path) => {
+            referenceImages.push({ path, name: file.name, file });
+            renderReferenceList();
+        });
+    };
+    input.click();
+}
+
+function replaceReference(idx, file) {
+    if (!file) return;
+    uploadImage(file, (path) => {
+        referenceImages[idx] = { path, name: file.name, file };
+        renderReferenceList();
+    });
+}
+
+function removeReference(idx) {
+    referenceImages.splice(idx, 1);
+    renderReferenceList();
+}
+
+// ── 首尾帧模式 ──
+document.getElementById('firstInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadImage(file, (path) => {
+        firstFrame = { path, name: file.name, file };
+        const card = document.getElementById('firstCard');
+        card.classList.add('has-file');
+        document.getElementById('firstFilename').textContent = file.name;
+        const old = card.querySelector('.preview-img');
+        if (old) old.remove();
+        const img = document.createElement('img');
+        img.className = 'preview-img';
+        img.src = URL.createObjectURL(file);
+        card.appendChild(img);
+    });
+});
+
+document.getElementById('lastInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    uploadImage(file, (path) => {
+        lastFrame = { path, name: file.name, file };
+        const card = document.getElementById('lastCard');
+        card.classList.add('has-file');
+        document.getElementById('lastFilename').textContent = file.name;
+        const old = card.querySelector('.preview-img');
+        if (old) old.remove();
+        const img = document.createElement('img');
+        img.className = 'preview-img';
+        img.src = URL.createObjectURL(file);
+        card.appendChild(img);
+    });
+});
+
+function clearFrame(which) {
+    if (which === 'first') {
+        firstFrame = null;
+        const card = document.getElementById('firstCard');
+        card.classList.remove('has-file');
+        document.getElementById('firstFilename').textContent = '';
+        document.getElementById('firstInput').value = '';
+        const old = card.querySelector('.preview-img');
+        if (old) old.remove();
+    } else {
+        lastFrame = null;
+        const card = document.getElementById('lastCard');
+        card.classList.remove('has-file');
+        document.getElementById('lastFilename').textContent = '';
+        document.getElementById('lastInput').value = '';
+        const old = card.querySelector('.preview-img');
+        if (old) old.remove();
+    }
+}
+
+// ── 通用上传 ──
+function uploadImage(file, callback) {
+    const fd = new FormData();
+    fd.append('file', file);
+    fetch('/api/upload/image', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) callback(data.file_path);
+            else alert('图片上传失败');
+        })
+        .catch(err => alert('图片上传出错: ' + err.message));
+}
+
+// ── 生成 H3 提示词（自然语言 → H3 适配提示词） ──
+async function compileH3Prompt() {
+    const desc = document.getElementById('userDescInput').value.trim();
+    if (!desc) { alert('请先填写自然语言描述'); return; }
+
+    // 收集参考图绝对路径（用于模式判定 + 传给 LLM）
+    let imagePaths = [];
+    if (currentMode === 'reference') {
+        imagePaths = referenceImages.map(i => i.path).filter(Boolean);
+    } else if (currentMode === 'first_last_frame') {
+        if (firstFrame?.path) imagePaths.push(firstFrame.path);
+        if (lastFrame?.path) imagePaths.push(lastFrame.path);
+    }
+
+    const btn = document.getElementById('compileBtn');
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ 正在生成 H3 提示词...';
+
+    try {
+        const res = await fetch('/api/h3-studio/compile-prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_description: desc,
+                reference_images: imagePaths,
+                channel: currentChannel,
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('promptInput').value = data.prompt;
+            const modeTag = document.getElementById('h3ModeTag');
+            modeTag.textContent = data.mode;
+            modeTag.style.display = 'inline-block';
+            document.getElementById('promptInput').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+            alert('生成失败: ' + (data.detail || JSON.stringify(data)));
+        }
+    } catch (err) {
+        alert('生成出错: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+    }
+}
+
+// ── 开始生成 ──
+async function startGenerate() {
+    const prompt = document.getElementById('promptInput').value.trim();
+    const duration = parseInt(document.getElementById('paramDuration').value) || 6;
+    const aspectRatio = document.getElementById('paramRatio').value;
+    const megapixels = parseFloat(document.getElementById('paramMegapixels').value) || 0.7;
+
+    let body = { channel: currentChannel, mode: currentMode, prompt, duration, aspect_ratio: aspectRatio, megapixels };
+
+    if (currentMode === 'reference') {
+        if (referenceImages.length === 0) { alert('请至少上传1张参考图'); return; }
+        body.reference_images = referenceImages.map(i => i.path);
+        // manxue 渠道提示
+        if (currentChannel === 'manxue' && referenceImages.length > 2) {
+            addLog(`提示：1人漫剧 H3 仅支持首尾帧，将取前2张参考图`, 'running');
+        }
+    } else {
+        if (!firstFrame || !lastFrame) { alert('请上传首帧和尾帧图片'); return; }
+        body.first_frame_path = firstFrame.path;
+        body.last_frame_path = lastFrame.path;
+    }
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '⏳ 任务执行中...';
+
+    setBadge('running');
+    const channelName = currentChannel === 'manxue' ? '1人漫剧 H3' : 'RunningHub';
+    addLog(`正在提交 ${channelName} ${currentMode === 'reference' ? '多参' : '首尾帧'} 任务...`, 'running');
+
+    try {
+        const res = await fetch('/api/h3-studio/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            throw new Error(data.detail || '提交失败');
+        }
+        currentTaskId = data.task_id;
+        document.getElementById('taskIdDisplay').textContent = `Task: ${currentTaskId}`;
+        addLog(`任务已提交: ${currentTaskId}`, 'running');
+        startPolling();
+    } catch (err) {
+        addLog('提交失败: ' + err.message, 'error');
+        setBadge('failed');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '🚀 开始生成视频';
+    }
+}
+
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+        if (!currentTaskId) return;
+        try {
+            const res = await fetch(`/api/h3-studio/status?task_id=${currentTaskId}`);
+            const data = await res.json();
+            updateStatus(data);
+        } catch (err) {
+            console.error('轮询失败:', err);
+        }
+    }, 3000);
+}
+
+function updateStatus(t) {
+    document.getElementById('progressBar').style.width = (t.progress || 0) + '%';
+
+    // 同步最新日志
+    const logBox = document.getElementById('logBox');
+    if (t.logs && t.logs.length > 0) {
+        const lastLine = t.logs[t.logs.length - 1];
+        // 只追加新行
+        const existing = logBox.querySelectorAll('.log-line').length;
+        if (t.logs.length > existing) {
+            for (let i = existing; i < t.logs.length; i++) {
+                addLog(t.logs[i], t.status === 'failed' ? 'error' : 'running');
+            }
+        }
+    }
+
+    if (t.status === 'completed') {
+        setBadge('completed');
+        addLog('✓ 任务完成', 'done');
+        if (pollTimer) clearInterval(pollTimer);
+        const btn = document.getElementById('runBtn');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '🚀 开始生成视频';
+        showResult(t.result);
+    } else if (t.status === 'failed') {
+        setBadge('failed');
+        addLog('✗ 任务失败: ' + (t.error || ''), 'error');
+        if (pollTimer) clearInterval(pollTimer);
+        const btn = document.getElementById('runBtn');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '🚀 开始生成视频';
+    }
+}
+
+function showResult(result) {
+    if (!result) return;
+    document.getElementById('videoPlaceholder').style.display = 'none';
+    const sec = document.getElementById('videoResultSection');
+    sec.style.display = 'block';
+    const video = document.getElementById('resultVideo');
+    video.src = result.video_url;
+    video.play();
+    const links = document.getElementById('resultLinks');
+    links.innerHTML = `<a class="result-link" href="${result.video_url}" target="_blank">📁 下载视频</a>`;
+}
+
+function setBadge(status) {
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'status-badge';
+    if (status === 'running') badge.classList.add('badge-running'), badge.textContent = '执行中';
+    else if (status === 'completed') badge.classList.add('badge-completed'), badge.textContent = '已完成';
+    else if (status === 'failed') badge.classList.add('badge-failed'), badge.textContent = '失败';
+    else badge.classList.add('badge-idle'), badge.textContent = '等待提交';
+}
+
+function addLog(msg, cls) {
+    const logBox = document.getElementById('logBox');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + (cls || '');
+    line.textContent = msg;
+    logBox.appendChild(line);
+    logBox.scrollTop = logBox.scrollHeight;
+}
+
+// 初始化
+renderReferenceList();
+</script>
+</body>
+</html>

@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>裂变出片 · 账号大脑 Wan3.0</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d0d1a; color: #e8e8f0; font-family: "Microsoft YaHei", sans-serif; min-height: 100vh; }
+.header { background: linear-gradient(135deg, #1a1a3e, #3a1a3e); padding: 18px 28px; border-bottom: 1px solid #2a2a5c; display: flex; justify-content: space-between; align-items: center; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .sub { color: #8888aa; font-size: 12px; margin-top: 4px; }
+.header a { color: #9b8bff; font-size: 12px; text-decoration: none; margin-left: 14px; }
+.main { max-width: 1300px; margin: 0 auto; padding: 20px; }
+.step { background: #15152a; border: 1px solid #2a2a5c; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.step-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.step-num { background: #b53d7a; color: #fff; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+label { display: block; font-size: 12px; color: #9999bb; margin: 10px 0 4px; }
+input[type=text], input[type=number], textarea, select { width: 100%; background: #0d0d1a; border: 1px solid #2a2a5c; color: #e8e8f0; border-radius: 8px; padding: 9px 12px; font-size: 13px; outline: none; }
+input:focus, textarea:focus, select:focus { border-color: #b53d7a; }
+textarea { resize: vertical; min-height: 64px; font-family: inherit; }
+.btn { background: #b53d7a; color: #fff; border: none; border-radius: 8px; padding: 10px 22px; font-size: 13px; cursor: pointer; transition: .15s; }
+.btn:hover { background: #d24d90; }
+.btn:disabled { background: #333355; color: #777; cursor: not-allowed; }
+.btn-blue { background: #5b3df5; }
+.btn-blue:hover { background: #6d52ff; }
+.btn-ghost { background: transparent; border: 1px solid #2a2a5c; color: #bbb; }
+.btn-ghost:hover { border-color: #b53d7a; background: #2a1a3e; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row > div { flex: 1; min-width: 200px; }
+.img-slot { border: 1px dashed #3a3a6c; border-radius: 10px; padding: 12px; text-align: center; color: #8888aa; font-size: 12px; cursor: pointer; min-height: 76px; }
+.img-slot:hover { border-color: #b53d7a; color: #bbb; }
+.img-slot input { display: none; }
+.img-slot img { max-height: 68px; border-radius: 6px; margin-top: 6px; }
+.tip { background: #1a1a3e; border-left: 3px solid #b53d7a; padding: 10px 12px; border-radius: 6px; font-size: 12px; color: #aab; margin: 10px 0; line-height: 1.7; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-right: 4px; }
+.badge.gray { background: #2a2a4c; color: #99a; }
+.badge.blue { background: #1e3a6e; color: #7ab4ff; }
+.badge.green { background: #14432c; color: #4fd68e; }
+.badge.red { background: #4c1e24; color: #ff8896; }
+.badge.yellow { background: #4c3c14; color: #ffd266; }
+.progress-wrap { background: #22224a; border-radius: 6px; height: 8px; overflow: hidden; margin-top: 12px; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, #b53d7a, #ff7ab8); width: 0; transition: width .4s; }
+.log-box { background: #0a0a16; border: 1px solid #22224a; border-radius: 8px; padding: 12px; max-height: 220px; overflow-y: auto; font-family: Consolas, monospace; font-size: 11.5px; line-height: 1.7; color: #99a; margin-top: 12px; white-space: pre-wrap; }
+.variants-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; }
+/* 视频清单：一排 6 个，卡片按 16.6% 等分，容器宽 100% 不动 */
+.lib-grid { display: flex; flex-wrap: wrap; width: 100%; margin-top: 10px; }
+.lib-grid .variant-card { width: 16.6667%; min-width: 0; overflow: hidden; box-sizing: border-box; padding: 10px; }
+.lib-grid .empty { width: 100%; }
+.lib-grid .variant-card h3 { font-size: 12px; overflow: hidden; }
+.lib-grid .variant-card h3 .check-wrap span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+.lib-grid .variant-card .meta { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-grid .variant-card .badge { font-size: 10px; padding: 1px 7px; }
+.lib-grid .lib-del-btn { width: 100%; margin-top: 6px; padding: 3px 0; font-size: 11px; border-color: #5c2a3a; color: #e08a9a; }
+.lib-grid .lib-del-btn:hover { border-color: #b53d7a; background: rgba(181,61,122,.15); color: #ff9ab8; }
+@media (max-width: 1200px) { .lib-grid .variant-card { width: 33.3333%; } }
+@media (max-width: 640px) { .lib-grid .variant-card { width: 50%; } }
+.variant-card { background: #10102a; border: 1px solid #2a2a5c; border-radius: 12px; padding: 14px; }
+.variant-card.checked { border-color: #b53d7a; box-shadow: 0 0 0 1px #b53d7a; }
+.variant-card h3 { font-size: 13.5px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.variant-card .meta { font-size: 11.5px; color: #8888aa; line-height: 1.7; }
+.variant-card img.v-grid-img { width: 100%; border-radius: 8px; border: 1px solid #2a2a5c; margin: 8px 0; }
+.v-prompt { font-family: Consolas, monospace; font-size: 11px; color: #99a; background: #0a0a16; border-radius: 6px; padding: 8px; max-height: 180px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
+details summary { font-size: 11.5px; color: #7788bb; cursor: pointer; margin: 6px 0; }
+.check-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.check-wrap input { width: 16px; height: 16px; accent-color: #b53d7a; cursor: pointer; }
+.video-result video { width: 100%; border-radius: 8px; margin-top: 8px; background: #000; }
+.video-result a { color: #7ab4ff; font-size: 11.5px; }
+.empty { text-align: center; color: #667; padding: 30px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>裂变出片 · 账号大脑 × Wan3.0</h1>
+    <div class="sub">skill 快照 + 裂变需求 → 方案裂变 → 批量勾选出片 · 免人批不免账（预扣→结算/回滚照旧，勾 K 条 = K 段账）</div>
+  </div>
+  <div>
+    <a href="/account-kb">账号知识库</a>
+    <a href="/">首页</a>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- 步骤3.5 对标视频库（账号大脑燃料） -->
+  <div class="step">
+    <div class="step-title" style="cursor:pointer" onclick="toggleKbLib()" title="新账号建库或 skill 更新时展开；skill 已就绪直接走步骤4"><div class="step-num" style="font-size:10px">3.5</div>对标视频库（账号大脑燃料 · 蒸馏用）<span id="kbLibArrow" style="margin-left:auto;font-size:12px;font-weight:400;color:#889;white-space:nowrap">▶ 展开</span></div>
+    <div id="kbLibBody" style="display:none">
+    <div class="tip">skill 已就绪时无需本步（直接走步骤4 裂变输入）。新账号建库/skill 更新时：下载视频→小窗预览→无效的<b style="color:#ff9999">真删</b>（磁盘文件一并删除，不可恢复）→送入蒸馏——无效视频不进 MiMo/GPT 分析。蒸馏完成后下方「账号 skill 快照」自动刷新。</div>
+    <div class="row">
+      <div>
+        <label>账号标识 account_id（蒸馏归属）</label>
+        <input type="text" id="kbAccountId" placeholder="例如：my-shop-001">
+      </div>
+      <div>
+        <label>抖音主页链接（批量下载通道）</label>
+        <input type="text" id="douyinLink" placeholder="粘贴账号主页链接或整段分享文案">
+      </div>
+      <div style="flex:0 0 110px">
+        <label>下载数量</label>
+        <input type="number" id="douyinWant" value="20" min="1" max="200">
+      </div>
+      <div style="flex:0 0 110px">
+        <label>下载间隔(秒)</label>
+        <input type="number" id="douyinGap" value="5" min="1" max="60">
+      </div>
+      <div style="flex:0 0 auto;display:flex;gap:8px;align-items:flex-end;padding-bottom:2px">
+        <button class="btn" id="btnDl" onclick="startDownload()">⬇ 批量下载</button>
+        <label class="btn btn-ghost" style="margin:0">📂 手动上传<input type="file" multiple accept="video/*" style="display:none" onchange="uploadVideos(this.files)"></label>
+      </div>
+    </div>
+    <div class="progress-wrap"><div class="progress-bar" id="dlBar"></div></div>
+    <div id="dlStage" class="note" style="margin-top:8px">未开始（下载通道需要抖音登录态，登录态失效会报错引导重扫码）</div>
+
+    <label style="margin-top:12px">视频清单（点视频即可小窗预览；勾选后删除或送蒸馏）</label>
+    <div id="videoLib" class="lib-grid"><div class="empty">暂无视频：贴主页链接批量下载，或手动上传</div></div>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <div style="flex:0 0 auto"><button class="btn btn-ghost" onclick="libSelectAll()">全选</button></div>
+      <div style="flex:0 0 auto"><button class="btn btn-ghost" onclick="libSelectNone()">清空勾选</button></div>
+      <div style="flex:0 0 auto"><button class="btn" style="background:#7a2e3e" onclick="deleteSelected(this)">🗑 删除所选（真删磁盘）</button></div>
+      <div style="flex:0 0 auto"><button class="btn btn-blue" id="btnDistill" onclick="sendToDistill()">🧪 送入蒸馏分析</button></div>
+      <div id="libInfo" class="note" style="flex:1"></div>
+    </div>
+    <div id="distillStage" class="note" style="margin-top:8px"></div>
+    <div class="log-box" id="distillLog" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- 步骤4 裂变输入 -->
+  <div class="step">
+    <div class="step-title"><div class="step-num">4</div>裂变输入</div>
+
+    <div class="row">
+      <div>
+        <label>账号 skill 快照（来自知识库蒸馏）</label>
+        <select id="skillSnap" onchange="onSkillSnap()"></select>
+        <div class="note" id="skillSnapMeta" style="font-size:11px;color:#7777aa;margin-top:4px">加载中…</div>
+      </div>
+      <div>
+        <label>产品名称</label>
+        <input type="text" id="productName" placeholder="例如：去油污清洁剂">
+      </div>
+      <div>
+        <label>裂变数量 N</label>
+        <input type="number" id="variantCount" value="3" min="1" max="10">
+      </div>
+      <div>
+        <label>目标时长</label>
+        <select id="targetDuration">
+          <option value="30" selected>30 秒（默认，待小样本定档）</option>
+          <option value="15">15 秒（已验证档位）</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <div>
+        <label>产品图（必填，可多张；Image 1 = 主体产品）</label>
+        <div class="img-slot" onclick="document.getElementById('productImgs').click()">
+          <input type="file" id="productImgs" multiple accept="image/*" onchange="uploadImgs(this.files, 'product')">
+          <span id="productSlotTxt">点击上传产品图</span>
+          <div id="productPreviews"></div>
+        </div>
+      </div>
+      <div>
+        <label>模特图（可选，人物外貌参考）</label>
+        <div class="img-slot" onclick="document.getElementById('modelImg').click()">
+          <input type="file" id="modelImg" accept="image/*" onchange="uploadImgs(this.files, 'model')">
+          <span id="modelSlotTxt">点击上传模特图</span>
+          <div id="modelPreview"></div>
+        </div>
+      </div>
+      <div>
+        <label>场景图（可选，环境参考）</label>
+        <div class="img-slot" onclick="document.getElementById('sceneImg').click()">
+          <input type="file" id="sceneImg" accept="image/*" onchange="uploadImgs(this.files, 'scene')">
+          <span id="sceneSlotTxt">点击上传场景图</span>
+          <div id="scenePreview"></div>
+        </div>
+      </div>
+    </div>
+
+    <label>裂变需求 / 卖点 / 口播要点</label>
+    <textarea id="customerRequest" placeholder="例如：主打一喷一擦去重油污，30 秒内完成痛点-演示-促销闭环，口播要有紧迫感"></textarea>
+
+    <label>商品事实（可选，比图更权威：成分/规格/卖点证据）</label>
+    <textarea id="productFacts" placeholder="选填"></textarea>
+
+    <div class="tip">
+      ⏱ 30 秒档位尚无成功样本（历史回滚率约 80%），提交不会自动重投——结果未知只落 job_id 人工捞回。建议先用 15 秒验证链路。
+    </div>
+
+    <button class="btn" id="btnFission" onclick="startFission()">🚀 生成视频方案裂变</button>
+    <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    <div id="fissionStage" class="note" style="margin-top:8px">待启动</div>
+    <div class="log-box" id="fissionLog">（日志）</div>
+  </div>
+
+  <!-- 步骤5 方案卡 -->
+  <div class="step">
+    <div class="step-title"><div class="step-num">5</div>方案卡（勾选要生成的方案）</div>
+    <div id="variantsGrid" class="variants-grid">
+      <div class="empty">方案裂变完成后，方案卡会出现在这里</div>
+    </div>
+  </div>
+
+  <!-- 步骤6 批量生成 -->
+  <div class="step">
+    <div class="step-title"><div class="step-num">6</div>批量出片</div>
+    <div class="tip">勾 K 条 = 一张 K 段账（免人批但预扣/结算照走账本）。出片不外层重投：结果未知的变体只报 job_id 待捞回。</div>
+    <div class="row" style="align-items:center">
+      <div style="flex:0 0 auto"><button class="btn btn-blue" id="btnGenerate" onclick="generateSelected()" disabled>🎬 直接生成（勾选方案）</button></div>
+      <div style="flex:0 0 auto"><button class="btn btn-ghost" onclick="selectAll()">全选</button></div>
+      <div style="flex:0 0 auto"><button class="btn btn-ghost" onclick="selectNone()">清空勾选</button></div>
+      <div id="selectInfo" class="note" style="flex:1">未勾选</div>
+    </div>
+    <div id="genStage" class="note" style="margin-top:8px"></div>
+    <div id="videoResults" class="variants-grid" style="margin-top:14px"></div>
+  </div>
+
+</div>
+
+<script>
+// ── 对话框兜底 shim ─────────────────────────────────────────────
+// Trae 嵌入式浏览器把 alert/confirm/prompt 替换成宿主桥接弹窗（confirm 还返回 Promise），
+// 触发宿主 dialog 组件 setState 无限循环 → React #185 崩溃。这里用页面内非阻塞实现覆盖，
+// 让所有调用点都不再走到宿主弹窗。
+// 注意：confirm 无法在页面内做同步阻塞选择，故返回 false（保守按“取消”处理）；
+//       真正需要确认的危险操作（如真删磁盘）请用两步式按钮，勿依赖 confirm。
+(function () {
+  function toast(msg, ms) {
+    let box = document.getElementById('__dlg_toast');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = '__dlg_toast';
+      box.style.cssText = 'position:fixed;left:50%;top:24px;transform:translateX(-50%);z-index:99999;max-width:78%;padding:12px 18px;border-radius:10px;font-size:13px;line-height:1.5;box-shadow:0 8px 32px rgba(0,0,0,.35);white-space:pre-wrap;word-break:break-word;opacity:0;transition:opacity .18s;background:#1f2a44;border:1px solid #3b82f6;color:#fff';
+      document.body.appendChild(box);
+    }
+    box.textContent = String(msg == null ? '' : msg);
+    requestAnimationFrame(() => { box.style.opacity = '1'; });
+    clearTimeout(box.__t);
+    box.__t = setTimeout(() => { box.style.opacity = '0'; }, ms || 2600);
+  }
+  // 宿主桥接是在页面脚本跑完之后才注入覆盖的，普通赋值会被顶掉；
+  // 故用 defineProperty 锁死（不可写、不可配置），宿主后注入时覆盖不进来。
+  function lock(name, fn) {
+    try {
+      Object.defineProperty(window, name, { value: fn, writable: false, configurable: false });
+    } catch (e) {
+      try { window[name] = fn; } catch (_) {}
+    }
+  }
+  lock('alert', (m) => { toast(m, 3000); });
+  lock('prompt', (m) => { toast(m, 3000); return null; });
+  lock('confirm', (m) => { toast(String(m) + '\n（宿主确认框不可用，已按“取消”处理；危险操作请用两步式按钮）', 3600); return false; });
+})();
+
+let taskId = '';
+let pollTimer = null;
+let genPollTimer = null;
+let variants = [];
+let grids = [];
+const checked = new Set();
+
+let productPaths = [];
+let modelPath = '';
+let scenePath = '';
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function outUrl(p) {
+  if (!p) return '';
+  const i = p.indexOf('outputs/');
+  return i >= 0 ? '/' + p.slice(i).replace(/\\/g, '/') : (p.startsWith('/') ? p : '/uploads/' + p.split(/[\\/]/).pop());
+}
+
+// ---------- skill 快照 ----------
+async function loadAccounts() {
+  const sel = document.getElementById('skillSnap');
+  try {
+    const r = await fetch('/api/kb/accounts');
+    const d = await r.json();
+    const items = d.accounts || [];
+    sel.innerHTML = items.length
+      ? items.filter(a => a.skill_version).map(a =>
+          `<option value="${esc(a.account_id)}|${a.skill_version}">${esc(a.account_id)} · skill v${a.skill_version}（${a.skill_status || 'auto'}）</option>`).join('')
+        + `<option value="">（不绑定 skill，走通用规则）</option>`
+      : '<option value="">（暂无蒸馏 skill，走通用规则）</option>';
+    onSkillSnap();
+  } catch (e) {
+    sel.innerHTML = '<option value="">（skill 加载失败）</option>';
+    document.getElementById('skillSnapMeta').textContent = 'skill 列表加载失败：' + e.message;
+  }
+}
+
+function onSkillSnap() {
+  const v = document.getElementById('skillSnap').value;
+  document.getElementById('skillSnapMeta').textContent = v
+    ? `已绑定快照：${v.split('|')[0]} v${v.split('|')[1]}（裂变将按该版本 skill 执行；修改 skill 请去账号知识库页）`
+    : '未绑定 skill：按通用爆款规则裂变（建议先蒸馏账号 skill）';
+}
+
+// ---------- 图片上传 ----------
+async function uploadImgs(files, kind) {
+  if (!files || !files.length) return;
+  for (const f of files) {
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const r = await fetch('/api/upload/image', { method: 'POST', body: fd });
+      const d = await r.json();
+      const p = d.file_path;
+      if (kind === 'product') {
+        productPaths.push(p);
+        document.getElementById('productSlotTxt').textContent = `已选 ${productPaths.length} 张产品图`;
+        document.getElementById('productPreviews').innerHTML += `<img src="${esc(d.path)}">`;
+      } else if (kind === 'model') {
+        modelPath = p;
+        document.getElementById('modelSlotTxt').textContent = '已选模特图';
+        document.getElementById('modelPreview').innerHTML = `<img src="${esc(d.path)}">`;
+      } else {
+        scenePath = p;
+        document.getElementById('sceneSlotTxt').textContent = '已选场景图';
+        document.getElementById('scenePreview').innerHTML = `<img src="${esc(d.path)}">`;
+      }
+    } catch (e) {
+      alert('图片上传失败：' + e.message);
+    }
+  }
+}
+
+// ---------- 方案裂变 ----------
+async function startFission() {
+  if (!productPaths.length) { alert('产品图必填'); return; }
+  const snap = document.getElementById('skillSnap').value;
+  const body = {
+    product_image_paths: productPaths,
+    customer_request: document.getElementById('customerRequest').value.trim(),
+    variant_count: Math.max(1, Math.min(10, +document.getElementById('variantCount').value || 3)),
+    target_duration: +document.getElementById('targetDuration').value,
+    product_name: document.getElementById('productName').value.trim() || '目标产品',
+    product_facts: document.getElementById('productFacts').value.trim() || null,
+    model_image_path: modelPath || null,
+    scene_image_path: scenePath || null,
+    account_id: snap ? snap.split('|')[0] : '',
+    account_skill_version: snap ? +snap.split('|')[1] : null,
+  };
+  const btn = document.getElementById('btnFission');
+  const logEl = document.getElementById('fissionLog');
+  const bar = document.getElementById('progressBar');
+  const stageEl = document.getElementById('fissionStage');
+  btn.disabled = true;
+  logEl.textContent = '';
+  const log = m => { logEl.textContent += m + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+
+  try {
+    const r = await fetch('/api/smart-fission/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('启动失败 HTTP ' + r.status));
+    taskId = d.task_id;
+    log('裂变任务：' + taskId);
+
+    clearInterval(pollTimer);
+    await new Promise((resolve) => {
+      pollTimer = setInterval(async () => {
+        try {
+          const sr = await fetch(`/api/smart-fission/${taskId}/status`);
+          const sd = await sr.json();
+          const stageMap = { STEP3: 'GPT 裂变编排大脑', STEP35: '提示词质检（三层）', STEP4: '分镜宫格图', STEP4_DONE: '方案就绪', EDITED: '已编辑' };
+          stageEl.textContent = `阶段 ${sd.stage || sd.status} ${stageMap[sd.stage] ? '· ' + stageMap[sd.stage] : ''} · 进度 ${sd.progress || 0}%`;
+          bar.style.width = (sd.progress || 0) + '%';
+          const lastLog = (sd.logs || []).slice(-2).map(l => l.msg);
+          lastLog.forEach(m => log('… ' + m));
+          if (sd.status === 'PENDING_REVIEW' || sd.status === 'DONE' || sd.status === 'FAILED') {
+            clearInterval(pollTimer);
+            if (sd.status === 'FAILED') {
+              log('❌ 裂变失败：' + (sd.error || ''));
+              stageEl.textContent = '失败：' + (sd.error || sd.status);
+            } else {
+              log('✓ 方案就绪，共 ' + ((sd.intermediate?.variants_plan?.variants) || []).length + ' 条');
+              stageEl.textContent = '方案就绪，请在下方勾选要生成的方案';
+              await loadVariants();
+            }
+            resolve();
+          }
+        } catch (e) {
+          clearInterval(pollTimer);
+          log('❌ 轮询失败：' + e.message);
+          resolve();
+        }
+      }, 2500);
+    });
+  } catch (e) {
+    log('❌ ' + e.message);
+    stageEl.textContent = '失败：' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- 方案卡 ----------
+async function loadVariants() {
+  const r = await fetch(`/api/smart-fission/${taskId}/variants`);
+  const d = await r.json();
+  variants = d.variants || [];
+  grids = d.grids || [];
+  renderVariants();
+  renderVideoResults((d.videos || []));
+}
+
+function qaBadges(qa) {
+  if (!qa) return '<span class="badge gray">QA 未审</span>';
+  const l1 = qa.layer1 ? (qa.layer1.ok ? '<span class="badge green">L1 过</span>' : '<span class="badge red">L1 问题</span>') : '';
+  const l2 = qa.layer2 ? (qa.layer2.ok ? '<span class="badge green">L2 过</span>' : '<span class="badge red">L2 问题</span>') : '';
+  const s = qa.score ?? 0;
+  const l3 = `<span class="badge ${s >= 70 ? 'green' : s > 0 ? 'yellow' : 'gray'}">L3 ${s || '未审'}分</span>`;
+  return l1 + l2 + l3;
+}
+
+function renderVariants() {
+  const grid = document.getElementById('variantsGrid');
+  if (!variants.length) {
+    grid.innerHTML = '<div class="empty">暂无方案</div>';
+    return;
+  }
+  grid.innerHTML = variants.map(v => {
+    const vid = v.variant_id;
+    const g = grids.find(x => x.variant_id === vid);
+    const gridImg = g && g.grid_path ? `<img class="v-grid-img" src="${esc(outUrl(g.grid_path))}" alt="grid">` : '';
+    const qa = v.qa_report;
+    const qaIssues = qa ? [
+      ...(qa.layer1?.issues || []), ...(qa.layer2?.issues || []), ...(qa.layer3?.issues || []),
+    ] : [];
+    return `
+    <div class="variant-card ${checked.has(vid) ? 'checked' : ''}" id="card-${esc(vid)}">
+      <h3>
+        <label class="check-wrap">
+          <input type="checkbox" ${checked.has(vid) ? 'checked' : ''} onchange="toggleCheck('${esc(vid)}', this.checked)">
+          <span>${esc(vid)}</span>
+        </label>
+        <span class="badge blue">${esc(v.direction || '—')}</span>
+        ${qa?.passed ? '<span class="badge green">QA 通过</span>' : ''}
+      </h3>
+      <div class="meta">
+        钩子：${esc(v.hook_type || (v.shots?.[0]?.hook_type) || '—')} · 受众：${esc(v.target_audience || '—')} · 卖点：${esc(v.main_selling_point || '—')}
+      </div>
+      ${qa ? `<div class="meta" style="margin-top:4px">${qaBadges(qa)}</div>` : ''}
+      ${qaIssues.length ? `<div class="meta" style="color:#ffb066">⚠️ ${qaIssues.slice(0, 3).map(esc).join('；')}</div>` : ''}
+      ${gridImg}
+      <details><summary>分镜 shots（${(v.shots || []).length} 个）</summary>
+        <div class="v-prompt">${esc((v.shots || []).map(s => `Shot ${s.shot} [${s.start_sec}-${s.end_sec}] ${s.scene || ''}｜${s.action || ''}｜口播：${s.voiceover || '无'}`).join('\n'))}</div>
+      </details>
+      <details><summary>Wan3.0 Prompt（后端确定性编译）</summary>
+        <div class="v-prompt">${esc(v.wan3_prompt || v.h3_prompt || '（未编译）')}</div>
+      </details>
+    </div>`;
+  }).join('');
+  updateSelectInfo();
+}
+
+function toggleCheck(vid, on) {
+  if (on) checked.add(vid); else checked.delete(vid);
+  const card = document.getElementById('card-' + vid);
+  if (card) card.classList.toggle('checked', on);
+  updateSelectInfo();
+}
+
+function selectAll() {
+  variants.forEach(v => checked.add(v.variant_id));
+  renderVariants();
+}
+
+function selectNone() {
+  checked.clear();
+  renderVariants();
+}
+
+function updateSelectInfo() {
+  const n = checked.size;
+  document.getElementById('selectInfo').textContent = n
+    ? `已勾选 ${n} 条 = 一张 ${n} 段账（免人批，预扣→结算/回滚照走账本）`
+    : '未勾选';
+  document.getElementById('btnGenerate').disabled = !n || !taskId;
+}
+
+// ---------- 批量出片 ----------
+async function generateSelected() {
+  if (!checked.size || !taskId) return;
+  const btn = document.getElementById('btnGenerate');
+  const stageEl = document.getElementById('genStage');
+  btn.disabled = true;
+  stageEl.textContent = `已触发出片：${checked.size} 条（勾 ${checked.size} = ${checked.size} 段账）…`;
+  try {
+    const r = await fetch(`/api/smart-fission/${taskId}/generate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variant_ids: [...checked] }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('触发失败 HTTP ' + r.status));
+
+    clearInterval(genPollTimer);
+    await new Promise((resolve) => {
+      genPollTimer = setInterval(async () => {
+        try {
+          const sr = await fetch(`/api/smart-fission/${taskId}/status`);
+          const sd = await sr.json();
+          const videos = sd.intermediate?.videos?.videos || [];
+          stageEl.textContent = `出片中… 已回 ${videos.filter(v => v.local_path || v.video_url).length}/${checked.size} · 阶段 ${sd.stage || sd.status}`;
+          renderVideoResults(videos);
+          if (sd.status === 'DONE' || sd.status === 'FAILED' || sd.stage === 'STEP6_DONE') {
+            clearInterval(genPollTimer);
+            stageEl.textContent = sd.status === 'FAILED'
+              ? '出片结束（有失败）：' + (sd.error || '')
+              : `出片结束：成功 ${videos.filter(v => v.local_path).length} / ${checked.size}（结果未知的不重发，用 job_id 捞回）`;
+            resolve();
+          }
+        } catch (e) {
+          clearInterval(genPollTimer);
+          stageEl.textContent = '轮询失败：' + e.message;
+          resolve();
+        }
+      }, 2500);
+    });
+  } catch (e) {
+    stageEl.textContent = '失败：' + e.message;
+  } finally {
+    updateSelectInfo();
+  }
+}
+
+function renderVideoResults(videos) {
+  if (!videos || !videos.length) return;
+  const box = document.getElementById('videoResults');
+  box.innerHTML = videos.map(v => {
+    const src = v.local_path ? outUrl(v.local_path) : (v.video_url || '');
+    const isUnknown = (v.error || '').includes('结果未知');
+    return `
+    <div class="variant-card video-result">
+      <h3><span>${esc(v.variant_id)}</span>
+        ${v.local_path ? '<span class="badge green">成片</span>'
+          : isUnknown ? '<span class="badge yellow">结果未知·不重发</span>'
+          : v.error ? '<span class="badge red">失败</span>' : '<span class="badge blue">生成中</span>'}
+        ${v.duration ? `<span class="badge gray">${esc(v.duration)}s</span>` : ''}
+        ${v.credits ? `<span class="badge gray">${esc(v.credits)} 分</span>` : ''}
+      </h3>
+      ${src ? `<video src="${esc(src)}" controls preload="metadata"></video>
+               <div style="margin-top:6px"><a href="${esc(src)}" download>⬇ 下载成片</a></div>` : ''}
+      ${v.error ? `<div class="meta" style="color:#ff9999;margin-top:6px">${esc(v.error)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ---------- 对标视频库（M6：下载→预览→真删→送蒸馏） ----------
+let libItems = [];   // {name, path, source:'link'|'upload', size_mb, title, url, checked}
+let dlTaskId = '';
+
+function toggleKbLib() {
+  const b = document.getElementById('kbLibBody');
+  const open = b.style.display === 'none';
+  b.style.display = open ? '' : 'none';
+  document.getElementById('kbLibArrow').textContent = open ? '▼ 收起' : '▶ 展开';
+}
+
+function renderLib() {
+  const box = document.getElementById('videoLib');
+  if (!libItems.length) {
+    box.innerHTML = '<div class="empty">暂无视频：贴主页链接批量下载，或手动上传</div>';
+  } else {
+    box.innerHTML = libItems.map((it, i) => `
+    <div class="variant-card ${it.checked ? 'checked' : ''}">
+      <h3>
+        <label class="check-wrap">
+          <input type="checkbox" ${it.checked ? 'checked' : ''} onchange="libToggle(${i}, this.checked)">
+          <span>${esc(it.name)}</span>
+        </label>
+        <span class="badge gray">${it.source === 'link' ? '下载' : '上传'}</span>
+      </h3>
+      <div class="meta">${esc(it.title || '')}${it.size_mb ? ' · ' + esc(it.size_mb) + 'MB' : ''}</div>
+      <video src="${esc(it.url)}" controls preload="metadata" style="width:100%;border-radius:8px;margin-top:6px;background:#000"></video>
+      <button class="btn btn-ghost lib-del-btn" onclick="deleteOne(${i}, this)">🗑 删除</button>
+    </div>`).join('');
+  }
+  const n = libItems.filter(x => x.checked).length;
+  document.getElementById('libInfo').textContent = libItems.length
+    ? `共 ${libItems.length} 条${n ? `，已勾选 ${n} 条` : ''}｜送蒸馏：${n ? '仅勾选的 ' + n + ' 条' : '全部 ' + libItems.length + ' 条（不勾选 = 全部）'}`
+    : '';
+}
+
+function libToggle(i, on) { libItems[i].checked = on; renderLib(); }
+function libSelectAll() { libItems.forEach(x => x.checked = true); renderLib(); }
+function libSelectNone() { libItems.forEach(x => x.checked = false); renderLib(); }
+
+async function pollBatch(taskId, onTick) {
+  for (;;) {
+    const r = await fetch(`/api/douyin-batch-studio/status?task_id=${encodeURIComponent(taskId)}`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '任务状态查询失败');
+    onTick(d);
+    if (d.status === 'SUCCESS' || d.status === 'FAILED') return d;
+    await new Promise(res => setTimeout(res, 2500));
+  }
+}
+
+/** 边下载边载入：把 status 里已 done 的视频即时并入清单（按 path 去重），返回新增条数 */
+function mergeDownloaded(s, taskId) {
+  const outDir = s.out_dir || '';
+  if (!outDir) return 0;
+  const seen = new Set(libItems.map(x => x.path.toLowerCase()));
+  let added = 0;
+  for (const it of (s.items || [])) {
+    if (it.dl_status !== 'done' || !it.file) continue;
+    const p = outDir + '\\' + it.file;
+    if (seen.has(p.toLowerCase())) continue;
+    libItems.push({
+      name: it.file,
+      path: p,
+      source: 'link',
+      size_mb: it.size_mb || 0,
+      title: it.title || '',
+      url: `/api/douyin-batch-studio/file?task_id=${encodeURIComponent(taskId)}&name=${encodeURIComponent(it.file)}`,
+      checked: false,
+    });
+    seen.add(p.toLowerCase());
+    added++;
+  }
+  if (added) renderLib();
+  return added;
+}
+
+async function startDownload() {
+  const link = document.getElementById('douyinLink').value.trim();
+  if (!link) { alert('请先贴抖音主页链接'); return; }
+  const btn = document.getElementById('btnDl');
+  const stage = document.getElementById('dlStage');
+  const bar = document.getElementById('dlBar');
+  btn.disabled = true;
+  try {
+    stage.textContent = '解析账号主页…';
+    let r = await fetch('/api/douyin-batch-studio/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_input: link, want: +document.getElementById('douyinWant').value || 0 }),
+    });
+    let d = await r.json();
+    if (!r.ok || !d.task_id) throw new Error(d.detail || '列表解析失败');
+    const prev = await pollBatch(d.task_id, s => {
+      stage.textContent = s.stage || s.status;
+      bar.style.width = (s.progress || 0) + '%';
+    });
+    if (prev.status !== 'SUCCESS') throw new Error(prev.error || prev.stage || '列表解析失败');
+    stage.textContent = `列表就绪：${prev.nickname || ''}（${(prev.items || []).length} 条）｜开始下载…`;
+    r = await fetch('/api/douyin-batch-studio/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sec_uid: prev.sec_uid, nickname: prev.nickname || '', items: prev.items || [], gap_sec: +document.getElementById('douyinGap').value || 5 }),
+    });
+    d = await r.json();
+    if (!r.ok || !d.task_id) throw new Error(d.detail || '下载启动失败');
+    dlTaskId = d.task_id;
+    let totalAdded = 0;
+    const fin = await pollBatch(dlTaskId, s => {
+      const c = s.counts || {};
+      totalAdded += mergeDownloaded(s, dlTaskId);   // 边下载边载入视频区
+      stage.textContent = `${s.stage || s.status} ｜ 已完成 ${c.done ?? 0}/${(s.items || []).length}`;
+      bar.style.width = (s.progress || 0) + '%';
+    });
+    totalAdded += mergeDownloaded(fin, dlTaskId);   // 收尾兜底（去重）
+    bar.style.width = '100%';
+    stage.textContent = `下载结束：清单载入 ${totalAdded} 条（失败 ${(fin.counts || {}).failed || 0}）；预览后勾选无效视频真删，再送蒸馏`;
+  } catch (e) {
+    stage.textContent = '失败：' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function uploadVideos(files) {
+  if (!files || !files.length) return;
+  for (const f of files) {
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const r = await fetch('/api/upload/video', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || ('上传失败 HTTP ' + r.status));
+      libItems.push({
+        name: d.filename || f.name,
+        path: d.file_path,
+        source: 'upload',
+        size_mb: Math.round((d.size || 0) / 1024 / 1024 * 100) / 100,
+        title: f.name,
+        url: '/uploads/' + d.filename,
+        checked: false,
+      });
+    } catch (e) {
+      alert('上传失败：' + e.message);
+    }
+  }
+  renderLib();
+}
+
+async function deleteFiles(targetItems) {
+  const stage = document.getElementById('dlStage');
+  const r = await fetch('/api/douyin-batch-studio/delete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: dlTaskId, files: targetItems.map(x => x.path) }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || '删除失败');
+  const errMap = new Map((d.errors || []).map(x => [x.file, x.error || '']));
+  // 已删掉的（无报错）或报"文件不存在"的从清单移除；越界/失败的保留
+  libItems = libItems.filter(x => {
+    const targeted = targetItems.some(t => t.path === x.path);
+    return !(targeted && (!errMap.has(x.path) || (errMap.get(x.path) || '').includes('不存在')));
+  });
+  renderLib();
+  const failList = [...errMap.entries()].filter(([, e]) => e && !e.includes('不存在'));
+  stage.textContent = `真删 ${(d.deleted || []).length} 条` + (failList.length
+    ? `；${failList.length} 条被拒：${failList.map(([f, e]) => f.split(/[\\/]/).pop() + '（' + e + '）').join('；')}`
+    : '');
+}
+
+// 页面内两步确认：宿主浏览器把 confirm 换成桥接 Promise 弹窗（触发 Trae 层 React #185 崩溃），不用 confirm()
+function armDelete(btn, label, tip) {
+  if (!btn || btn.dataset.armed === '1') return !!btn;
+  btn.dataset.armed = '1';
+  btn.textContent = label;
+  btn.style.color = '#e5484d';
+  btn.style.borderColor = '#e5484d';
+  btn.title = tip;
+  btn._armTimer = setTimeout(() => {
+    if (!btn.isConnected) return;
+    btn.textContent = btn.dataset.orig || '🗑 删除';
+    btn.style.color = ''; btn.style.borderColor = ''; btn.title = '';
+    delete btn.dataset.armed;
+  }, 4000);
+  return false;
+}
+
+async function deleteOne(i, btn) {
+  const it = libItems[i];
+  if (!it) return;
+  if (btn && !btn.dataset.orig) btn.dataset.orig = btn.textContent;
+  if (!armDelete(btn, '确认真删？', `${it.name} 将真删磁盘文件，不可恢复`)) return;
+  if (btn && btn._armTimer) clearTimeout(btn._armTimer);
+  try { await deleteFiles([it]); } catch (e) { document.getElementById('dlStage').textContent = '删除失败：' + e.message; }
+}
+
+async function deleteSelected(btn) {
+  const sel = libItems.filter(x => x.checked);
+  if (!sel.length) { alert('先勾选要删除的视频'); return; }
+  if (btn && !btn.dataset.orig) btn.dataset.orig = btn.textContent;
+  if (!armDelete(btn, `确认真删 ${sel.length} 个？`, '磁盘文件将一并删除，不可恢复')) return;
+  if (btn && btn._armTimer) clearTimeout(btn._armTimer);
+  try { await deleteFiles(sel); } catch (e) { document.getElementById('dlStage').textContent = '删除失败：' + e.message; }
+}
+
+async function pollKbIngest(taskId, onTick) {
+  for (;;) {
+    const r = await fetch(`/api/kb/ingest/${taskId}/status`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '入库状态查询失败');
+    onTick(d);
+    if (d.status === 'DONE' || d.status === 'FAILED') return d;
+    await new Promise(res => setTimeout(res, 2500));
+  }
+}
+
+async function sendToDistill() {
+  const acc = document.getElementById('kbAccountId').value.trim();
+  if (!acc) { alert('请填账号标识 account_id（蒸馏归属）'); return; }
+  const sel = libItems.filter(x => x.checked);
+  const use = sel.length ? sel : libItems;
+  if (!use.length) { alert('清单为空：先批量下载或手动上传视频'); return; }
+  const btn = document.getElementById('btnDistill');
+  const stage = document.getElementById('distillStage');
+  const logEl = document.getElementById('distillLog');
+  btn.disabled = true;
+  logEl.style.display = 'block';
+  logEl.textContent = '';
+  const log = m => { logEl.textContent += m + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+  try {
+    // ① 入库解析（MiMo + GPT + ASR，kb_calls 记账）
+    stage.textContent = `送入蒸馏：${use.length} 条 → 入库解析…`;
+    log(`入库 ${use.length} 条（account=${acc}）`);
+    let r = await fetch('/api/kb/ingest', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        account_id: acc,
+        videos: use.map(x => ({ path: x.path, title: x.title || x.name, source: x.source })),
+      }),
+    });
+    let d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '入库启动失败');
+    const ingestId = d.task_id;
+    const fin = await pollKbIngest(ingestId, s => {
+      stage.textContent = `入库解析 ${s.progress || 0}% · ${s.stage || s.status}`;
+    });
+    (fin.logs || []).slice(-5).forEach(l => log('… ' + l.msg));
+    const counts = fin.intermediate?.counts || {};
+    log(`入库结束：parsed=${counts.parsed ?? 0} failed=${counts.failed ?? 0}｜账目 ${JSON.stringify(fin.calls || {})}`);
+    if (fin.status === 'FAILED') throw new Error(fin.error || '入库全部失败');
+
+    // ② 账号画像聚合
+    stage.textContent = '账号画像聚合…';
+    r = await fetch(`/api/kb/${encodeURIComponent(acc)}/aggregate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '聚合失败');
+    log(`聚合完成：profile v${d.version}`);
+
+    // ③ Map-Reduce 蒸馏 → SKILL.md
+    stage.textContent = 'Map-Reduce 蒸馏 SKILL.md…';
+    r = await fetch(`/api/kb/${encodeURIComponent(acc)}/distill`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '蒸馏失败');
+    log(`蒸馏完成：skill v${d.version} → ${d.skill_md_path || ''}`);
+
+    // ④ skill 快照下拉自动刷新
+    await loadAccounts();
+    stage.textContent = `蒸馏完成：${acc} skill v${d.version}，已刷新下方「账号 skill 快照」；skill 审核修改请去账号知识库页`;
+  } catch (e) {
+    stage.textContent = '失败：' + e.message;
+    log('❌ ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+loadAccounts();
+</script>
+</body>
+</html>

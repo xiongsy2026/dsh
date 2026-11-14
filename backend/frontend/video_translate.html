@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频翻译</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); padding: 18px 32px; display: flex; align-items: center; gap: 14px; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 480px; min-width: 400px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #10b981; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .upload-card .preview-video { max-width: 100%; max-height: 140px; border-radius: 8px; margin-top: 8px; }
+        .lang-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .lang-row select { flex: 1; padding: 10px 14px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #e0e0e0; font-size: .95em; outline: none; }
+        .lang-row select:focus { border-color: #10b981; }
+        .lang-row select option { background: #1e1e36; color: #e0e0e0; }
+        .lang-arrow { font-size: 1.4em; color: #10b981; flex-shrink: 0; }
+
+        /* 选项行（字幕消除开关、换人模式） */
+        .option-row { display: flex; align-items: center; gap: 10px; background: #1e1e36; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; transition: all .2s; }
+        .option-row:hover { border-color: #10b981; background: #22223e; }
+        .option-row input[type="checkbox"], .option-row input[type="radio"] { width: 18px; height: 18px; accent-color: #10b981; cursor: pointer; }
+        .option-row .opt-label { flex: 1; font-size: .9em; }
+        .option-row .opt-desc { font-size: .75em; color: #888; margin-top: 2px; }
+
+        /* 换人模式区块 */
+        .swap-mode-section { margin-bottom: 16px; }
+        .swap-mode-section .option-row.active { background: #1a2e3a; border: 1px solid #10b981; }
+        .swap-content { display: none; margin-top: 8px; padding: 12px; background: #16162a; border-radius: 10px; }
+        .swap-content.active { display: block; }
+
+        /* 多角色检测 */
+        .detect-btn { width: 100%; padding: 10px; border: 1px solid #3a3a5c; border-radius: 10px; background: #1e1e36; color: #e0e0e0; font-size: .9em; cursor: pointer; transition: all .2s; margin-bottom: 12px; }
+        .detect-btn:hover:not(:disabled) { border-color: #10b981; background: #22223e; }
+        .detect-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .detect-btn.loading { color: #60a5fa; }
+        .char-list { display: flex; flex-direction: column; gap: 10px; }
+        .char-row { display: flex; align-items: center; gap: 12px; background: #1e1e36; border-radius: 12px; padding: 12px; }
+        .char-src-img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; border: 2px solid #3a3a5c; flex-shrink: 0; }
+        .char-arrow { font-size: 1.2em; color: #10b981; flex-shrink: 0; }
+        .char-target { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
+        .char-target input[type="file"] { display: none; }
+        .char-target-icon { width: 64px; height: 64px; border-radius: 8px; background: #1a1a30; border: 2px dashed #3a3a5c; display: flex; align-items: center; justify-content: center; font-size: 1.4em; transition: all .2s; }
+        .char-target:hover .char-target-icon { border-color: #10b981; background: #22223e; }
+        .char-target.has-target .char-target-icon { border-color: #22c55e; border-style: solid; }
+        .char-target-img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; border: 2px solid #22c55e; }
+        .char-target-label { font-size: .72em; color: #888; text-align: center; }
+        .char-skip-tag { font-size: .68em; color: #fbbf24; background: rgba(251,191,36,.1); padding: 2px 8px; border-radius: 6px; margin-top: 2px; }
+
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #10b981, #06b6d4); color: #fff; transition: all .2s; letter-spacing: 1px; }
+        .run-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(16,185,129,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        .steps-bar { display: flex; gap: 4px; margin-bottom: 8px; }
+        .step-item { flex: 1; height: 6px; border-radius: 3px; background: #2a2a44; transition: background .3s; }
+        .step-item.skipped { background: #3a3a5c; opacity: .4; }
+        .step-item.active { background: #06b6d4; }
+        .step-item.done { background: #10b981; }
+        .step-labels { display: flex; gap: 4px; margin-bottom: 16px; font-size: .68em; color: #666; }
+        .step-labels span { flex: 1; text-align: center; }
+        .step-labels span.skipped { color: #444; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 280px; overflow-y: auto; line-height: 1.7; }
+        .log-line.running { color: #60a5fa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .log-line.warn { color: #fbbf24; }
+        .video-result { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; }
+        .video-result h3 { margin-bottom: 16px; font-size: 1.1em; }
+        .video-player { width: 100%; border-radius: 10px; background: #000; max-height: 520px; }
+        .video-placeholder { width: 100%; height: 280px; border-radius: 10px; background: #1e1e36; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #555; font-size: 1.2em; gap: 12px; }
+        .video-placeholder .ph-icon { font-size: 3em; }
+        .result-links { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: #1e1e36; color: #60a5fa; text-decoration: none; font-size: .9em; transition: background .2s; }
+        .result-link:hover { background: #2a2a5c; }
+        .subtitle-preview { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; display: none; }
+        .subtitle-preview h3 { margin-bottom: 12px; font-size: 1.1em; }
+        .subtitle-content { background: #0d0d1a; border-radius: 8px; padding: 14px; font-size: .85em; color: #a5a5c8; max-height: 200px; overflow-y: auto; line-height: 1.8; font-family: "Cascadia Code", monospace; }
+        .history-panel { background: #16162a; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+        .history-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid #2a2a44; }
+        .history-header h3 { font-size: 1em; }
+        .history-refresh { border: 1px solid #3a3a5c; background: #1e1e36; color: #bbb; width: 34px; height: 34px; border-radius: 6px; cursor: pointer; font-size: 1em; }
+        .history-list { max-height: 220px; overflow-y: auto; }
+        .history-empty { color: #666; font-size: .85em; padding: 16px; text-align: center; }
+        .history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 12px 16px; border-bottom: 1px solid #24243b; cursor: pointer; }
+        .history-item:hover, .history-item.selected { background: #1e1e36; }
+        .history-main { min-width: 0; }
+        .history-title { font-size: .88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .history-meta { color: #777; font-size: .72em; margin-top: 4px; }
+        .history-status { align-self: start; font-size: .72em; padding: 3px 8px; border-radius: 10px; }
+        .history-status.SUCCESS { color: #4ade80; background: #14532d; }
+        .history-status.FAILED { color: #f87171; background: #451a1a; }
+        .history-status.RUNNING, .history-status.PENDING { color: #60a5fa; background: #1e3a5f; }
+        .history-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+        .resume-btn { border: 1px solid #10b981; background: transparent; color: #4ade80; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: .78em; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <a class="back-btn" href="/">← 首页</a>
+    <h1>VIDEO TRANSLATE</h1>
+    <span class="tag">视频翻译 · 音色克隆 · HeyGem 数字人</span>
+</div>
+<div class="main">
+    <div class="input-panel">
+        <!-- 上传视频 -->
+        <div class="section-title"><span class="dot dot-required"></span> 上传视频</div>
+        <div class="upload-card" id="videoCard" onclick="document.getElementById('videoInput').click()">
+            <div class="icon">🎬</div>
+            <div class="label">点击上传需要翻译的视频</div>
+            <input type="file" id="videoInput" accept="video/*">
+            <div class="filename" id="videoFilename"></div>
+        </div>
+
+        <!-- 语言设置 -->
+        <div class="section-title"><span class="dot dot-required"></span> 语言设置</div>
+        <div class="lang-row">
+            <select id="sourceLang">
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="pt">Português</option>
+            </select>
+            <span class="lang-arrow">→</span>
+            <select id="targetLang">
+                <option value="en">English</option>
+                <option value="zh">中文</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="pt">Português</option>
+            </select>
+        </div>
+
+        <!-- 字幕消除开关（Step 0）-->
+        <div class="section-title"><span class="dot dot-optional"></span> 字幕消除（Step 0）</div>
+        <label class="option-row" for="removeSubtitle">
+            <input type="checkbox" id="removeSubtitle">
+            <div class="opt-label">
+                消除原视频硬字幕
+                <div class="opt-desc">使用 ProPainter 消除原视频内嵌字幕，再进行 ASR/口型同步（耗时约 +30%）</div>
+            </div>
+        </label>
+
+        <!-- 音源选择（Step 2）-->
+        <div class="section-title"><span class="dot dot-optional"></span> 配音音源（Step 2）</div>
+        <label class="option-row active" for="voiceOriginal" id="voiceOriginalRow">
+            <input type="radio" name="voiceMode" id="voiceOriginal" checked onchange="toggleVoiceMode()">
+            <div class="opt-label">
+                原视频音色克隆
+                <div class="opt-desc">用原视频音色做 IndexTTS 克隆，生成英文配音（默认推荐，音色一致）</div>
+            </div>
+        </label>
+        <label class="option-row" for="voiceUploaded" id="voiceUploadedRow">
+            <input type="radio" name="voiceMode" id="voiceUploaded" onchange="toggleVoiceMode()">
+            <div class="opt-label">
+                上传参考音色
+                <div class="opt-desc">上传一段目标音色的音频（wav/mp3/m4a/flac，10-30s 最佳），用它做 IndexTTS 克隆</div>
+            </div>
+        </label>
+        <div id="voiceAudioSection" style="display:none; padding: 0 16px 12px;">
+            <input type="file" id="voiceRefAudio" accept="audio/*" style="font-size: 12px; width: 100%;" onchange="uploadVoiceRef(this)">
+            <div id="voiceRefPreview" style="margin-top: 6px; font-size: 12px; color: #888;"></div>
+        </div>
+
+        <!-- 人物处理（Step 3）-->
+        <div class="section-title"><span class="dot dot-optional"></span> 人物处理（Step 3）</div>
+        <label class="option-row active" for="keepOriginal" id="keepOriginalRow">
+            <input type="radio" name="faceMode" id="keepOriginal" checked onchange="toggleFaceMode()">
+            <div class="opt-label">
+                保持原人物
+                <div class="opt-desc">默认模式。翻译 + IndexTTS 音色克隆 + HeyGem 数字人对口型（支持纯主播/转场视频/无人画面，按段选择性处理）</div>
+            </div>
+        </label>
+        <label class="option-row" for="replaceFace" id="replaceFaceRow">
+            <input type="radio" name="faceMode" id="replaceFace" onchange="toggleFaceMode()">
+            <div class="opt-label">
+                替换人脸（可选）
+                <div class="opt-desc">先识别视频中的所有人脸，再为每个角色上传替换图片，用 DreamID-V 换人后做 HeyGem 对口型。建议仅纯主播视频启用</div>
+            </div>
+        </label>
+        <div id="faceImageSection" style="display:none; padding: 0 16px 12px;">
+            <div id="faceDetectStatus" style="font-size: 12px; color: #888; margin-bottom: 8px;"></div>
+            <div id="characterList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+            <div id="faceImagePreview" style="margin-top: 8px; min-height: 20px;"></div>
+        </div>
+
+        <button class="run-btn" id="runBtn" onclick="startTranslate()" disabled>🌍 开始翻译</button>
+
+        <div class="history-panel" style="margin-top:16px;">
+            <div class="history-header">
+                <h3>历史任务</h3>
+                <button class="history-refresh" onclick="loadHistory()" title="刷新历史">↻</button>
+            </div>
+            <div class="history-list" id="historyList">
+                <div class="history-empty">暂无历史任务</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="output-panel">
+        <div class="status-panel">
+            <div class="status-header">
+                <span class="status-badge badge-idle" id="statusBadge">等待提交</span>
+                <span id="taskIdDisplay" style="font-size:.8em;color:#666;"></span>
+            </div>
+            <div class="steps-bar" id="stepsBar">
+                <div class="step-item" id="step0"></div>
+                <div class="step-item" id="step1"></div>
+                <div class="step-item" id="step2"></div>
+                <div class="step-item" id="step3"></div>
+                <div class="step-item" id="step4"></div>
+                <div class="step-item" id="step5"></div>
+            </div>
+            <div class="step-labels" id="stepLabels">
+                <span id="label0">字幕消除</span>
+                <span>ASR+翻译</span>
+                <span>音色克隆</span>
+                <span>换人/母版</span>
+                <span>HeyGem 对口型</span>
+                <span>母版合成</span>
+            </div>
+            <div class="log-box" id="logBox">
+                <div class="log-line">上传视频后，选择换人模式，点击"开始翻译"</div>
+            </div>
+            <div id="runninghubTasks" style="margin-top:12px;color:#9ca3af;font-size:.78em;"></div>
+        </div>
+
+        <div class="subtitle-preview" id="subtitleSection">
+            <h3>翻译对照</h3>
+            <div class="subtitle-content" id="subtitleContent"></div>
+        </div>
+
+        <div class="video-result" id="videoResultSection" style="display:none;">
+            <h3>翻译结果</h3>
+            <video class="video-player" id="resultVideo" controls loop></video>
+            <div class="result-links" id="resultLinks"></div>
+        </div>
+
+        <div class="video-placeholder" id="videoPlaceholder">
+            <div class="ph-icon">🌍</div>
+            <div>上传视频 → 选择换人模式 → 开始翻译</div>
+        </div>
+    </div>
+</div>
+
+<script>
+let videoFilePath = null;
+let faceImagePath = null;          // 单人模式
+let detectedCharacters = [];        // 多角色检测结果
+let charTargetPaths = {};           // 多角色目标人脸 {charId: path}
+let currentTaskId = null;
+let pollTimer = null;
+let lastStatusMessage = '';
+let historyTasks = [];
+
+// ── 检查是否可以开始翻译 ──
+function checkReady() {
+    document.getElementById('runBtn').disabled = !videoFilePath;
+}
+
+// ── 视频上传 ──
+document.getElementById('videoInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const card = document.getElementById('videoCard');
+    const fn = document.getElementById('videoFilename');
+    card.classList.add('has-file');
+    fn.textContent = file.name;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const res = await fetch('/api/upload/video', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            videoFilePath = data.file_path;
+            // 重置人物识别状态，重新进入替换模式时会自动检测
+            charactersDetected = false;
+            characterMappings = [];
+            const cl = document.getElementById('characterList');
+            if (cl) cl.innerHTML = '';
+            const fs = document.getElementById('faceDetectStatus');
+            if (fs) fs.textContent = '';
+            const old = card.querySelector('.preview-video');
+            if (old) old.remove();
+            const vid = document.createElement('video');
+            vid.className = 'preview-video';
+            vid.src = URL.createObjectURL(file);
+            vid.muted = true;
+            card.appendChild(vid);
+            addLog('视频已上传: ' + file.name, 'done');
+        } else { alert('视频上传失败'); }
+    } catch (err) { alert('上传出错: ' + err.message); }
+    checkReady();
+});
+
+/* disabled: DreamID-V face replacement UI removed
+// ── 单人模式：模特人脸上传 ──
+document.getElementById('faceInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const card = document.getElementById('faceCard');
+    const fn = document.getElementById('faceFilename');
+    card.classList.add('has-file');
+    fn.textContent = file.name;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const res = await fetch('/api/upload/image', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            faceImagePath = data.file_path || data.path;
+            const old = card.querySelector('.preview-video');
+            if (old) old.remove();
+            const img = document.createElement('img');
+            img.className = 'preview-video';
+            img.style.objectFit = 'cover';
+            img.src = URL.createObjectURL(file);
+            card.appendChild(img);
+            addLog('模特人脸已上传: ' + file.name, 'done');
+        } else { alert('人脸上传失败'); }
+    } catch (err) { alert('上传出错: ' + err.message); }
+    checkReady();
+});
+
+// ── 多角色检测 ──
+async function detectCharacters() {
+    if (!videoFilePath) { alert('请先上传视频'); return; }
+    const btn = document.getElementById('detectBtn');
+    btn.disabled = true;
+    btn.classList.add('loading');
+    btn.textContent = '🔍 检测中...';
+    addLog('正在检测视频中的角色...', 'running');
+    try {
+        const res = await fetch('/api/video-translate/detect-characters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ video_path: videoFilePath })
+        });
+        const data = await res.json();
+        if (data.success) {
+            detectedCharacters = data.characters || [];
+            renderCharList();
+            addLog(`检测到 ${detectedCharacters.length} 个角色`, 'done');
+        } else {
+            addLog('检测失败: ' + (data.error || ''), 'error');
+            alert('角色检测失败: ' + (data.error || ''));
+        }
+    } catch (err) {
+        addLog('检测出错: ' + err.message, 'error');
+        alert('检测出错: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.textContent = '🔍 重新检测视频中的角色';
+    }
+}
+
+function renderCharList() {
+    const list = document.getElementById('charList');
+    list.innerHTML = '';
+    detectedCharacters.forEach((char) => {
+        const row = document.createElement('div');
+        row.className = 'char-row';
+        row.innerHTML = `
+            <img class="char-src-img" src="/api/result/file?path=${encodeURIComponent(char.face_image_path)}" alt="角色">
+            <span class="char-arrow">→</span>
+            <label class="char-target" data-char-id="${char.id}">
+                <input type="file" accept="image/*">
+                <div class="char-target-icon">👤</div>
+                <div class="char-target-label">${char.name}<br><span style="color:#fbbf24">点击上传目标人脸</span></div>
+            </label>
+        `;
+        const input = row.querySelector('input[type="file"]');
+        const label = row.querySelector('.char-target');
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const fd = new FormData();
+            fd.append('file', file);
+            try {
+                const res = await fetch('/api/upload/image', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) {
+                    charTargetPaths[char.id] = data.file_path || data.path;
+                    label.classList.add('has-target');
+                    label.innerHTML = '';
+                    const img = document.createElement('img');
+                    img.className = 'char-target-img';
+                    img.src = URL.createObjectURL(file);
+                    label.appendChild(img);
+                    // 保留 input
+                    label.appendChild(input);
+                    const lbl = document.createElement('div');
+                    lbl.className = 'char-target-label';
+                    lbl.textContent = char.name;
+                    label.appendChild(lbl);
+                    addLog(`角色"${char.name}"目标人脸已上传`, 'done');
+                }
+            } catch (err) { alert('上传出错: ' + err.message); }
+        });
+        list.appendChild(row);
+    });
+}
+
+*/
+// ── 音源模式切换 ──
+function toggleVoiceMode() {
+    const uploaded = document.getElementById('voiceUploaded').checked;
+    document.getElementById('voiceAudioSection').style.display = uploaded ? 'block' : 'none';
+    ['voiceOriginal', 'voiceUploaded'].forEach(id => {
+        document.getElementById(id + 'Row').classList.toggle('active', document.getElementById(id).checked);
+    });
+}
+
+// ── 上传参考音色音频 ──
+let voiceRefPath = '';
+async function uploadVoiceRef(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const res = await fetch('/api/upload/audio', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            voiceRefPath = data.file_path || data.path;
+            document.getElementById('voiceRefPreview').textContent =
+                `已上传：${file.name}（用作 IndexTTS 参考音色）`;
+            addLog('参考音色已上传，将走 IndexTTS 克隆', 'done');
+        } else {
+            alert('上传失败: ' + (data.error || '未知错误'));
+        }
+    } catch (err) { alert('上传出错: ' + err.message); }
+}
+
+// ── 人物处理模式切换 ──
+function toggleFaceMode() {
+    const replaceMode = document.getElementById('replaceFace').checked;
+    const sec = document.getElementById('faceImageSection');
+    sec.style.display = replaceMode ? 'block' : 'none';
+    document.getElementById('keepOriginalRow').classList.toggle('active', !replaceMode);
+    document.getElementById('replaceFaceRow').classList.toggle('active', replaceMode);
+    // 切到替换模式：自动调用后端识别视频内人物
+    if (replaceMode && videoFilePath) {
+        detectCharacters();
+    }
+}
+
+// ── 识别视频人物（自动）──
+let characterMappings = []; // [{source_face_path, target_face_path, name}]
+async function detectCharacters() {
+    const status = document.getElementById('faceDetectStatus');
+    const list = document.getElementById('characterList');
+    status.textContent = '🔍 正在识别视频中的人物...';
+    status.style.color = '#ffc107';
+    list.innerHTML = '';
+    characterMappings = [];
+    try {
+        const res = await fetch('/api/video-translate/detect-characters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ video_path: videoFilePath })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            status.textContent = '识别失败：' + (data.error || '未知错误');
+            status.style.color = '#f44336';
+            return;
+        }
+        const chars = data.characters || [];
+        if (chars.length === 0) {
+            status.textContent = '⚠️ 视频中未检测到人物脸，建议切回"保持原人物"模式';
+            status.style.color = '#ff9800';
+            return;
+        }
+        status.textContent = `✓ 识别到 ${chars.length} 个人物，请为每个人物上传替换图：`;
+        status.style.color = '#4caf50';
+        chars.forEach((char, idx) => {
+            characterMappings.push({
+                source_face_path: char.face_image_path || char.face_path || char.source_face_path,
+                target_face_path: '',
+                name: char.name || `人物${idx + 1}`
+            });
+            renderCharacterRow(idx, char);
+        });
+        addLog(`已识别视频中 ${chars.length} 个人物`, 'done');
+    } catch (err) {
+        status.textContent = '识别出错：' + err.message;
+        status.style.color = '#f44336';
+    }
+}
+
+function renderCharacterRow(idx, char) {
+    const list = document.getElementById('characterList');
+    const row = document.createElement('div');
+    row.dataset.idx = String(idx);
+    row.style.cssText = 'display:flex; flex-direction:column; gap:10px; padding:12px; background:#1a1a1a; border-radius:8px; border:1px dashed #444;';
+    const name = char.name || `人物${idx + 1}`;
+
+    // 顶部行：原脸 + 名称
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex; align-items:center; gap:10px;';
+    const srcImg = document.createElement('img');
+    srcImg.style.cssText = 'width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid #555; background:#333;';
+    const p = char.face_image_path || char.face_path || char.source_face_path;
+    if (p) {
+        // 后端返回绝对路径，前端通过 /outputs/... 访问 character_detect 目录
+        const abs = p.replace(/\\/g, '/');
+        const idx = abs.indexOf('character_detect');
+        if (idx >= 0) {
+            srcImg.src = `/outputs/${abs.substring(idx)}`;
+        } else {
+            const fname = abs.split('/').pop();
+            srcImg.src = `/outputs/${fname}`;
+        }
+        srcImg.onerror = () => { srcImg.onerror = null; srcImg.alt='无图'; srcImg.style.background='#333'; };
+    } else {
+        srcImg.alt = '无图';
+    }
+    head.appendChild(srcImg);
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:14px; color:#ddd; font-weight:600;';
+    title.textContent = name;
+    const sub = document.createElement('div');
+    sub.style.cssText = 'font-size:11px; color:#888; margin-top:2px;';
+    sub.textContent = '原视频中识别到的人物';
+    title.appendChild(sub);
+    head.appendChild(title);
+    row.appendChild(head);
+
+    // 上传空间：预览 + 上传按钮（更显眼）
+    const uploadArea = document.createElement('div');
+    uploadArea.style.cssText = 'display:flex; align-items:center; gap:12px; padding:10px; background:#222; border-radius:6px; border:1px solid #3a3a3a;';
+
+    // 替换图预览区
+    const preview = document.createElement('div');
+    preview.style.cssText = 'width:64px; height:64px; border-radius:6px; border:1px dashed #666; background:#2a2a2a; display:flex; align-items:center; justify-content:center; color:#555; font-size:11px;';
+    preview.textContent = '替换图';
+
+    // 文件名 + 状态
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1; font-size:11px; color:#888;';
+    const infoName = document.createElement('div');
+    infoName.textContent = '尚未上传替换图';
+    infoName.style.color = '#888';
+    const infoHint = document.createElement('div');
+    infoHint.textContent = '上传一张外国人脸图，将通过 DreamID-V 工作流换人';
+    infoHint.style.cssText = 'margin-top:2px; color:#666; font-size:10px;';
+    info.appendChild(infoName);
+    info.appendChild(infoHint);
+
+    // 上传按钮
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = '📷 上传人像';
+    btn.style.cssText = 'padding:6px 12px; background:#2a4a6a; color:#fff; border:1px solid #3a6a8a; border-radius:4px; cursor:pointer; font-size:12px;';
+    btn.addEventListener('mouseenter', () => btn.style.background = '#3a5a7a');
+    btn.addEventListener('mouseleave', () => btn.style.background = '#2a4a6a');
+
+    const hiddenInput = document.createElement('input');
+    hiddenInput.type = 'file';
+    hiddenInput.accept = 'image/*';
+    hiddenInput.style.display = 'none';
+    btn.addEventListener('click', () => hiddenInput.click());
+
+    hiddenInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const r = await fetch('/api/upload/image', { method: 'POST', body: fd });
+            const d = await r.json();
+            if (d.success) {
+                characterMappings[idx].target_face_path = d.file_path || d.path;
+                // 替换预览为上传的图
+                preview.innerHTML = '';
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                img.style.cssText = 'width:64px; height:64px; object-fit:cover; border-radius:6px;';
+                preview.appendChild(img);
+                preview.style.border = '1px solid #4caf50';
+                infoName.textContent = '✓ ' + file.name;
+                infoName.style.color = '#4caf50';
+                btn.textContent = '🔄 重新上传';
+                addLog(`人物"${name}"替换图已上传，将走 DreamID-V 换人`, 'done');
+            } else {
+                alert('上传失败: ' + (d.error || '未知错误'));
+            }
+        } catch (err) { alert('上传出错: ' + err.message); }
+    });
+
+    uploadArea.appendChild(preview);
+    uploadArea.appendChild(info);
+    uploadArea.appendChild(btn);
+    uploadArea.appendChild(hiddenInput);
+    row.appendChild(uploadArea);
+
+    list.appendChild(row);
+}
+
+// 把保存的 target_face_path 回填到指定角色行的预览区
+function fillCharacterTargetPreview(idx, targetPath) {
+    const row = document.querySelector(`#characterList [data-idx="${idx}"]`);
+    if (!row) return;
+    const preview = row.querySelector('div > div[style*="替换图"]') || row.querySelectorAll('div')[0];
+    // preview 区是 uploadArea 内第一个 div（"替换图" 占位符）
+    const uploadArea = row.children[1]; // head 是 [0], uploadArea 是 [1]
+    if (!uploadArea) return;
+    const previewBox = uploadArea.querySelector('div'); // 第一个 div 是 preview
+    const infoBox = uploadArea.querySelectorAll('div')[1]; // 第二个 div 是 info
+    const btn = uploadArea.querySelector('button');
+    if (!previewBox || !infoBox || !btn) return;
+
+    const url = absPathToUrl(targetPath);
+    if (url) {
+        previewBox.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = url;
+        img.style.cssText = 'width:64px; height:64px; object-fit:cover; border-radius:6px;';
+        previewBox.appendChild(img);
+        previewBox.style.border = '1px solid #4caf50';
+    }
+    const infoName = infoBox.firstChild;
+    if (infoName) {
+        infoName.textContent = '✓ ' + basename(targetPath);
+        infoName.style.color = '#4caf50';
+    }
+    btn.textContent = '🔄 重新上传';
+}
+
+// ── 开始翻译 ──
+async function startTranslate() {
+    if (!videoFilePath) { alert('请上传视频'); return; }
+    // 前端预防：同一视频已有 RUNNING/PENDING 任务时不允许重复启动
+    await loadHistory();
+    const running = historyTasks.find(t =>
+        (t.status === 'RUNNING' || t.status === 'PENDING')
+        && (t.params || {}).video_path === videoFilePath
+    );
+    if (running) {
+        addLog(`已拦截重复启动：该视频有运行中任务 ${running.task_id}`, 'warn');
+        selectHistoryTask(running.task_id);
+        return;
+    }
+    const removeSubtitle = document.getElementById('removeSubtitle').checked;
+    const replaceFace = document.getElementById('replaceFace').checked;
+    let payloadMappings = [];
+    let payloadFaceImage = '';
+    if (replaceFace) {
+        payloadMappings = characterMappings.filter(m => m.target_face_path);
+        // 0 个人物或 0 个替换图：不拦截，直接提交（后端按"无可换脸"处理，跳过换人走 HeyGem）
+        if (payloadMappings.length === 1) {
+            payloadFaceImage = payloadMappings[0].target_face_path;
+        }
+    }
+    let voiceSource = 'original';
+    let uploadedRefAudio = '';
+    if (document.getElementById('voiceUploaded').checked) {
+        if (!voiceRefPath) { alert('已选上传音色，请先上传参考音频'); return; }
+        voiceSource = 'uploaded';
+        uploadedRefAudio = voiceRefPath;
+    }
+    const payload = {
+        video_path: videoFilePath,
+        source_lang: document.getElementById('sourceLang').value,
+        target_lang: document.getElementById('targetLang').value,
+        asr_engine: 'whisper',
+        translate_engine: 'gpt',
+        remove_subtitle: removeSubtitle,
+        target_face_image: payloadFaceImage,
+        character_mappings: payloadMappings,
+        voice_source: voiceSource,
+        uploaded_ref_audio: uploadedRefAudio,
+    };
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '⏳ 翻译中...';
+    setBadge('running');
+    initSteps(removeSubtitle, !replaceFace);
+    addLog(`音源: ${voiceSource}${voiceSource==='uploaded' ? '（上传参考）' : ''}`, 'running');
+    addLog(replaceFace
+        ? `将走 DreamID-V 换人（${payloadMappings.length} 个角色）→ HeyGem 对口型`
+        : '保持原视频人物，直接 HeyGem 对口型', 'running');
+    addLog('正在提交视频翻译任务...', 'running');
+
+    try {
+        const res = await fetch('/api/video-translate/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            currentTaskId = data.task_id;
+            document.getElementById('taskIdDisplay').textContent = 'Task: ' + currentTaskId;
+            addLog('任务已提交，taskId: ' + currentTaskId, 'running');
+            startPolling();
+            loadHistory();
+        } else if (res.status === 409) {
+            // 同视频已有运行中任务：禁止重复启动，自动切到该任务
+            const msg = data.detail || data.error || '该视频已有运行中任务';
+            addLog('已拦截重复启动: ' + msg, 'warn');
+            resetBtn();
+            await loadHistory();
+            const running = historyTasks.find(t =>
+                t.status === 'RUNNING' || t.status === 'PENDING'
+            );
+            if (running) {
+                addLog('已切换到运行中任务: ' + running.task_id, 'running');
+                selectHistoryTask(running.task_id);
+            }
+        } else {
+            addLog('提交失败: ' + (data.error || data.detail || ''), 'error');
+            resetBtn();
+        }
+    } catch (err) {
+        addLog('请求出错: ' + err.message, 'error');
+        resetBtn();
+    }
+}
+
+// ── 初始化步骤条（标记跳过的步骤）──
+function initSteps(removeSubtitle, swapSkipped) {
+    // Step 0 字幕消除
+    const step0 = document.getElementById('step0');
+    const label0 = document.getElementById('label0');
+    if (!removeSubtitle) {
+        step0.classList.add('skipped');
+        label0.classList.add('skipped');
+    } else {
+        step0.classList.remove('skipped');
+        label0.classList.remove('skipped');
+    }
+    // Step 3 换人（不换人模式、单人/多角色未上传图片均视为跳过）
+    const step3 = document.getElementById('step3');
+    const labels = document.querySelectorAll('#stepLabels span');
+    if (swapSkipped) {
+        step3.classList.add('skipped');
+        labels[3].classList.add('skipped');
+    } else {
+        step3.classList.remove('skipped');
+        labels[3].classList.remove('skipped');
+    }
+}
+
+// ── 轮询 ──
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+        if (!currentTaskId) return;
+        try {
+            const res = await fetch('/api/video-translate/status?task_id=' + currentTaskId);
+            const data = await res.json();
+            if (data.success) {
+                const s = data.status;
+                setStep(data.current_step || 0);
+                renderRunningHubTasks(data.runninghub_tasks || []);
+                if (data.subtitle_text) {
+                    document.getElementById('subtitleSection').style.display = 'block';
+                    document.getElementById('subtitleContent').textContent = data.subtitle_text;
+                }
+                if (s === 'SUCCESS') {
+                    addLog('翻译完成！', 'done');
+                    setBadge('completed');
+                    setStep(5);
+                    stopPolling();
+                    resetBtn();
+                    showResult(data.outputs);
+                    loadHistory();
+                } else if (s === 'FAILED') {
+                    addLog('翻译失败: ' + (data.error || ''), 'error');
+                    setBadge('failed');
+                    stopPolling();
+                    resetBtn();
+                    loadHistory();
+                } else if (data.message && data.message !== lastStatusMessage) {
+                    lastStatusMessage = data.message;
+                    addLog(data.message, 'running');
+                }
+            }
+        } catch (err) { addLog('轮询出错: ' + err.message, 'error'); }
+    }, 3000);
+}
+
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+async function loadHistory() {
+    try {
+        const res = await fetch('/api/video-translate/history');
+        const data = await res.json();
+        historyTasks = data.history || [];
+        renderHistory();
+    } catch (err) {
+        addLog('历史记录加载失败: ' + err.message, 'error');
+    }
+}
+
+function renderHistory() {
+    const list = document.getElementById('historyList');
+    if (!historyTasks.length) {
+        list.innerHTML = '<div class="history-empty">暂无历史任务</div>';
+        return;
+    }
+    list.innerHTML = '';
+    historyTasks.forEach(task => {
+        const item = document.createElement('div');
+        item.className = 'history-item' + (task.task_id === currentTaskId ? ' selected' : '');
+        const params = task.params || {};
+        const fileName = (params.video_path || '未知视频').replace(/\\/g, '/').split('/').pop();
+        const statusText = {SUCCESS:'已完成', FAILED:'失败', RUNNING:'运行中', PENDING:'等待中'}[task.status] || task.status;
+        item.innerHTML = `
+            <div class="history-main">
+                <div class="history-title">${escapeHtml(fileName)}</div>
+                <div class="history-meta">${escapeHtml(params.source_lang || '')} → ${escapeHtml(params.target_lang || '')} · ${escapeHtml(task.created_at || '')} · Step ${task.current_step ?? 0}</div>
+            </div>
+            <span class="history-status ${task.status}">${statusText}</span>
+            ${task.status === 'FAILED' ? '<div class="history-actions"><button class="resume-btn">从成功步骤继续</button></div>' : ''}
+        `;
+        item.addEventListener('click', () => selectHistoryTask(task.task_id));
+        const resumeBtn = item.querySelector('.resume-btn');
+        if (resumeBtn) {
+            resumeBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                resumeTask(task.task_id);
+            });
+        }
+        list.appendChild(item);
+    });
+}
+
+async function selectHistoryTask(taskId) {
+    try {
+        const res = await fetch('/api/video-translate/status?task_id=' + encodeURIComponent(taskId));
+        const task = await res.json();
+        if (!task.success) return;
+        currentTaskId = taskId;
+        lastStatusMessage = '';
+        document.getElementById('taskIdDisplay').textContent = 'Task: ' + taskId;
+        setBadge(task.status === 'SUCCESS' ? 'completed' : task.status === 'FAILED' ? 'failed' : 'running');
+        setStep(task.current_step || 0);
+        renderRunningHubTasks(task.runninghub_tasks || []);
+        if (task.message) addLog(task.message, task.status === 'FAILED' ? 'error' : task.status === 'SUCCESS' ? 'done' : 'running');
+        if (task.subtitle_text) {
+            document.getElementById('subtitleSection').style.display = 'block';
+            document.getElementById('subtitleContent').textContent = task.subtitle_text;
+        }
+        if (task.status === 'SUCCESS') showResult(task.outputs || []);
+        if (task.status === 'RUNNING' || task.status === 'PENDING') startPolling(); else stopPolling();
+        // 回填任务参数到表单（视频、语言、字幕、音源、换人模式+目标人脸图等）
+        restoreTaskParams(task.params || {});
+        renderHistory();
+    } catch (err) {
+        addLog('任务回显失败: ' + err.message, 'error');
+    }
+}
+
+// 把本地绝对路径转成可访问的 /uploads/... 或 /outputs/... URL
+function absPathToUrl(p) {
+    if (!p) return '';
+    const abs = String(p).replace(/\\/g, '/');
+    // 匹配 uploads/ 或 outputs/ 目录
+    const m = abs.match(/\/(uploads|outputs)\/(.+)/i) || abs.match(/[a-zA-Z]:\/(uploads|outputs)\/(.+)/i);
+    if (m) return `/${m[1]}/${m[2]}`;
+    return '';
+}
+
+function basename(p) {
+    if (!p) return '';
+    return String(p).replace(/\\/g, '/').split('/').pop();
+}
+
+// 把任务 params 回填到表单
+function restoreTaskParams(params) {
+    // ── 视频 ──
+    const videoPath = params.video_path || '';
+    videoFilePath = videoPath || null;
+    const videoCard = document.getElementById('videoCard');
+    const videoFn = document.getElementById('videoFilename');
+    const oldVid = videoCard.querySelector('.preview-video');
+    if (oldVid) oldVid.remove();
+    if (videoPath) {
+        videoCard.classList.add('has-file');
+        videoFn.textContent = basename(videoPath);
+        const url = absPathToUrl(videoPath);
+        if (url) {
+            const vid = document.createElement('video');
+            vid.className = 'preview-video';
+            vid.src = url;
+            vid.muted = true;
+            vid.controls = true;
+            videoCard.appendChild(vid);
+        }
+    } else {
+        videoCard.classList.remove('has-file');
+        videoFn.textContent = '';
+    }
+    // 重置人物识别状态
+    charactersDetected = false;
+    characterMappings = [];
+
+    // ── 语言 ──
+    if (params.source_lang) document.getElementById('sourceLang').value = params.source_lang;
+    if (params.target_lang) document.getElementById('targetLang').value = params.target_lang;
+
+    // ── 字幕消除 ──
+    document.getElementById('removeSubtitle').checked = !!params.remove_subtitle;
+
+    // ── 音源 ──
+    const voiceSource = params.voice_source || 'original';
+    const voiceUploaded = document.getElementById('voiceUploaded');
+    const voiceOriginal = document.getElementById('voiceOriginal');
+    if (voiceSource === 'uploaded') {
+        voiceUploaded.checked = true;
+        document.getElementById('voiceAudioSection').style.display = 'block';
+        const refPath = params.uploaded_ref_audio || '';
+        voiceRefPath = refPath || null;
+        document.getElementById('voiceRefPreview').textContent = refPath
+            ? `已上传：${basename(refPath)}（用作 IndexTTS 参考音色）` : '';
+    } else {
+        voiceOriginal.checked = true;
+        document.getElementById('voiceAudioSection').style.display = 'none';
+        voiceRefPath = null;
+        document.getElementById('voiceRefPreview').textContent = '';
+    }
+    document.getElementById('voiceOriginalRow').classList.toggle('active', voiceSource !== 'uploaded');
+    document.getElementById('voiceUploadedRow').classList.toggle('active', voiceSource === 'uploaded');
+
+    // ── 人物处理模式 ──
+    const mappings = params.character_mappings || [];
+    const targetFace = params.target_face_image || '';
+    const hasFaceSwap = !!targetFace || mappings.some(m => m.target_face_path);
+    if (hasFaceSwap) {
+        document.getElementById('replaceFace').checked = true;
+        document.getElementById('faceImageSection').style.display = 'block';
+        document.getElementById('keepOriginalRow').classList.remove('active');
+        document.getElementById('replaceFaceRow').classList.add('active');
+        // 恢复 characterMappings 并重新渲染列表
+        characterMappings = mappings.map((m, idx) => ({
+            source_face_path: m.source_face_path || '',
+            target_face_path: m.target_face_path || '',
+            name: m.name || `人物${idx + 1}`
+        }));
+        faceImagePath = targetFace;
+        // 用保存的 source_face_path 直接渲染每个角色行（无需重新调用 detectCharacters）
+        const list = document.getElementById('characterList');
+        list.innerHTML = '';
+        const status = document.getElementById('faceDetectStatus');
+        status.textContent = `✓ 已恢复 ${characterMappings.length} 个人物配置`;
+        status.style.color = '#4caf50';
+        characterMappings.forEach((m, idx) => {
+            renderCharacterRow(idx, {
+                name: m.name,
+                face_image_path: m.source_face_path,
+                target_face_path: m.target_face_path
+            });
+            // 把已保存的 target_face_path 回填到该行的预览
+            if (m.target_face_path) {
+                fillCharacterTargetPreview(idx, m.target_face_path);
+            }
+        });
+        // 显示目标人脸图预览（单人模式 faceImagePath）
+        const preview = document.getElementById('faceImagePreview');
+        if (targetFace) {
+            const url = absPathToUrl(targetFace);
+            if (url) {
+                preview.innerHTML = `<div style="font-size:12px;color:#888;margin-bottom:4px;">替换人脸图：${basename(targetFace)}</div>` +
+                    `<img src="${url}" style="max-width:120px;max-height:120px;border-radius:6px;border:1px solid #555;" onerror="this.alt='图片不可访问'">`;
+            }
+        }
+    } else {
+        document.getElementById('keepOriginal').checked = true;
+        document.getElementById('faceImageSection').style.display = 'none';
+        document.getElementById('keepOriginalRow').classList.add('active');
+        document.getElementById('replaceFaceRow').classList.remove('active');
+        faceImagePath = null;
+        const list = document.getElementById('characterList');
+        if (list) list.innerHTML = '';
+        const status = document.getElementById('faceDetectStatus');
+        if (status) status.textContent = '';
+        const preview = document.getElementById('faceImagePreview');
+        if (preview) preview.innerHTML = '';
+    }
+
+    checkReady();
+}
+
+async function resumeTask(taskId) {
+    try {
+        const res = await fetch('/api/video-translate/resume/' + encodeURIComponent(taskId), { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.detail || data.message || '继续失败');
+        currentTaskId = taskId;
+        lastStatusMessage = '';
+        document.getElementById('taskIdDisplay').textContent = 'Task: ' + taskId;
+        setBadge('running');
+        // 立即同步后端返回的 RUNNING 状态 + step，避免前端继续显示旧 FAILED
+        if (data.status === 'RUNNING') {
+            setStep(data.current_step || 0);
+        }
+        addLog(data.message || '已从成功步骤继续', 'running');
+        startPolling();
+        // 强制重新渲染历史，把所有"继续"按钮移除（避免重复点击）
+        loadHistory();
+    } catch (err) {
+        addLog('继续任务失败: ' + err.message, 'error');
+    }
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
+}
+
+function renderRunningHubTasks(tasks) {
+    const box = document.getElementById('runninghubTasks');
+    if (!box) return;
+    if (!tasks.length) {
+        box.textContent = 'RunningHub：暂无外部任务记录（历史任务无法补回提交 ID）';
+        return;
+    }
+    box.innerHTML = 'RunningHub 任务：' + tasks.map(t =>
+        `${escapeHtml(t.stage)} · App ${escapeHtml(t.app_id)} · taskId ${escapeHtml(t.task_id)}`
+    ).join('<br>');
+}
+
+function showResult(outputs) {
+    document.getElementById('videoPlaceholder').style.display = 'none';
+    document.getElementById('videoResultSection').style.display = 'block';
+    const linksDiv = document.getElementById('resultLinks');
+    linksDiv.innerHTML = '';
+    if (outputs && outputs.length > 0) {
+        const url = outputs[0].url || outputs[0].fileUrl || '';
+        document.getElementById('resultVideo').src = url;
+        const a = document.createElement('a');
+        a.className = 'result-link'; a.href = url; a.target = '_blank'; a.download = '';
+        a.textContent = '下载口型母版 (HeyGem)'; linksDiv.appendChild(a);
+        const localPath = outputs[0].path || '';
+        if (localPath) {
+            const edit = document.createElement('a');
+            edit.className = 'result-link';
+            edit.href = '/ai-edit?main_video=' + encodeURIComponent(localPath);
+            edit.textContent = '进入 HyperFrames 匹配素材';
+            linksDiv.appendChild(edit);
+        }
+    }
+}
+
+function setStep(n) {
+    for (let i = 0; i <= 5; i++) {
+        const el = document.getElementById('step' + i);
+        if (el.classList.contains('skipped')) continue;
+        el.className = 'step-item' + (i < n ? ' done' : i === n ? ' active' : '');
+    }
+}
+function addLog(msg, cls) {
+    const box = document.getElementById('logBox');
+    const div = document.createElement('div');
+    div.className = 'log-line ' + (cls || '');
+    div.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    box.appendChild(div); box.scrollTop = box.scrollHeight;
+}
+function setBadge(s) {
+    const b = document.getElementById('statusBadge');
+    b.className = 'status-badge';
+    if (s === 'running') { b.classList.add('badge-running'); b.textContent = '翻译中'; }
+    else if (s === 'completed') { b.classList.add('badge-completed'); b.textContent = '已完成'; }
+    else if (s === 'failed') { b.classList.add('badge-failed'); b.textContent = '失败'; }
+    else { b.classList.add('badge-idle'); b.textContent = '等待提交'; }
+}
+function resetBtn() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false; btn.classList.remove('running'); btn.textContent = '🌍 开始翻译';
+}
+
+// 初始化原人物模式
+checkReady();
+loadHistory().then(() => {
+    const running = historyTasks.find(task => task.status === 'RUNNING' || task.status === 'PENDING');
+    if (running) selectHistoryTask(running.task_id);
+});
+</script>
+</body>
+</html>

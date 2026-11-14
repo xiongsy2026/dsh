@@ -1,0 +1,10 @@
+{
+  "name": "AI STUDIO 洋子本地专业知识库",
+  "root": "C:\\dsh\\knowledge\\剧本知识库\\全球热门与获奖影视剧本知识库",
+  "database": "C:\\dsh\\knowledge\\剧本知识库\\全球热门与获奖影视剧本知识库\\99-索引与检索规则\\curated-screenplay-methods.sqlite",
+  "catalog": "C:\\dsh\\knowledge\\剧本知识库\\全球热门与获奖影视剧本知识库\\99-索引与检索规则\\全球剧本知识库索引.csv",
+  "festival_catalog": "C:\\dsh\\knowledge\\剧本知识库\\全球热门与获奖影视剧本知识库\\99-索引与检索规则\\电影节剧本标签索引.csv",
+  "indexed_documents": 5403,
+  "indexed_chunks": 128166,
+  "generated_at": "2026-10-02"
+}

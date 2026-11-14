@@ -11,15 +11,16 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 BUNDLE = Path.home() / ("AppData/Local/Programs/DSH Desktop/resources/app/node_modules"
                         "/@deepseek-ai/dsh-client-ui-conversation/lib/client.js")
-BACKUP = Path(r"C:\dsh\.dsh-ui-backup\dsh-client-ui-conversation.client.js.pre-hero-headline-20261004")
-PLUGIN = Path(r"C:\dsh\plugins\super-clone-ui\lib\client.js")
-REBUILD = Path(r"C:\dsh\_setup\rebuild_weeksir_desktop.py")
-PATCH = Path(r"C:\dsh\_setup\patch_hero_headline.py")
+BACKUP = Path(os.path.join(WS, r".dsh-ui-backup\dsh-client-ui-conversation.client.js.pre-hero-headline-20261004"))
+PLUGIN = Path(os.path.join(WS, r"plugins\super-clone-ui\lib\client.js"))
+REBUILD = Path(os.path.join(WS, r"_setup\rebuild_weeksir_desktop.py"))
+PATCH = Path(os.path.join(WS, r"_setup\patch_hero_headline.py"))
 NEW_ZH = '"hero.headline": "专注电商AI落地！",'
 NEW_EN = '"hero.headline": "Focus on e-commerce AI in production!",'
 OLD = ['"hero.headline": "探索未至之境",', '"hero.headline": "专注AI落地！",',

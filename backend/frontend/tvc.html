@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一键产品 TVC</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 440px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .field { margin-bottom: 16px; }
+        .field-label { font-size: .82em; color: #a5a5c8; margin-bottom: 6px; display: block; }
+        .field-label .hint { color: #666; font-size: .9em; margin-left: 4px; }
+        .text-field, .select-field { width: 100%; box-sizing: border-box; padding: 12px 14px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .95em; outline: none; font-family: inherit; transition: border .2s; }
+        .text-field:focus, .select-field:focus { border-color: #6c3ce0; }
+        textarea.text-field { resize: vertical; min-height: 70px; line-height: 1.5; }
+        .ratio-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+        .ratio-card { background: #1e1e36; border: 2px solid #3a3a5c; border-radius: 8px; padding: 10px 4px; cursor: pointer; text-align: center; transition: all .2s; }
+        .ratio-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .ratio-card.active { border-color: #6c3ce0; background: #2a1e4a; }
+        .ratio-card .label { font-size: .82em; color: #ccc; }
+        .ratio-card.active .label { color: #a5b4fc; }
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .upload-card .preview-img { max-width: 100%; max-height: 120px; border-radius: 8px; margin-top: 8px; object-fit: cover; }
+        .upload-card .clear-btn { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.7); color: #f87171; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: .85em; display: flex; align-items: center; justify-content: center; }
+        .thumbs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+        .thumb-item { position: relative; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden; background: #1e1e36; border: 1px solid #3a3a5c; }
+        .thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .thumb-remove { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.75); color: #f87171; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: .8em; display: flex; align-items: center; justify-content: center; line-height: 1; }
+        .thumb-remove:hover { background: rgba(239,68,68,.85); color: #fff; }
+        .thumb-name { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,.85)); color: #ddd; font-size: .62em; padding: 8px 4px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: .85em; color: #aaa; }
+        .checkbox-row input { accent-color: #6c3ce0; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; transition: all .2s; letter-spacing: 1px; }
+        .run-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+        .history-section { margin-top: 20px; }
+        .history-item { display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1a1a30;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s;border:1px solid transparent; }
+        .history-item:hover { border-color:#6c3ce0; }
+        .history-item .h-info { flex:1;min-width:0; }
+        .history-item .h-title { font-size:.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+        .history-item .h-meta { font-size:.7em;color:#666;margin-top:2px; }
+        .history-item .h-status { font-size:.7em;padding:2px 8px;border-radius:10px;white-space:nowrap; }
+        .h-status.completed { background:#065f46;color:#6ee7b7; }
+        .h-status.failed { background:#7f1d1d;color:#fca5a5; }
+        .h-status.running { background:#1e3a5f;color:#60a5fa; }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .empty-state { text-align: center; padding: 80px 20px; color: #555; }
+        .empty-state .emoji { font-size: 3em; margin-bottom: 12px; }
+        .empty-state .title { font-size: 1.1em; color: #aaa; margin-bottom: 6px; }
+        .empty-state .desc { font-size: .85em; color: #666; line-height: 1.6; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        .badge-review { background: #78350f; color: #fbbf24; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+        .steps-bar { display: flex; gap: 4px; margin-bottom: 8px; }
+        .step-item { flex: 1; height: 6px; border-radius: 3px; background: #2a2a44; transition: background .3s; }
+        .step-item.active { background: #3b82f6; }
+        .step-item.done { background: #22c55e; }
+        .step-labels { display: flex; gap: 4px; margin-bottom: 16px; font-size: .7em; color: #666; }
+        .step-labels span { flex: 1; text-align: center; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 220px; overflow-y: auto; line-height: 1.7; }
+        .log-line.running { color: #60a5fa; }
+        .log-line.done { color: #4ade80; }
+        .log-line.error { color: #f87171; }
+        .result-section { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .result-section h3 { margin-bottom: 16px; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }
+        .prompt-box { background: #0d0d1a; border: 1px solid #2a2a5c; border-radius: 10px; padding: 16px; font-size: .85em; line-height: 1.7; color: #c8c8e0; white-space: pre-wrap; max-height: 300px; overflow-y: auto; font-family: "Cascadia Code", "Fira Code", monospace; }
+        .storyboard-img { width: 100%; border-radius: 10px; margin-top: 8px; }
+        .video-player { width: 100%; border-radius: 10px; background: #000; max-height: 520px; }
+        .result-links { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .result-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: #1e1e36; color: #60a5fa; text-decoration: none; font-size: .9em; transition: background .2s; }
+        .result-link:hover { background: #2a2a5c; }
+        .review-card { background: linear-gradient(135deg, rgba(245,158,11,.08), rgba(239,68,68,.05)); border: 2px solid #f59e0b; border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+        .review-card h3 { color: #f59e0b; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+        .review-img { width: 100%; border-radius: 10px; border: 1px solid #2a2a5c; cursor: zoom-in; margin-bottom: 12px; }
+        .review-prompt { background: #0d0d1a; border: 1px solid #2a2a5c; border-radius: 10px; padding: 12px; font-size: .8em; line-height: 1.6; color: #c8c8e0; white-space: pre-wrap; max-height: 200px; overflow-y: auto; font-family: "Cascadia Code", "Fira Code", monospace; margin-bottom: 12px; }
+        .feedback-row { margin-bottom: 14px; }
+        .feedback-row label { display: block; font-size: .85em; color: #a5a5c8; margin-bottom: 6px; }
+        .feedback-input { width: 100%; box-sizing: border-box; padding: 10px 12px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .9em; font-family: inherit; outline: none; min-height: 70px; resize: vertical; line-height: 1.5; }
+        .feedback-input:focus { border-color: #f59e0b; }
+        .review-actions { display: flex; gap: 12px; justify-content: flex-end; border-top: 1px solid #2a2a5c; padding-top: 14px; }
+        .review-btn { border: none; border-radius: 8px; padding: 10px 24px; font-size: .95em; font-weight: 600; cursor: pointer; transition: all .2s; }
+        .review-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-reject { background: #ef4444; color: #fff; }
+        .btn-reject:hover:not(:disabled) { background: #dc2626; }
+        .btn-approve { background: #10b981; color: #fff; }
+        .btn-approve:hover:not(:disabled) { background: #059669; }
+        .btn-retry { background: #f59e0b; color: #1e1e36; }
+        .btn-retry:hover:not(:disabled) { background: #d97706; color: #fff; }
+        .retry-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+        .review-status { width: 100%; text-align: center; padding: 10px 0; font-size: .9em; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>PRODUCT TVC</h1>
+        <span class="tag">一键产品 TVC 工作流</span>
+    </div>
+</div>
+<div class="main">
+    <div class="input-panel">
+        <div class="section-title"><span class="dot dot-required"></span> 产品名（必填）</div>
+        <input class="text-field" id="productName" type="text" placeholder="如：极光降噪耳机">
+
+        <div class="section-title"><span class="dot dot-optional"></span> 目标人群</div>
+        <input class="text-field" id="audience" type="text" placeholder="如：25-35岁都市白领">
+
+        <div class="section-title"><span class="dot dot-optional"></span> 广告主题</div>
+        <input class="text-field" id="adTheme" type="text" placeholder="如：静享专注，听见纯粹">
+
+        <div class="section-title"><span class="dot dot-optional"></span> 产品卖点（多条用逗号分隔，最多取前4条）</div>
+        <textarea class="text-field" id="sellingPoints" placeholder="如：主动降噪40dB,续航30小时,蓝牙5.3"></textarea>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 场景要求</div>
+        <textarea class="text-field" id="sceneRequirement" placeholder="如：城市夜景办公室、雨天咖啡厅"></textarea>
+
+        <div class="section-title"><span class="dot dot-required"></span> 画面比例</div>
+        <div class="ratio-grid" id="ratioGrid">
+            <div class="ratio-card active" data-ratio="16:9"><div class="label">16:9 横版</div></div>
+            <div class="ratio-card" data-ratio="9:16"><div class="label">9:16 竖版</div></div>
+            <div class="ratio-card" data-ratio="1:1"><div class="label">1:1 方形</div></div>
+            <div class="ratio-card" data-ratio="4:3"><div class="label">4:3 传统</div></div>
+            <div class="ratio-card" data-ratio="3:4"><div class="label">3:4 竖版</div></div>
+            <div class="ratio-card" data-ratio="21:9"><div class="label">21:9 超宽</div></div>
+        </div>
+
+        <div class="section-title"><span class="dot dot-required"></span> 视频模型 & 时长</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+            <select id="modelSelect" class="text-field" style="flex:1;min-width:180px;padding:8px 10px;">
+                <option value="seedance-2.0-renlian">Seedance 2.0（人脸锁定，≤15s）</option>
+                <option value="seedance-2.5">Seedance 2.5（支持 30s，画质升级）</option>
+            </select>
+            <select id="durationSelect" class="text-field" style="flex:1;min-width:120px;padding:8px 10px;">
+                <option value="5s">5 秒</option>
+                <option value="10s">10 秒</option>
+                <option value="15s" selected>15 秒</option>
+                <option value="20s">20 秒</option>
+                <option value="25s">25 秒</option>
+                <option value="30s">30 秒</option>
+            </select>
+        </div>
+
+        <script>
+        // 模型与时长联动：Seedance2.0 只支持 ≤15s；选 2.5 才解锁 20s+
+        (function() {
+            const modelSel = document.getElementById('modelSelect');
+            const durSel = document.getElementById('durationSelect');
+            function refreshDurationOptions() {
+                const isV25 = modelSel.value === 'seedance-2.5';
+                Array.from(durSel.options).forEach(opt => {
+                    const v = parseInt(opt.value);
+                    const allowed = isV25 || v <= 15;
+                    opt.disabled = !allowed;
+                    opt.style.color = allowed ? '' : '#6a6a86';
+                    if (!allowed && durSel.value === opt.value) {
+                        durSel.value = '15s';
+                    }
+                });
+            }
+            modelSel.addEventListener('change', refreshDurationOptions);
+            refreshDurationOptions();
+        })();
+        </script>
+
+
+        <div class="section-title"><span class="dot dot-required"></span> 产品图（必传，可多张：不同角度/细节，最多 6 张）</div>
+        <div class="upload-card" id="productUpload" data-type="product">
+            <div class="icon">📦</div>
+            <div class="label">点击上传产品图（可多选，可重复追加）</div>
+            <input type="file" accept="image/*" multiple>
+            <div class="filename"></div>
+        </div>
+        <div class="thumbs-grid" id="productThumbs"></div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 服装图（服装类必传）</div>
+        <div class="upload-card" id="clothingUpload" data-type="clothing">
+            <div class="icon">👗</div>
+            <div class="label">点击上传服装图</div>
+            <input type="file" accept="image/*">
+            <div class="filename"></div>
+        </div>
+
+        <div class="checkbox-row">
+            <input type="checkbox" id="headlessChk">
+            <label for="headlessChk">无头模式运行 RPA（不弹浏览器窗口）</label>
+        </div>
+
+        <button class="run-btn" id="runBtn" disabled>🚀 一键生成 TVC</button>
+
+        <div class="history-section">
+            <div class="section-title">📋 历史记录</div>
+            <div id="historyList" style="max-height:300px;overflow-y:auto;">
+                <div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>
+            </div>
+        </div>
+    </div>
+    <div class="output-panel" id="outputPanel">
+        <div class="empty-state" id="emptyState">
+            <div class="emoji">🎬</div>
+            <div class="title">一键产品 TVC 流水线</div>
+            <div class="desc">Step1 GPT5.5 生成分镜提示词 → Step2 image2 生成 4K 故事板 → Step3 SD2 生成 15 秒成片</div>
+        </div>
+    </div>
+</div>
+
+<script>
+const state = {
+    productImages: [],   // [{path, url, name}]
+    clothingImage: '',
+    aspectRatio: '16:9',
+    currentTaskId: null,
+    pollTimer: null,
+};
+
+// 比例选择
+document.querySelectorAll('.ratio-card').forEach(card => {
+    card.addEventListener('click', () => {
+        document.querySelectorAll('.ratio-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        state.aspectRatio = card.dataset.ratio;
+    });
+});
+
+// 上传图片
+function bindUpload(boxId, type) {
+    const box = document.getElementById(boxId);
+    const input = box.querySelector('input[type="file"]');
+    box.addEventListener('click', (e) => {
+        if (e.target.classList.contains('clear-btn')) return;
+        input.click();
+    });
+    input.addEventListener('change', async () => {
+        const file = input.files[0];
+        if (!file) return;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const r = await fetch('/api/tvc/upload', { method: 'POST', body: fd });
+            const d = await r.json();
+            if (d.success) {
+                if (type === 'product') {
+                    // 兼容：单图卡片走多图数组
+                    state.productImages = [{ path: d.path, url: d.url, name: file.name }];
+                    renderProductThumbs();
+                } else {
+                    state.clothingImage = d.path;
+                    renderUploadBox(box, file.name, d.url);
+                }
+                checkRunEnabled();
+            }
+        } catch (e) { alert('上传失败: ' + e.message); }
+        input.value = '';
+    });
+}
+
+// 产品图多选上传（可重复追加，最多 6 张）
+const MAX_PRODUCT_IMAGES = 6;
+function bindMultiUpload(boxId) {
+    const box = document.getElementById(boxId);
+    const input = box.querySelector('input[type="file"]');
+    box.addEventListener('click', (e) => {
+        if (e.target.classList.contains('thumb-remove') || e.target.closest('.thumbs-grid')) return;
+        input.click();
+    });
+    input.addEventListener('change', async () => {
+        const files = Array.from(input.files || []);
+        if (!files.length) return;
+        if (state.productImages.length + files.length > MAX_PRODUCT_IMAGES) {
+            alert(`产品图最多 ${MAX_PRODUCT_IMAGES} 张（当前已有 ${state.productImages.length} 张）`);
+        }
+        const room = Math.max(0, MAX_PRODUCT_IMAGES - state.productImages.length);
+        for (const file of files.slice(0, room)) {
+            const fd = new FormData();
+            fd.append('file', file);
+            try {
+                const r = await fetch('/api/tvc/upload', { method: 'POST', body: fd });
+                const d = await r.json();
+                if (d.success) {
+                    state.productImages.push({ path: d.path, url: d.url, name: file.name });
+                }
+            } catch (e) { alert('上传失败: ' + e.message); }
+        }
+        renderProductThumbs();
+        checkRunEnabled();
+        input.value = '';
+    });
+}
+
+// 渲染产品图缩略图网格
+function renderProductThumbs() {
+    const grid = document.getElementById('productThumbs');
+    if (!grid) return;
+    grid.innerHTML = state.productImages.map((img, i) => `
+        <div class="thumb-item">
+            <img src="${img.url}" alt="${escapeHtml(img.name)}" title="${escapeHtml(img.name)}">
+            <button class="thumb-remove" data-idx="${i}" title="移除">×</button>
+            <div class="thumb-name">${escapeHtml(img.name)}</div>
+        </div>
+    `).join('');
+    grid.querySelectorAll('.thumb-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt(btn.dataset.idx, 10);
+            state.productImages.splice(idx, 1);
+            renderProductThumbs();
+            checkRunEnabled();
+        });
+    });
+    const box = document.getElementById('productUpload');
+    if (box) box.classList.toggle('has-file', state.productImages.length > 0);
+    const fn = box ? box.querySelector('.filename') : null;
+    if (fn) fn.textContent = state.productImages.length > 0 ? `已选 ${state.productImages.length} 张` : '';
+}
+bindMultiUpload('productUpload');
+bindUpload('clothingUpload', 'clothing');
+
+// 服装图（单张）渲染到上传卡片
+function renderUploadBox(box, name, url) {
+    box.classList.add('has-file');
+    box.querySelector('.filename').textContent = name;
+    box.querySelectorAll('img.preview-img, .clear-btn').forEach(el => el.remove());
+    const img = document.createElement('img');
+    img.className = 'preview-img';
+    img.src = url;
+    box.appendChild(img);
+    const btn = document.createElement('button');
+    btn.className = 'clear-btn';
+    btn.textContent = '×';
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        state.clothingImage = '';
+        box.classList.remove('has-file');
+        box.querySelector('.filename').textContent = '';
+        box.querySelectorAll('img.preview-img, .clear-btn').forEach(el => el.remove());
+        checkRunEnabled();
+    };
+    box.appendChild(btn);
+}
+
+function checkRunEnabled() {
+    const hasProduct = state.productImages.length > 0;
+    const hasName = !!document.getElementById('productName').value.trim();
+    document.getElementById('runBtn').disabled = !(hasProduct && hasName);
+}
+document.getElementById('productName').addEventListener('input', checkRunEnabled);
+
+// 启动流水线
+document.getElementById('runBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '⏳ 生成中...';
+    try {
+        const r = await fetch('/api/tvc/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                product_name: document.getElementById('productName').value.trim(),
+                audience: document.getElementById('audience').value.trim(),
+                ad_theme: document.getElementById('adTheme').value.trim(),
+                scene_requirement: document.getElementById('sceneRequirement').value.trim(),
+                aspect_ratio: state.aspectRatio,
+                selling_points: document.getElementById('sellingPoints').value.trim(),
+                product_image: '',
+                product_images: state.productImages.map(i => i.path),
+                clothing_image: state.clothingImage,
+                headless: document.getElementById('headlessChk').checked,
+                duration: document.getElementById('durationSelect').value,
+                model_value: document.getElementById('modelSelect').value,
+            })
+        });
+        const d = await r.json();
+        if (d.success) {
+            state.currentTaskId = d.task_id;
+            renderProgressUI();
+            startPolling(d.task_id);
+        } else {
+            alert('启动失败: ' + (d.error || '未知错误'));
+            resetBtn();
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+        resetBtn();
+    }
+});
+
+function resetBtn() {
+    const btn = document.getElementById('runBtn');
+    btn.disabled = false;
+    btn.classList.remove('running');
+    btn.textContent = '🚀 一键生成 TVC';
+}
+
+function renderProgressUI() {
+    const panel = document.getElementById('outputPanel');
+    const emptyState = document.getElementById('emptyState');
+    if (emptyState) emptyState.style.display = 'none';
+    if (!panel) return;
+    panel.innerHTML = `
+        <div class="status-panel">
+            <div class="status-header">
+                <span>工作流状态</span>
+                <span class="status-badge badge-running" id="statusBadge">运行中</span>
+            </div>
+            <div class="steps-bar">
+                <div class="step-item" id="step1"></div>
+                <div class="step-item" id="step2"></div>
+                <div class="step-item" id="step3"></div>
+            </div>
+            <div class="step-labels">
+                <span>GPT5.5 提示词</span>
+                <span>image2 故事板</span>
+                <span>SD2 成片</span>
+            </div>
+            <div class="log-box" id="logBox"><div class="log-line">等待启动...</div></div>
+        </div>
+        <div id="resultArea"></div>
+    `;
+}
+
+function startPolling(taskId) {
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    state.pollTimer = setInterval(async () => {
+        try {
+            const r = await fetch(`/api/tvc/status/${taskId}`);
+            const t = await r.json();
+            if (t.status === 'not_found') {
+                clearInterval(state.pollTimer);
+                state.pollTimer = null;
+                alert('任务不存在');
+                resetBtn();
+                return;
+            }
+            updateUI(t);
+            if (t.status === 'awaiting_review') {
+                clearInterval(state.pollTimer);
+                state.pollTimer = null;
+                await fetchAndShowReview(taskId);
+            } else if (t.status === 'completed' || t.status === 'failed') {
+                clearInterval(state.pollTimer);
+                state.pollTimer = null;
+                resetBtn();
+                loadHistory();
+            }
+        } catch (e) {}
+    }, 2500);
+}
+
+async function fetchAndShowReview(taskId) {
+    try {
+        const r = await fetch(`/api/tvc/review/${taskId}`);
+        const d = await r.json();
+        if (d.status !== 'awaiting_review') {
+            updateUI(d);
+            if (d.status === 'running') startPolling(taskId);
+            return;
+        }
+        renderReviewCard(d);
+    } catch (e) { console.error('拉取审核内容失败', e); }
+}
+
+function renderReviewCard(data) {
+    const review = data.review || {};
+    const sbPath = review.storyboard_path;
+    const prompt = review.canvas_prompt || '';
+    const sbUrl = sbPath ? `/api/tvc/file?path=${encodeURIComponent(sbPath)}` : '';
+    const resultArea = document.getElementById('resultArea');
+    if (!resultArea) return;
+    resultArea.dataset.rendered = '';  // 清除缓存标记，强制重渲染
+    resultArea.innerHTML = `
+        <div class="review-card">
+            <h3>🔍 故事板待审核</h3>
+            ${sbUrl ? `<img class="review-img" src="${sbUrl}" onclick="window.open(this.src,'_blank')" alt="故事板">` : '<div style="color:#888;text-align:center;padding:20px;">无故事板图片</div>'}
+            <div style="font-size:.82em;color:#888;margin-bottom:6px;">画布提示词：</div>
+            <div class="review-prompt">${escapeHtml(prompt)}</div>
+            <div class="feedback-row">
+                <label>修改意见（驳回时填写，将注入到 image2 重新生成故事板）：</label>
+                <textarea class="feedback-input" id="feedbackInput" placeholder="如：第3格产品图变形，请重新绘制；第7格光线太暗，改为日光场景..."></textarea>
+            </div>
+            <div class="review-actions" id="reviewActions">
+                <button class="review-btn btn-reject" id="rejectBtn" onclick="submitReject()">↩ 不满意，重新生成</button>
+                <button class="review-btn btn-approve" id="approveBtn" onclick="submitApprove()">✓ 满意，执行下一步</button>
+            </div>
+        </div>
+    `;
+    resultArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function submitApprove() {
+    if (!state.currentTaskId) return;
+    const btn = document.getElementById('approveBtn');
+    btn.disabled = true; btn.textContent = '提交中...';
+    try {
+        const r = await fetch(`/api/tvc/approve/${state.currentTaskId}`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            const actions = document.getElementById('reviewActions');
+            if (actions) actions.innerHTML = '<div class="review-status" style="color:#10b981;">✓ 已确认，正在执行 Step3 视频生成...</div>';
+            const badge = document.getElementById('statusBadge');
+            if (badge) { badge.className = 'status-badge badge-running'; badge.textContent = 'Step3 生成中'; }
+            startPolling(state.currentTaskId);
+        } else {
+            alert('操作失败: ' + (d.detail || '未知错误'));
+            btn.disabled = false; btn.textContent = '✓ 满意，执行下一步';
+        }
+    } catch (e) {
+        alert('网络错误: ' + e.message);
+        btn.disabled = false; btn.textContent = '✓ 满意，执行下一步';
+    }
+}
+
+async function submitReject() {
+    if (!state.currentTaskId) return;
+    const btn = document.getElementById('rejectBtn');
+    const feedback = (document.getElementById('feedbackInput') || {}).value || '';
+    btn.disabled = true; btn.textContent = '重做中...';
+    try {
+        const r = await fetch(`/api/tvc/reject/${state.currentTaskId}?feedback=${encodeURIComponent(feedback)}`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            // 隐藏旧故事板，等新故事板生成后再展示
+            const resultArea = document.getElementById('resultArea');
+            if (resultArea) {
+                resultArea.dataset.rendered = '';  // 清除缓存标记，强制重渲染
+                resultArea.innerHTML = `
+                    <div class="review-card">
+                        <h3>↻ 故事板重做中</h3>
+                        <div style="color:#ef4444;text-align:center;padding:30px 10px;font-size:.95em;">
+                            已提交修改意见，正在携带意见重新生成故事板...<br>
+                            <span style="color:#888;font-size:.85em;">新故事板生成完成后会自动展示</span>
+                        </div>
+                    </div>
+                `;
+            }
+            const badge = document.getElementById('statusBadge');
+            if (badge) { badge.className = 'status-badge badge-running'; badge.textContent = '重做故事板'; }
+            startPolling(state.currentTaskId);
+        } else {
+            alert('操作失败: ' + (d.detail || '未知错误'));
+            btn.disabled = false; btn.textContent = '↩ 不满意，重新生成';
+        }
+    } catch (e) {
+        alert('网络错误: ' + e.message);
+        btn.disabled = false; btn.textContent = '↩ 不满意，重新生成';
+    }
+}
+
+async function submitRetry() {
+    if (!state.currentTaskId) return;
+    const btn = document.getElementById('retryBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '重试中...'; }
+    try {
+        const r = await fetch(`/api/tvc/retry/${state.currentTaskId}`, { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            const badge = document.getElementById('statusBadge');
+            if (badge) { badge.className = 'status-badge badge-running'; badge.textContent = '重试中'; }
+            startPolling(state.currentTaskId);
+        } else {
+            alert('重试失败: ' + (d.detail || '未知错误'));
+            if (btn) { btn.disabled = false; btn.textContent = '↻ 重试'; }
+        }
+    } catch (e) {
+        alert('网络错误: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '↻ 重试'; }
+    }
+}
+
+function updateUI(task) {
+    // 状态徽章
+    const badge = document.getElementById('statusBadge');
+    if (badge) {
+        let cls = 'badge-running', txt = '运行中';
+        if (task.status === 'completed') { cls = 'badge-completed'; txt = '已完成'; }
+        else if (task.status === 'failed') { cls = 'badge-failed'; txt = '失败'; }
+        else if (task.status === 'awaiting_review') { cls = 'badge-review'; txt = '待审核'; }
+        badge.className = 'status-badge ' + cls;
+        badge.textContent = txt;
+    }
+    // 步骤条
+    const p = task.progress || 0;
+    setStepState('step1', p >= 30 ? 'done' : (p > 0 ? 'active' : ''));
+    setStepState('step2', p >= 60 ? 'done' : (p >= 35 ? 'active' : ''));
+    setStepState('step3', p >= 100 ? 'done' : (p >= 65 ? 'active' : ''));
+    // 日志
+    const logBox = document.getElementById('logBox');
+    if (logBox && task.logs) {
+        logBox.innerHTML = task.logs.map(l => {
+            let cls = 'log-line';
+            if (l.includes('✓') || l.includes('完成')) cls += ' done';
+            else if (l.includes('✗') || l.includes('失败') || l.includes('错误')) cls += ' error';
+            else if (l.includes('→') || l.includes('...')) cls += ' running';
+            return `<div class="${cls}">${escapeHtml(l)}</div>`;
+        }).join('');
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+    // 结果区（awaiting_review 由 renderReviewCard 接管，不覆盖；completed/failed 才渲染产物）
+    const resultArea = document.getElementById('resultArea');
+    if (resultArea && task.outputs && task.status !== 'awaiting_review') {
+        const renderKey = task.status + '_' + (task.progress || 0) + '_' + (task.outputs.video_path || '');
+        if (resultArea.dataset.rendered === renderKey) return;  // 避免重复渲染覆盖
+        let html = '';
+        if (task.outputs.canvas_prompt) {
+            html += `
+                <div class="result-section">
+                    <h3>📝 Step1 · 画布提示词</h3>
+                    <div class="prompt-box">${escapeHtml(task.outputs.canvas_prompt)}</div>
+                </div>`;
+        }
+        if (task.outputs.storyboard_path) {
+            html += `
+                <div class="result-section">
+                    <h3>🖼️ Step2 · 4K 故事板</h3>
+                    <img class="storyboard-img" src="/api/tvc/file?path=${encodeURIComponent(task.outputs.storyboard_path)}" alt="故事板">
+                </div>`;
+        }
+        if (task.outputs.video_path || task.outputs.video_url) {
+            const vUrl = task.outputs.video_path ? `/api/tvc/file?path=${encodeURIComponent(task.outputs.video_path)}` : task.outputs.video_url;
+            html += `
+                <div class="result-section">
+                    <h3>🎬 Step3 · 成片</h3>
+                    <video class="video-player" controls src="${vUrl}" preload="metadata"></video>
+                    <div class="result-links">
+                        <a class="result-link" href="${vUrl}" target="_blank">⬇ 下载视频</a>
+                    </div>
+                </div>`;
+        }
+        if (task.status === 'failed') {
+            const phase = task.phase || '';
+            const canRetry = ['phase_1', 'redo_phase_1', 'resume_phase_1', 'phase_2'].includes(phase);
+            html += `<div class="result-section">
+                <h3 style="color:#f87171;">❌ 失败</h3>
+                <div class="prompt-box" style="color:#f87171;">${escapeHtml(task.error || task.step)}</div>
+                ${canRetry ? `<div class="retry-row"><button class="review-btn btn-retry" id="retryBtn" onclick="submitRetry()">↻ 重试（从 ${escapeHtml(phase)} 恢复）</button></div>` : ''}
+            </div>`;
+        }
+        if (html) {
+            resultArea.innerHTML = html;
+            resultArea.dataset.rendered = renderKey;
+        }
+    }
+}
+
+function setStepState(id, cls) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('active', 'done');
+    if (cls) el.classList.add(cls);
+}
+
+function escapeHtml(t) {
+    return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// 历史记录
+async function loadHistory() {
+    try {
+        const r = await fetch('/api/tvc/history');
+        const d = await r.json();
+        const list = document.getElementById('historyList');
+        if (!list) return;
+        if (!d.history || d.history.length === 0) {
+            list.innerHTML = '<div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>';
+            return;
+        }
+        list.innerHTML = d.history.map(h => `
+            <div class="history-item" onclick="loadTask('${h.task_id}')">
+                <div class="h-info">
+                    <div class="h-title">${escapeHtml(h.product_name)} · ${escapeHtml(h.ad_theme || '-')}</div>
+                    <div class="h-meta">${h.aspect_ratio} · ${new Date((h.created_at||0)*1000).toLocaleString()}</div>
+                </div>
+                <span class="h-status ${h.status}">${h.status === 'completed' ? '已完成' : h.status === 'failed' ? '失败' : h.status === 'awaiting_review' ? '待审核' : '运行中'}</span>
+            </div>
+        `).join('');
+    } catch (e) {}
+}
+
+async function loadTask(taskId) {
+    try {
+        const r = await fetch(`/api/tvc/status/${taskId}`);
+        const t = await r.json();
+        if (t.status === 'not_found') { alert('任务不存在'); return; }
+        state.currentTaskId = taskId;
+        renderProgressUI();
+        // 回填输入字段（产品名、人群、主题、卖点、场景、比例、产品图、服装图）
+        const p = t.params || {};
+        if (p.product_name) document.getElementById('productName').value = p.product_name;
+        if (p.audience != null) document.getElementById('audience').value = p.audience;
+        if (p.ad_theme != null) document.getElementById('adTheme').value = p.ad_theme;
+        if (p.selling_points != null) document.getElementById('sellingPoints').value = p.selling_points;
+        if (p.scene_requirement != null) document.getElementById('sceneRequirement').value = p.scene_requirement;
+        // 画面比例
+        if (p.aspect_ratio) {
+            state.aspectRatio = p.aspect_ratio;
+            document.querySelectorAll('.ratio-card').forEach(c => {
+                c.classList.toggle('active', c.dataset.ratio === p.aspect_ratio);
+            });
+        }
+        // 模型 & 时长回显
+        if (p.model_value) {
+            const ms = document.getElementById('modelSelect');
+            if (ms) {
+                ms.value = p.model_value;
+                ms.dispatchEvent(new Event('change'));
+            }
+        }
+        if (p.duration) {
+            const ds = document.getElementById('durationSelect');
+            if (ds) ds.value = p.duration;
+        }
+        // 产品图（多张）回显：优先 product_image_paths，回退旧字段 product_image_path
+        let prodPaths = [];
+        if (Array.isArray(p.product_image_paths) && p.product_image_paths.length) {
+            prodPaths = p.product_image_paths.slice();
+        } else if (p.product_image_path) {
+            prodPaths = [p.product_image_path];
+        }
+        state.productImages = prodPaths.map(path => ({
+            path,
+            url: '/api/tvc/file?path=' + encodeURIComponent(path),
+            name: path.split(/[\\\/]/).pop() || 'product',
+        }));
+        renderProductThumbs();
+        // 服装图 / 服装图回显
+        if (p.clothing_image_path) {
+            state.clothingImage = p.clothing_image_path;
+            renderImagePreview('clothingUpload', p.clothing_image_path, '/api/tvc/file?path=' + encodeURIComponent(p.clothing_image_path));
+        }
+        checkRunEnabled();
+        updateUI(t);
+        if (t.status === 'running') startPolling(taskId);
+        else if (t.status === 'awaiting_review') fetchAndShowReview(taskId);
+        else resetBtn();
+    } catch (e) { alert('加载失败: ' + e.message); }
+}
+
+// 渲染图片预览到上传卡片（历史回显用，仅服装单图）
+function renderImagePreview(boxId, path, url) {
+    const box = document.getElementById(boxId);
+    if (!box) return;
+    // 清除旧预览
+    box.querySelectorAll('img.preview-img, .clear-btn').forEach(el => el.remove());
+    const img = document.createElement('img');
+    img.className = 'preview-img';
+    img.src = url;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;';
+    box.appendChild(img);
+    // 添加清除按钮
+    const btn = document.createElement('button');
+    btn.className = 'clear-btn';
+    btn.textContent = '×';
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        box.querySelectorAll('img.preview-img, .clear-btn').forEach(el => el.remove());
+        state.clothingImage = '';
+        checkRunEnabled();
+    };
+    box.appendChild(btn);
+}
+
+loadHistory();
+</script>
+</body>
+</html>

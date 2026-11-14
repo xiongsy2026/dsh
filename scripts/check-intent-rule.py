@@ -11,29 +11,45 @@ import os
 import shutil
 import sys
 
-SCRATCH = r"C:\dsh\_scratch_b"
+SCRATCH = os.path.join(WS, r"_scratch_b")
 os.makedirs(SCRATCH, exist_ok=True)
 os.environ["HYPIT_INTENT_MARK"] = os.path.join(SCRATCH, "intent_selftest.json")
 os.environ["HYPIT_STUDIO_MARK"] = os.path.join(SCRATCH, "mark_selftest.json")
 os.environ["HYPIT_WORKSPACE_INTENT"] = os.path.join(SCRATCH, "ws_intent_selftest.json")
 os.environ["HYPIT_NO_AUTOSTART"] = "1"          # 自测绝不真起 studio 进程
 FAKE_RUNS = os.path.join(SCRATCH, "intent_runs")
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import hypit_bridge as hb   # noqa: E402
 
-# 全离线：不撞 5179/8765，不碰线上登记
+# 全离线：不撞 5179/8765/8090，不碰线上登记
 hb._probe_studio = lambda p: {"up": True, "tasks": 0, "running": 0, "artifacts": 0}
 hb._studio_served_path = lambda p: ""
 hb._probe_omni = lambda: True
+hb._probe_reverse = lambda: True
 hb.VIDEO_RUNS = FAKE_RUNS
 
 fails, total = [], [0]
 
 
+def _safe(s):
+    """GBK 控制台上「⇒/🔴」会把 print 打崩=闸跑到一半没结果（最坏的假安静）。
+    只按【输出流编码】做 errors=replace；绝不 sys.stdout.reconfigure（造"零输出+exit 0"的静默假绿），
+    也别裸 s.encode()（默认 utf-8 永不失败=没兜住）。"""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        s.encode(enc)
+        return s
+    except (UnicodeEncodeError, LookupError):
+        return s.encode(enc, "replace").decode(enc, "replace")
+
+
 def check(name, got, want):
     total[0] += 1
     ok = got == want
-    print(("PASS " if ok else "FAIL ") + name, "=>", json.dumps(got, ensure_ascii=False)[:120])
+    print(_safe(("PASS " if ok else "FAIL ") + name + " => " + json.dumps(got, ensure_ascii=False)[:120]))
     if not ok:
         fails.append((name, got, want))
 
@@ -144,19 +160,22 @@ check("8b 一直撞锁 ⇒ 明确回 error，不假装成功", ["error" in r2, h
 #    绝不许"没有对应台就随便弹一个"，也绝不许同时弹两个。
 MATRIX = [
     ("omni", ["流水线"]), ("hypit", ["Studio"]),
+    # 第 6 档（2026-10-05）：登记 prompt-reverse 只许点亮反推台，omni/hypit 一律不挂。
+    ("prompt-reverse", ["反推台"]),
     ("super-clone", []), ("product-video", []), ("film", []),
     ("seedance-prompt-library", []), ("ai-film-router", []), ("short-drama", []),
 ]
 for sk, want in MATRIX:
     hb.set_intent(S, sk, "矩阵")
     got = [("流水线" if hb.omni_status(S)["intent"] else None),
-           ("Studio" if hb.studio_status(S)["intent"] else None)]
+           ("Studio" if hb.studio_status(S)["intent"] else None),
+           ("反推台" if hb.prompt_reverse_status(S)["intent"] else None)]
     check("7 [%s] 只弹 %s（排他 + 没台就不弹）" % (sk, want or "零台"),
           [x for x in got if x], want)
 # 换 skill = 覆盖：连续切换不能留下两个台
-for sk in ("omni", "hypit", "film", "omni"):
+for sk in ("omni", "hypit", "film", "prompt-reverse", "omni"):
     hb.set_intent(S, sk, "切换")
-    live = sum(1 for f in (hb.omni_status, hb.studio_status) if f(S)["intent"])
+    live = sum(1 for f in (hb.omni_status, hb.studio_status, hb.prompt_reverse_status) if f(S)["intent"])
     check("7x 切到 %s 后台数正好 1 或 0（不漏旧的）" % sk, live if sk != "film" else 0,
           1 if sk != "film" else 0)
 

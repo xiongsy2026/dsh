@@ -28,6 +28,10 @@ __pycache__/
 *.pyc
 *.log
 
+# 桌宠悬浮窗（2026-11-05 已搁置在 scratch/）：随包读的图 + 单实例牌子
+scratch/pet-floating-shelved/assets/
+scratch/pet-floating-shelved/.pet.pid
+
 # 机密/二进制：浏览器登录态、cookies、wheel、探针 dump（绝不进 git）
 *.db
 *.whl
@@ -47,3 +51,95 @@ hypit_runs/*
 hypit_runs/**/node_modules/
 # 任何落盘的密钥临时文件（auth login --from 用管道，不留文件）
 .secret*
+*key*.txt
+scratch/*keys*.txt
+scratch/*.key.txt
+_probe_*.json
+scratch/
+
+# 根目录探针残留（一次性调试脚本/音频/中间 json，绝不入库）
+/_*.py
+/_*.cjs
+/_*.txt
+/_*.json
+/_*.html
+/.tmp*
+/[0-9]*
+/[0-9]*.[0-9]*
+*.wav
+*.mp3
+
+# 根目录一次性调试目录与会话 dump
+/_*/
+/_session_*.jsonl
+afs-work/
+awesome-seedance/
+cloud_cache/
+
+# 账号运行时记忆（accounts/README.md 照常入库）
+accounts/*/
+!accounts/README.md
+.dsh/upload_pr.ps1
+
+# 根目录残留
+/_sess*.jsonl
+neg.txt
+og-index.txt
+plan.md
+jianying-editor-skill/
+knowledge/
+mascot/
+*.bak-*
+hypit_runs/productions/*/
+produce/
+pr-result.txt
+
+# ── backend/：密钥、运行时状态与超大产物目录（clone 后不带；首跑由 config.py 自动建空目录）──
+backend/.env
+backend/outputs/
+backend/uploads/
+backend/data/
+backend/integrations/
+backend/hyperframes/          # 4.3GB 外部 Node 工具（自带 .git），新机器单独装：见 README
+backend/models/               # 595MB 模型权重（ProPainter 等），运行时下载
+backend/hooks_db/
+backend/gemini_profile/
+backend/external/             # 第三方仓库的本地 clone（自带 .git，无法直接入库；代码不引用，见 README 外部组件）
+backend/knowledge-base.json
+backend/.gateway_*.json
+backend/.gateway_jobs.sqlite
+backend/_svc_*.log
+backend/__pycache__/
+backend/services/__pycache__/
+backend/pipeline/__pycache__/
+
+# ── .dsh/ 会话运行时状态（skill 源码 .dsh/skills/ 照常入库）──
+.dsh/intent.json
+.dsh/form_payload.json
+.dsh/form_prefill.json
+.dsh/form_attempts.json
+.dsh/approval_wake.json
+.dsh/compile_wake.json
+.dsh/delivery.json
+.dsh/delivery.json.bak*
+.dsh/_*.json
+.dsh/_*.txt
+.dsh/*.json
+.dsh/*.txt
+.dsh/*.py
+.dsh/form-uploads/
+.dsh/assets/
+.dsh/tmp/
+.dsh/tools/
+.dsh/_quarantine-*/
+.dsh-ref/
+.dsh-ui-backup/
+
+# 任务运行时产物
+productions/*/inputs/
+productions/*/src/
+productions/*/frames/
+productions/*/.compile.pid
+productions/*/.submit.pid
+productions/*/.skill_receipt.json
+backend/.gateway_ledger.sqlite

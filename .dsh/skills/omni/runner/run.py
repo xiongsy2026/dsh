@@ -3,7 +3,7 @@
 """omni skill runner：经统一模型网关 backend.gateway 出片（不直连 run_omni）。
 
 skill 只报「能力 + purpose」= video.generate / omni-t2v，由 gateway 解析 provider/model/密钥
-（全部来自 D:\\video-skill\\.env），实现「一处管理、skill 自动接模型」。
+（全部来自 backend/.env），实现「一处管理、skill 自动接模型」。
 
 用法：
   python run.py --prompt "In a single continuous 10s shot, ..." \
@@ -17,7 +17,7 @@ import json
 import os
 import sys
 
-VIDEO_SKILL_HOME = os.environ.get("VIDEO_SKILL_HOME", r"D:\video-skill")
+VIDEO_SKILL_HOME = os.environ.get("VIDEO_SKILL_HOME", os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 
 def _ensure_on_path() -> None:

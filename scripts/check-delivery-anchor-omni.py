@@ -13,7 +13,8 @@ os.environ["HYPIT_WORKSPACE_INTENT"] = os.path.join(tmp, "ws", ".dsh", "intent.j
 os.environ["HYPIT_INTENT_MARK"] = os.path.join(tmp, "intent.json")
 os.environ["HYPIT_NO_AUTOSTART"] = "1"
 
-sys.path.insert(0, r"C:\dsh\scratch\video-ui\video-ui")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(WS, r"scratch\video-ui\video-ui"))
 import store  # noqa: E402
 
 fails = []

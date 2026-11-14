@@ -54,7 +54,7 @@ PIAI = pathlib.Path(os.environ.get("DSH_PIAI_DATA") or
                     r"\node_modules\@earendil-works\pi-ai\dist\providers\data")
 SETTINGS = pathlib.Path(os.environ.get("DSH_SETTINGS_YAML") or
                         r"C:\Users\Administrator\AppData\Roaming\dsh-desktop\harness\settings.yaml")
-WS = pathlib.Path(r"C:\dsh")
+WS = pathlib.Path(WS)
 
 try:
     import yaml as _yaml

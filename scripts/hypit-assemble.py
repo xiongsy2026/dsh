@@ -21,10 +21,11 @@ import sqlite3
 import subprocess
 import sys
 import urllib.parse
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
-WS = os.environ.get("DSH_WORKSPACE") or r"C:\dsh"
+WS = os.environ.get("DSH_WORKSPACE") or WS
 HYPIT_WS = os.environ.get("HYPIT_WORKSPACE") or os.path.join(WS, "hypit_runs")
-LEDGER = os.environ.get("HYPIT_JOBS_DB") or r"D:\video-skill\.gateway_jobs.sqlite"
+LEDGER = os.environ.get("HYPIT_JOBS_DB") or os.path.join(BACKEND, r".gateway_jobs.sqlite")
 FPS = 30          # 与手写那份 assemble 一致（space:Canvas + program:Clock frame-rate）
 
 
@@ -84,7 +85,7 @@ def backfill(d: str, name: str) -> list:
         for r in rows:
             out = str(r["output"] or "")
             fn = out.rsplit("/", 1)[-1]
-            src = os.path.join(r"D:\video-skill\outputs\_hypit_jobs", fn) if fn else ""
+            src = os.path.join(os.path.join(BACKEND, r"outputs\_hypit_jobs"), fn) if fn else ""
             if not fn or not os.path.isfile(src):
                 continue
             try:

@@ -28,8 +28,11 @@ import shutil
 import sys
 import tempfile
 
-sys.path.insert(0, r"D:\video-skill")
-sys.path.insert(0, r"C:\dsh\scripts")
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
+sys.path.insert(0, os.path.join(WS, r"scripts"))
 
 TMP = tempfile.mkdtemp(prefix="skill-contract-")
 PASS, FAIL = [], []
@@ -55,7 +58,6 @@ def check(name, got, want):
 from backend import skill_contract as sc                        # noqa: E402
 from backend import hypit_bridge                                # noqa: E402
 
-WS = r"C:\dsh"
 
 # ---- T1/T2 名单对齐（唯一源三处，漂了就红）----
 check("T1 LANE_DIRS 存在且非空", len(sc.LANE_DIRS) > 0, True)
@@ -288,7 +290,7 @@ check("T11e summarize 不再堆要点列表（表格与要点两种形状不叠�
 write_prompt()
 
 # ---- T12 落点：核验必须在提交之前 ----
-src = io.open(r"D:\video-skill\backend\services\super_clone_wan3.py", encoding="utf-8").read()
+src = io.open(os.path.join(BACKEND, r"services\super_clone_wan3.py"), encoding="utf-8").read()
 i_verify, i_exec = src.find("_skc.verify_or_raise("), src.find("last_result = await _run_executor(")
 check("T12a 提交前调了 verify_or_raise", i_verify > 0, True)
 check("T12b 顺序：verify 在 _run_executor 之前", 0 < i_verify < i_exec, True)
@@ -297,7 +299,7 @@ check("T12c 回执由管线逐格打钩（开工就落骨架 + 每步 tick，不
 check("T12d 反向对照：verify 写在提交之后要能被抓到", i_exec < i_verify, False)
 # 只断提交不断捞回：查询/下载腿里不许出现 verify
 for fn in ("query_task", "poll_until_done", "download_result"):
-    seg = io.open(r"D:\video-skill\backend\services\wan3_client.py", encoding="utf-8").read()
+    seg = io.open(os.path.join(BACKEND, r"services\wan3_client.py"), encoding="utf-8").read()
     i = seg.find("def " + fn)
     body = seg[i:i + 900] if i >= 0 else ""
     check("T12e %s 里没有合同核验（已提交的任务要能捞回=不是双花）" % fn,
@@ -396,7 +398,7 @@ check("T19b 白名单内的手段 ⇒ 放行（防永远拒式假安全）",
 check("T19c 限定了手段却没申报 ⇒ 也报（不许沉默通过）",
       bool([x for x in sc.impl_problems(cs_ok, {}) if "没申报" in x]), True)
 _real_cf = sc.contract_for
-sc.contract_for = lambda s: cs_hole                       # 只桩"读 SKILL.md"这一层，被测的是形状闸本身
+sc.contract_for = lambda s, **kw: cs_hole                  # 只桩"读 SKILL.md"这一层（生产会带 variant= 实参）
 try:
     try:
         sc.verify_or_raise("shape-hole", task, inputs=[vid, prod])
@@ -465,7 +467,7 @@ check("T25b 合同限定手段但【没申报】⇒ 也拒（不许沉默通过�
 make_receipt()
 check("T25c 白名单内的手段 ⇒ 放行（正向对照，防永远拒式假安全）",
       sc.verify_or_raise("super-clone", task, inputs=[vid, prod]).get("ok"), True)
-_cr = io.open(os.path.join("D:" + chr(92), "video-skill", "backend", "skill_contract.py"), encoding="utf-8", errors="replace").read()
+_cr = io.open(os.path.join(BACKEND, "skill_contract.py"), encoding="utf-8", errors="replace").read()
 check("T25d 白名单是 check_receipt 内部自动跑的（不是要求调用方『记得调』——靠自觉的判据等于没有）",
       "bad += impl_problems(c, used_impl)" in _cr.split("def verify_or_raise")[0], True)
 
@@ -519,7 +521,7 @@ check("T29 AGENTS.md \u5199\u6b7b\u4e86\u3010\u62a5\u4ef7\u5e26 plan_table / \u6
       [x in _wa for x in ("plan_table", "who_table")], [True, True])
 check("T29b AGENTS.md 还得给出命令行（只写函数名 = agent 要自己拼 python -c，等于没给）",
       "scripts/contract_tables.py" in _wa, True)
-_scw = io.open(os.path.join(r"D:" + chr(92), "video-skill", "backend", "services", "super_clone_wan3.py"),
+_scw = io.open(os.path.join(BACKEND, "services", "super_clone_wan3.py"),
                encoding="utf-8", errors="replace").read()
 _i_tbl = _scw.find("\u5408\u540c\u6838\u9a8c")
 _i_sub = _scw.find("last_result = await _run_executor(")
@@ -555,25 +557,32 @@ check("T14 所有带引擎的档都交了【含必需步骤】的合同（红=�
 if no_contract:
     print(_safe("  待补合同的档（%d/%d）：%s" % (len(no_contract), len(lanes), ", ".join(no_contract))))
 
-# ---- T32 背景只走文字（2026-10-09 用户裁定："背景只能文字描述，或者图片识别成文字然后描述吧"）----
-# 摘掉表单上那一格不解决问题：改之前 compiler-contract.md 明写"冲突时以图为准"，
-# runner 也真把 --scene-image 喂给引擎 ⇒ 背景的事实源是一张图。所以判据钉在【合同 + 入口 + 清单】三处。
-_BG_PATTERNS = (
-    (r'add_argument\("--scene-image', "runner 还在收背景图入参"),
-    (r'scene_image_path\s*=\s*a\.scene_image', "还在把背景图转给引擎"),
-    (r'"scene_image"', "manifest 还把 scene_image 列为可选输入"),
-    (r'冲突时以图为准|以该图为唯一事实源|背景定调以该图为准', "合同还写着背景以图为事实源"),
-    (r'和/或 背景参考图|和/或 客户参考图', "文档还把背景图列为并列输入"),
+# ---- T32 背景参考图必须真能进 wan3.0（2026-10-31 用户裁定："背景就一个背景，本地要能传进wan3.0"
+#      —— 翻掉 2026-10-09 的"背景只走文字"。引擎侧 scene_image_path 从未拆掉：_build_media_manifest
+#      把场景图编成 图N，上传后与产品/模特图一起进 wan3.0 的 image_urls；编译器任务4 以图为背景事实源。
+#      判据钉在【入口 + 表单 + 文档口径】三处：入口要收图并转给引擎，表单要列 scene_image，
+#      文档不许再留"只走文字/图不进引擎"的旧裁定。----
+_BG_REQUIRED = (
+    ("runner/run.py", r'add_argument\("--scene-image', "runner 不再收背景图入参"),
+    ("runner/run.py", r'scene_image_path\s*=\s*vals\.get\("scene_image"', "runner 没把背景图转给 run_pipeline"),
+    ("SKILL.md", r'^\s*scene_image\|images\|', "form: 段没列 scene_image 格"),
+)
+_BG_FORBIDDEN = (
+    (r'背景只走文字|图本身不进引擎|背景没有图像入参|参考图不进引擎|图不作为生成入参|本 lane 恒为 null',
+     "文档还留着 2026-10-09 的旧裁定（背景只走文字）"),
 )
 _BG_FILES = ("SKILL.md", "runner/run.py", "manifest.json",
              "references/compiler-contract.md", "references/pipeline.md")
 
 
-def bg_text_only_problems(files):
-    """files = {相对路径: 正文}。返回仍然把"背景图"当生成入参的地方；空 = 已收口成只走文字。"""
+def scene_image_wired_problems(files):
+    """files = {相对路径: 正文}。返回"背景图这条链断了/旧口径没清"的地方；空 = 已按 2026-10-31 裁定接通。"""
     bad = []
+    for fn, pat, why in _BG_REQUIRED:
+        if not re.search(pat, files.get(fn, ""), re.M):
+            bad.append((fn, why))
     for fn, s in files.items():
-        for pat, why in _BG_PATTERNS:
+        for pat, why in _BG_FORBIDDEN:
             if re.search(pat, s):
                 bad.append((fn, why))
     return bad
@@ -584,18 +593,16 @@ for _fn in _BG_FILES:
     _p = os.path.join(WS, ".dsh", "skills", "super-clone", *_fn.split("/"))
     if os.path.isfile(_p):
         _lane_files[_fn] = io.open(_p, encoding="utf-8").read()
-check("T32 super-clone 背景【只走文字】：入口不收图、合同不再以图为准、清单不列 scene_image",
-      bg_text_only_problems(_lane_files), [])
+check("T32 super-clone 背景图【真能进 wan3.0】：入口收图、转给引擎、表单列格、旧口径清零",
+      scene_image_wired_problems(_lane_files), [])
 check("T32c 覆盖对照：五份文件真的都读到了（少读一份 = T32 会因为『没内容可匹配』而假绿）",
       sorted(_lane_files), sorted(_BG_FILES))
-# 反向对照：把裁定前的原文形状喂进同一判据 ⇒ 五条全要报（绿不是因为判据根本没匹配过）
-_OLD_SHAPE = {"references/compiler-contract.md": 'add_argument("--scene-image", default=None)\n'
-                                                 'scene_image_path = a.scene_image\n'
-                                                 '"optional": ["scene_image"]\n'
-                                                 '冲突时以图为准\n'
-                                                 '换背景 = 文字 和/或 客户参考图\n'}
-check("T32b 反向对照：裁定前的形状喂进同一判据 ⇒ 五条全报（判据真的有牙）",
-      len(bg_text_only_problems(_OLD_SHAPE)), 5)
+# 反向对照：把裁定前（2026-10-09 只走文字）的形状喂进同一判据 ⇒ 必须全报（绿不是因为判据根本没匹配过）
+_OLD_SHAPE = {"runner/run.py": 'p.add_argument("--scene-text", default=None)\n'
+                               'result = run_pipeline(task_id=t)\n',
+              "SKILL.md": '  scene_text|textarea|场景替换描述|no| |scene_text|hint=背景只走文字：参考图不进引擎\n'}
+check("T32b 反向对照：裁定前的形状（不收图 + 只走文字）喂进同一判据 ⇒ 四处全报（判据真的有牙）",
+      len(scene_image_wired_problems(_OLD_SHAPE)), 4)
 
 # ---- T33 背景描述只有一个输入口（2026-10-09 用户："在脸图底下加一个多文本框 场景替换描述"）----
 # 光加一格控件 = "改了也不生效的控件"，所以这条钉的是【格子 → 编译器真读的那一段】整条链，
@@ -611,13 +618,13 @@ check("T33 场景描述折进编译器唯一读的那一段（背景要求）；
 _run_src = io.open(_RUN, encoding="utf-8").read()
 _has_text = ('add_argument("--scene-text"' in _run_src)
 _has_image = ('add_argument("--scene-image"' in _run_src)
-check("T33b 入口面：--scene-text 在、--scene-image 不在（背景没有图像入参）",
-      (_has_text, _has_image), (True, False))
+check("T33b 入口面：--scene-text 在、--scene-image 也在（背景 = 图为事实源 + 文字补细节，2026-10-31 翻案）",
+      (_has_text, _has_image), (True, True))
 check("T33c 反向对照：把冲突场景（两处背景）喂进真函数 ⇒ 必须只剩一条『背景要求』行",
       sum(1 for l in _fold("背景要求：旧\n背景要求：更旧", "新").splitlines() if l.startswith("背景要求")), 1)
 
 # ---- T34 单段也要写物证/回执，且每一步的模型身份要看得见（2026-10-10 用户："回执也没有…不清楚是不是对应模型跑的"）----
-_SVC = os.path.join(r"D:\video-skill", "backend", "services", "super_clone_wan3.py")
+_SVC = os.path.join(BACKEND, "services", "super_clone_wan3.py")
 _svc_src = io.open(_SVC, encoding="utf-8", errors="replace").read()
 _t34_dir = os.path.join(TMP, "t34")
 os.makedirs(_t34_dir, exist_ok=True)
@@ -876,7 +883,7 @@ check("T35b 对照：函数内自己 import 的【不许误报】（现网就误
 # 🔴 T35d = 证明 T35c 有牙的唯一办法：拿【真提交链源码】剥掉那行 import os 再跑同一条判据。
 #    第一版扫描器把函数内的 import 漏算成模块绑定 ⇒ 这条当场没通过（T35c 对真 bug 恒绿），
 #    就是它逼着把 bound() 改成浅层/深层两种走法。
-_wc_src = io.open(os.path.join(r"D:\video-skill", "backend", "services", "wan3_client.py"),
+_wc_src = io.open(os.path.join(BACKEND, "services", "wan3_client.py"),
                   encoding="utf-8", errors="replace").read()
 _wx_src = _wc_src.replace(chr(10) + "import os" + chr(10), chr(10), 1)
 _d_with, _d_wo = _unbound_std_src(_wc_src), _unbound_std_src(_wx_src)
@@ -889,7 +896,7 @@ check("T35d 真产物对照：同一份源码【带 import os】= 空；剥掉�
       [0, True, True, True])
 for _f in ("backend/services/wan3_client.py", "backend/services/super_clone_wan3.py",
            "backend/gateway.py", "backend/skill_contract.py", "backend/services/runninghub_client.py"):
-    _p = os.path.join(r"D:\video-skill", *_f.split("/"))
+    _p = os.path.join(WS, *_f.split("/"))
     if not os.path.isfile(_p):
         check("T35c 提交链文件在盘上：" + _f, "missing", "present")
         continue
@@ -933,7 +940,7 @@ except sc.SkillContractError as e:
 check("T36d 反向对照：这一步【根本没申报手段】也拒（白名单不许被「沉默」绕过）", t36d, "没申报")
 
 # 档位：--stage compile 必须【不进执行器】，且两条款都算合法出口
-_sfw = io.open(r"D:\video-skill\backend\services\super_clone_wan3.py", encoding="utf-8").read()
+_sfw = io.open(os.path.join(BACKEND, r"services\super_clone_wan3.py"), encoding="utf-8").read()
 _i_stop = _sfw.index('stop_after not in (None, "", "compile")')
 _i_exec = _sfw.index("step2 = await _run_executor(")
 check("T36e 只编译档位：参数校验在调任何模型之前（拼错的档位不许静默当成「照常提交」）；"
@@ -1008,9 +1015,14 @@ if _svc:
     _l_asr = next((i for i, l in enumerate(_svc_src.split(chr(10)), 1)
                    if "FunASR 口播已覆盖 storyboard" in l), 0)
     _l_cmp = next((i for i, l in enumerate(_svc_src.split(chr(10)), 1)
-                   if "Step 1.5/4: Grok 编译器" in l), 0)
-    check("N7 顺序：ASR 写回【之后】、编译之前（放在前面会被原片词盖掉 = 静默冒充）",
+                   if "Step 1.5/4: 编译器" in l), 0)
+    check("N7 顺序：ASR 写回【之后】、编译之前（放在前面会被原片词盖掉 = 静默冒充）"
+          "（锚点 2026-10-23 跟着日志改名换过一次：原来钉的是 `Step 1.5/4: Grok 编译器`，"
+          "那条腿早就不跑 Grok ⇒ 打厂商标会对人撒谎，改成中性前缀时这个锚点必须一起换）",
           [bool(_l_call) and _l_asr < _l_call < _l_cmp, _l_asr > 0, _l_cmp > 0], [True, True, True])
+    check("N7b 编译器那几行日志里不许再出现厂商标（Grok/GPT 换过好几家，写死名字=账本外的一句谎）",
+          [l for l in _svc_src.split(chr(10))
+           if "Step 1.5/4" in l and ("Grok" in l or "GPT" in l)], [])
     check("N8 一段一条稿：整条自动切多段时带着整稿 ⇒ 点名拒（每段各灌一遍=每段都念整稿）",
           ("if voice_script and len(windows) > 1" in _svc_src and "逐段跑" in _svc_src), True)
     check("N9 覆盖对照：两条提交路径都带 narration_binding（少一处=那种运行形状没这一格）",
@@ -1071,6 +1083,366 @@ if _svc:
     check("N15 口型那一刀与【有没有换轨】无关：两个交付口都拿 换轨片或直出片 去对齐（少一处=那种形状没口型）",
           [_run_src.count("_lip = apply_lip_sync(_sw or _film"), _run_src.count("_tgt = _sw or path"),
            _run_src.count("_lip = apply_lip_sync(_tgt")], [1, 1, 1])
+    # N16–N18：口型「重画哪几段」这份窗口是谁算出来的（2026-10-14 现网：15s 里只有 0–4.8s 有正脸，
+    # 而上一版只读 TTS 换轨台账 ⇒ 客户整稿音频那种形状读不到 ⇒ 静默退成整条模式，
+    # 等于花 20 分让 LatentSync 去重画手和产品特写）。fixture 自己写，不依赖 productions/ 还在。
+    _ld = tempfile.mkdtemp(prefix="lipseg-")
+    def _ls(shots, swap=None, sub=""):
+        d = os.path.join(_ld, sub or "s")
+        os.makedirs(d, exist_ok=True)
+        f = os.path.join(d, "film.mp4")
+        io.open(f, "w").close()
+        if shots is not None:
+            io.open(os.path.join(d, "storyboard.json"), "w", encoding="utf-8").write(
+                json.dumps(shots, ensure_ascii=False))
+        if swap is not None:
+            io.open(os.path.join(d, "narration_swap.json"), "w", encoding="utf-8").write(
+                json.dumps(swap, ensure_ascii=False))
+        return f
+    def _sh(a, b, look):
+        return {"时间区间": {"开始时间": a, "结束时间": b}, "面部微表情": {"眼神方向": look}}
+    _mixed = _ls([_sh(0.0, "00:03.00", "直视镜头"), _sh(3.0, 4.8, "直视镜头"),
+                  _sh(4.8, 9.0, "未入镜"), _sh(9.0, 15.0, "看不清")])
+    check("N16a 有正脸+没读到说话台账 ⇒ 只交正脸窗口（mm:ss 也要能解析）",
+          _m._lip_segments(_mixed), ([{"start": 0.0, "end": 3.0}, {"start": 3.0, "end": 4.8}], "face"))
+    check("N16b 逐镜都写未入镜 ⇒ no-face（不是『读不到所以整条送』）",
+          _m._lip_segments(_ls([_sh(0.0, 5.0, "未入镜")], sub="nf")), ([], "no-face"))
+    check("N16c 有台账 ⇒ 与正脸窗口取交集（嘴不在画面上的那段绝不重画）",
+          _m._lip_segments(_ls([_sh(0.0, 5.0, "直视镜头")], {"rows": [{"start": 4.0, "end": 12.0}]},
+                             sub="bo")), ([{"start": 4.0, "end": 5.0}], "face+speech"))
+    check("N16d 两份事实源都没有 ⇒ unknown（调用方才允许退成整条，且要出声）",
+          _m._lip_segments(os.path.join(_ld, "nothing", "x.mp4")), ([], "unknown"))
+    check("N16e 反向对照：同一份 fixture 把『未入镜』改成有表情 ⇒ 窗口必须出现（证明那一格真在读它）",
+          _m._lip_segments(_ls([_sh(0.0, 5.0, "直视镜头")], sub="rv"))[1], "face")
+    check("N17 no-face 是【不做这一刀】不是退成整条：入口先判 how 再 invoke",
+          ['segs, how = _lip_segments(src)' in _run_src,
+           'if how == "no-face":' in _run_src,
+           _run_src.index('if how == "no-face":') < _run_src.index("env = gw.invoke(LIPSYNC_CAP")],
+          [True, True, True])
+    check("N18 旧那条只读 TTS 台账的近路已封（读不到就静默整条=白花钱），且物证记下窗口是怎么定的",
+          [_run_src.count("_speech_segments("), "_segments_from" in _run_src or '"segments_from": how' in _run_src],
+          [0, True])
+    shutil.rmtree(_ld, ignore_errors=True)
+    check("N18b 收尾：这一组的临时目录真的没了", os.path.isdir(_ld), False)
+    # ---- CP 组：编译产物缓存（2026-10-14 需求单 1+2「一次编译、多次复用」）----
+    # fixture 自己造，不读 productions/ 里的真产物（那条会被清理 ⇒ 闸随机假红）
+    _cp_facts = {"trim_start": 16.0, "trim_end": 30.0, "target_duration": 14.0,
+                 "resolution": None, "aspect_ratio": "3:4", "voice_mode": None,
+                 "voice_script": "A", "extra_note": "", "customer_request": "R",
+                 "product_name": "P", "media_manifest": [], "source_sha8": "704e22bc",
+                 "prompt_rev": "rev-fine"}
+    _cp_fp = _svc.compile_fingerprint(_cp_facts)
+    _cp_d = tempfile.mkdtemp(prefix="cp-")
+
+    def _cp_build(prompt="X" * 40, req_ok=True, fp=None):
+        io.open(os.path.join(_cp_d, "prompt.txt"), "w", encoding="utf-8").write(prompt)
+        io.open(os.path.join(_cp_d, "storyboard.json"), "w", encoding="utf-8").write('[{"shot":1}]')
+        json.dump({"skill": "super-clone", "contract_version": "super-clone-wan3@12",
+                   "steps": [{"id": "storyboard", "required": True, "ok": req_ok},
+                             {"id": "lip-sync", "required": False, "ok": False}]},
+                  io.open(os.path.join(_cp_d, ".skill_receipt.json"), "w", encoding="utf-8"))
+        json.dump({"compile_fp": (_cp_fp if fp is None else fp),
+                   "storyboard_sha8": sc.sha8(os.path.join(_cp_d, "storyboard.json")),
+                   "prompt_sha8": sc.sha8(os.path.join(_cp_d, "prompt.txt"))},
+                  io.open(os.path.join(_cp_d, "prompt_meta.json"), "w", encoding="utf-8"))
+        return _cp_d
+
+    _cp_hit = _svc.compile_cache_state(_cp_build(), _cp_facts)
+    check("CP1 三件齐（指纹同 + 物证 sha8 对得上 + 必需步全勾）⇒ 命中",
+          [_cp_hit[0], _cp_hit[1].startswith("命中")], [True, True])
+    _cp_diff = [_svc.compile_cache_state(_cp_build(), dict(_cp_facts, voice_script="B"))[0],
+                _svc.compile_cache_state(_cp_build(), dict(_cp_facts, trim_end=29.0))[0],
+                _svc.compile_cache_state(_cp_build(), dict(_cp_facts, extra_note="改动作"))[0],
+                _svc.compile_cache_state(_cp_build(), dict(_cp_facts, source_sha8="deadbeef"))[0],
+                _svc.compile_cache_state(_cp_build(), dict(_cp_facts, prompt_rev="rev-coarse"))[0]]
+    check("CP2 改稿/改窗口/改 extra-note/换原片/换提示词版 任一 ⇒ 全部不命中（必须重编）", _cp_diff, [False] * 5)
+    _cp_build()
+    io.open(os.path.join(_cp_d, "prompt.txt"), "w", encoding="utf-8").write("Y" * 40)
+    _cp_drift = _svc.compile_cache_state(_cp_d, _cp_facts)
+    check("CP3 🔴 物证漂移：prompt.txt 被偷偷改了 ⇒ 不命中，而【只比指纹会命中】（证明那两行 sha8 在管）",
+          [_cp_drift[0], "被改过" in _cp_drift[1], _svc.compile_fingerprint(_cp_facts) == _cp_fp],
+          [False, True, True])
+    check("CP4 回执缺格 ⇒ 不命中（缺=那次没走完，不许复用）",
+          _svc.compile_cache_state(_cp_build(req_ok=False), _cp_facts)[0], False)
+    io.open(os.path.join(_cp_d, ".skill_receipt.json"), "w", encoding="utf-8").write('[{"id":"x"}]')
+    check("CP4b 回执形状不对（顶层是列表）⇒ 判【不命中】而不是把异常抛出去（闸崩≠闸红、判据不许成为故障点）",
+          _svc.compile_cache_state(_cp_d, _cp_facts)[0], False)
+    check("CP5 旧版本产物（没写 compile_fp）⇒ 不命中，fail-closed",
+          _svc.compile_cache_state(_cp_build(fp=""), _cp_facts)[0], False)
+    check("CP6 目录里没有产物 ⇒ 不命中",
+          _svc.compile_cache_state(os.path.join(_cp_d, "nope"), _cp_facts)[0], False)
+    _cp7 = [_scw.find("if reuse_compile and not _cc_hit:"),
+            _scw.find("_cc_use = bool(_cc_hit and reuse_compile)"),
+            _scw.find("await step1_mimo_director(")]
+    check("CP7 接线：复用判定（【命没命中】+【这一档要不要复用】两步都算）必须排在 MiMo 真调用点之前，"
+          "且 --reuse-compile 不命中就当场拒（判定搬到解析之后 = 判定白做、token 已经烧了）",
+          [all(i >= 0 for i in _cp7), _cp7[0] < _cp7[1] < _cp7[2]], [True, True])
+    check("CP8 命中时不重灌口播、不重跑编译器，且【只有单段路径】写指纹（多段不写=永不复用，宁可重编）",
+          ["跳过 apply_customer_narration" in _scw, _scw.count("compile_facts=_cc_facts"),
+           'compiled = {"prompt": prompt,' in _scw],
+          [True, 1, True])
+    shutil.rmtree(_cp_d, ignore_errors=True)
+    check("CP9 收尾：这一组的临时目录真的没了", os.path.isdir(_cp_d), False)
+    def _cp10_ok(_src):
+        _i = _src.find("reuse_compile=(")
+        return ('add_argument("--reuse-compile"' in _src and
+                'add_argument("--reuse-compile-if-hit"' in _src and
+                _src.count("reuse_compile=(") == 1 and
+                'a.stage != "compile"' in _src[_i:_i + 260])
+    check("CP10 入口面：硬档 --reuse-compile 与软档 --reuse-compile-if-hit 都在，且 --stage compile 永远不复用"
+          "（那一档的语义就是「把编译走一遍」，让它命中 = 把重编译的合法出口做成假出口）",
+          [_cp10_ok(_run_src),
+           _cp10_ok(_run_src.replace('and a.stage != "compile"),', "),", 1))],
+          [True, False])
+    # CP11 🔴 抓"函数里用了某个名字、但那个名字在这个模块根本没有模块层导入"这一整族。
+    #      同一个文件为这件事崩过三次：wan3_client 缺 `import os`、同处缺 `import json`、
+    #      10-14 深夜我加的指纹缓存在 run_pipeline 里用 `_skc.sha8` 而 `_skc` 是【函数内延迟导入】
+    #      ⇒ 10-15 09:05 那次【批准即点火】起的提交腿三段全死在 NameError，人批了、系统没投。
+    import ast as _ast_cp
+    _tree_cp = _ast_cp.parse(_scw)
+    _mod_names = set()
+    for _n in _tree_cp.body:
+        if isinstance(_n, _ast_cp.Import):
+            _mod_names |= {(_a.asname or _a.name).split(".")[0] for _a in _n.names}
+        elif isinstance(_n, _ast_cp.ImportFrom):
+            _mod_names |= {(_a.asname or _a.name) for _a in _n.names}
+    _bad_cp = []
+    for _fn in [n for n in _tree_cp.body
+                if isinstance(n, (_ast_cp.FunctionDef, _ast_cp.AsyncFunctionDef))]:
+        _loc = set()
+        for _g in _ast_cp.walk(_fn):
+            if isinstance(_g, _ast_cp.ImportFrom):
+                _loc |= {(_a.asname or _a.name) for _a in _g.names}
+            elif isinstance(_g, _ast_cp.Import):
+                _loc |= {(_a.asname or _a.name).split(".")[0] for _a in _g.names}
+        _used = {g.id for g in _ast_cp.walk(_fn)
+                 if isinstance(g, _ast_cp.Name) and isinstance(g.ctx, _ast_cp.Load)}
+        for _nm in sorted((_used - _mod_names - _loc) & {"_skc", "_skc2", "hashlib", "os", "json", "re"}):
+            _bad_cp.append("%s() 用了 %s 但没有本地/模块层导入" % (_fn.name, _nm))
+    check("CP11 🔴 名字必须有主人：函数里 Load 到的 `_skc/os/json/re/hashlib` 必须能在模块层或本函数里找到导入"
+          "（缺一个就是运行到那一行才 NameError —— 而那一行常常在花钱之后、或在批准点火那条腿上）",
+          _bad_cp, [])
+
+    def _cp11_scan(_src_text):
+        _t = _ast_cp.parse(_src_text)
+        _m = set()
+        for _n in _t.body:
+            if isinstance(_n, _ast_cp.Import):
+                _m |= {(_a.asname or _a.name).split(".")[0] for _a in _n.names}
+            elif isinstance(_n, _ast_cp.ImportFrom):
+                _m |= {(_a.asname or _a.name) for _a in _n.names}
+        _bad = []
+        for _f in [n for n in _t.body if isinstance(n, (_ast_cp.FunctionDef, _ast_cp.AsyncFunctionDef))]:
+            _l = set()
+            for _g in _ast_cp.walk(_f):
+                if isinstance(_g, _ast_cp.ImportFrom):
+                    _l |= {(_a.asname or _a.name) for _a in _g.names}
+                elif isinstance(_g, _ast_cp.Import):
+                    _l |= {(_a.asname or _a.name).split(".")[0] for _a in _g.names}
+            _u = {g.id for g in _ast_cp.walk(_f)
+                  if isinstance(g, _ast_cp.Name) and isinstance(g.ctx, _ast_cp.Load)}
+            _bad += ["%s:%s" % (_f.name, x) for x in sorted((_u - _m - _l) & {"_skc", "os", "json"})]
+        return _bad
+
+    # 反向对照：把我这次补的那句 import 摘掉 ⇒ 必须重新抓到 run_pipeline 里的 _skc（否则 CP11 是空跑）
+    check("CP11b 反向对照：摘掉 run_pipeline 里那句 `import skill_contract as _skc` ⇒ 必须立刻抓到"
+          "（证明这条不是写完就恒绿的摆设）",
+          _cp11_scan(_scw.replace("    from backend import skill_contract as _skc\n    _cc_facts = {",
+                                  "    _cc_facts = {", 1)), ["run_pipeline:_skc"])
+
+    # ---- PR 组：提示词【输出粒度】只有一档（2026-10-23 用户定）----
+    # 为什么这一组必须存在：那天给编译腿加了收紧节之后重编译，产出 sha8 一字未变，
+    #   而盘上没有任何一条闸能看见"改了系统提示词却没进模型"这件事 ⇒ 遵守散文靠不住，只能上闸。
+    # 2026-10-23 晚用户再定："怎么还搞一个粗档和细档，直接按粗档不就好了" ⇒ fine/coarse 开关整条删除。
+    #   这一组因此从"两档各自对不对"改成"只有一档、且没有第二个入口"。
+    _pr_settings = _svc.settings
+    _pr_sb_args = (14.0, _svc._cfg()["mimo_split_mode"])
+    check("PR0 开关整条不存在：模块上没有 prompt_granularity()、config 没有那个字段、.env 也没有这行"
+          "（一个只有默认值的开关不是配置，是第二个入口）",
+          [hasattr(_svc, "prompt_granularity"),
+           hasattr(_pr_settings, "REPLICA_WAN3_PROMPT_GRANULARITY"),
+           any(l.startswith("REPLICA_WAN3_PROMPT_GRANULARITY=")
+               for l in io.open(os.path.join(BACKEND, r".env"), encoding="utf-8", errors="replace"))],
+          [False, False, False])
+    _pr_p = (_svc.step1_5_system_prompt(), _svc._storyboard_system_prompt(*_pr_sb_args))
+    check("PR1 两条腿【都】无条件带上收紧节 —— 只改编译腿不够（散文是从分镜腿灌进来的）",
+          [("【输出粒度收紧" in _pr_p[0]), ("【超级复刻·输出粒度收紧" in _pr_p[1])], [True, True])
+    check("PR2 收紧节是追加不是替换：上面【强制输出语法】/【唯一输出 Schema】还在，"
+          "且收紧节排在它们【之后】（分镜腿基座没有模块级常量，所以比先后而不是比长度）",
+          [("【强制输出语法】" in _pr_p[0]), ("【唯一输出 Schema】" in _pr_p[1]),
+           len(_pr_p[0]) > len(_svc.STEP1_5_SYSTEM_PROMPT),
+           0 < _pr_p[1].find("【唯一输出 Schema】") < _pr_p[1].find("【超级复刻·输出粒度收紧")],
+          [True, True, True, True])
+    # 反向对照（哨兵）：证明"带上了"读的是那两处拼接本身，不是某句常驻文本 —— 换掉常量，产出必须跟着换。
+    _pr_c1, _pr_c2 = _svc.COMPILE_COMPACT_BLOCK, _svc.STORYBOARD_COMPACT_BLOCK
+    try:
+        _svc.COMPILE_COMPACT_BLOCK = "\nPR-SENTINEL-A\n"
+        _svc.STORYBOARD_COMPACT_BLOCK = "\nPR-SENTINEL-B\n"
+        check("PR2b 反向对照：把两节常量换成哨兵 ⇒ 提示词里出现的必须是哨兵，且整体变短"
+              "（若这条还绿着=PR1 是恒绿的摆设）",
+              [("PR-SENTINEL-A" in _svc.step1_5_system_prompt()),
+               ("PR-SENTINEL-B" in _svc._storyboard_system_prompt(*_pr_sb_args)),
+               len(_svc._storyboard_system_prompt(*_pr_sb_args)) < len(_pr_p[1])], [True, True, True])
+        _pr_rev_sent = _svc.prompt_revision(*_pr_sb_args)
+    finally:
+        _svc.COMPILE_COMPACT_BLOCK, _svc.STORYBOARD_COMPACT_BLOCK = _pr_c1, _pr_c2
+    check("PR6 prompt_rev 必须真的由两条腿当场要发的提示词算出来：换哨兵 ⇒ rev 必须换"
+          "（不然改了系统提示词却仍被缓存当成同一份输入、直接复用旧稿 —— 那天现网就是这个形状）",
+          bool(_pr_rev_sent) and _pr_rev_sent != _svc.prompt_revision(*_pr_sb_args), True)
+    # 收紧档不许松的四类事实：逐字钉在该那一行上（关键词断言必须绑到具体那一行）
+    _pr_kept = ["「口播」：逐字", '不可见仍严格填"无"', "只能填 强/中/弱/无",
+                "不改 Schema、不改 Shot 数、不改时间轴、不改任何判定值",
+                "动作真实存在就不许为了省字填", "所有叶子字段仍然必须是非空字符串", "≤150 字"]
+    check("PR3 收紧只压修饰语：判定格（口播逐字/产品无/情绪枚举/Schema 与时间轴）一条都不许松",
+          [k in _svc.STORYBOARD_COMPACT_BLOCK for k in _pr_kept], [True] * len(_pr_kept))
+    check("PR4 自定义分镜提示词会让 user 消息里那两句消失 ⇒ target_duration 与末镜覆盖必须补回来"
+          "（Checkpoint A 靠它，收紧节不许把它挤掉）",
+          [("target_duration = 14.00 秒" in _pr_p[1]), ("必须等于 14.00 秒" in _pr_p[1]),
+           (0 <= _pr_p[1].find("【超级复刻·调用侧补强】") < _pr_p[1].find("【超级复刻·输出粒度收紧"))],
+          [True, True, True])
+    check("PR5 声音六项不再逐镜塞进 prompt（这一刀在后端 force_verbatim_speech，不在提示词里）",
+          [_svc._voice_block_from_shot({"声音语气": {"语速": "中等", "情绪": "兴奋"}}),
+           "语速=" in _svc._voice_block_from_shot({"声音语气": {"语速": "中等"}})],
+          ["[character1]", False])
+    check("PR6b 🔴 这条陷阱钉住：`skill_contract.sha8` 的入参是【文件路径】，喂正文只会恒回 unreadable"
+          "（谁把 prompt_rev 改回用它 = 指纹变成常数、改版看不见）",
+          [sc.sha8("这是一段正文不是路径"), sc.sha8(os.path.abspath(__file__)) != "unreadable"],
+          ["unreadable", True])
+    check("PR7 接线：prompt_rev 既在指纹键名单里、又在 _cc_facts 里真给了（缺一处 = 算了个没人读的数）",
+          [("prompt_rev" in _svc._COMPILE_FP_KEYS), '"prompt_rev": prompt_revision(' in _scw], [True, True])
+    # 🔴 抽帧补充腿（2026-10-30 用户定"改成这样的流程"）：它的产出会影响 prompt ⇒ 同一条规矩必须也落在它身上。
+    #    两个方向分开钉：① 键在名单里 + ② 那份 dict 真给了值（只给键不给值 = 指纹永远是 None，
+    #    换了事实照样命中缓存、拿旧 prompt 去花 60 分 —— 和 10-23 那次 prompt_rev 一模一样的形状）。
+    #    ③ 两个编译出口都得带上这条腿的事实（单段 + 分段）：少一处 = 从那一口出的片子永远不补实物细节。
+    #    ④ 整条方案只许花一次：真跑那一句 `frame_facts_pass(` 在 run_pipeline 里只能出现 1 次
+    #    （分段编译复用同一份事实 ⇒ 出现第 2 次就是 40s 的片白烧 3×178 分）。
+    check("PR9 抽帧补充腿接线：键在指纹名单 + _cc_facts 真给值 + 两个编译出口都带 + 只跑一次",
+          [("frame_facts" in _svc._COMPILE_FP_KEYS),
+           '"frame_facts": str(_frame_facts or "")' in _scw,
+           _scw.count("frame_facts=_frame_facts,"),
+           _scw.count("= frame_facts_pass(")],
+          [True, True, 2, 1])
+    check("PR9b 反向对照：把指纹里那个键摘掉 ⇒ 上面那条必须立刻抓到（证明钉的是接线不是关键词）",
+          [("frame_facts" in _svc._COMPILE_FP_KEYS),
+           '"frame_facts": str(_frame_facts or "")' in
+           _scw.replace('"frame_facts": str(_frame_facts or "")', "", 1)],
+          [True, False])
+    check("PR8 唯一出口：两条腿各只有一处把提示词交出去（不许在调用点再拼一份第二事实源）",
+          [_scw.count('"content": step1_5_system_prompt(),'),
+           _scw.count("system_prompt=_storyboard_system_prompt("),
+           _scw.count("STEP1_5_SYSTEM_PROMPT +"), _scw.count("return SYSTEM_PROMPT +")],
+          [1, 1, 1, 1])
+
+    # ---- MG 组：粗档的【装配口】（全局声明由后端写一次，不逐镜让模型重写）----
+    # 为什么单独一组：2026-10-23 A/B 实测粗档逐镜行 153 字/镜（比细档短 34%），总长却从 2291 涨到 3124 ——
+    # 8 次逐镜调用各写一份措辞不同的全局块，合并层按整行去重合不掉。修法是"常量归代码"，
+    # 那就必须有闸盯着"它真的只出现一份"，否则下一次漂移还是靠人肉数字发现。
+    _mg_shots = ["Shot 1 [0.0-00:02.00]: 特写, 双手托玻璃碟; \"台词一\" [character1];\n"
+                 "全局替换声明：原片的一切商品替换为图1。\n" + _svc.STEP1_5_GLOBAL_CONSTRAINT,
+                 "Shot 2 [2.0-00:04.00]: 特写, 倾倒油液; \"台词二\" [character1]; Hard cut transition;\n"
+                 "全局：原片的一切商品一律替换为图1。\n" + _svc.STEP1_5_GLOBAL_CONSTRAINT]
+    _mg_glob = _svc.compact_global_block("植小妞 保湿盈润护理油",
+                                        [{"image_id": "图3", "type": "product"},
+                                         {"image_id": "图5", "type": "model"}])
+    _mg_coarse = _svc.merge_compiled_shot_prompts(_mg_shots, compact_global=_mg_glob)
+    _mg_fine = _svc.merge_compiled_shot_prompts(_mg_shots)
+    check("MG1 粗档装配：全局块只有一份、Shot 行不丢、最后一行仍是那句固定约束（逐字相等）",
+          [_mg_coarse.count("【全局替换】"), sum(1 for l in _mg_coarse.splitlines() if l.startswith("Shot")),
+           _mg_coarse.splitlines()[-1] == _svc.STEP1_5_GLOBAL_CONSTRAINT,
+           "替换为图1" not in _mg_coarse.replace(_mg_glob, "")],
+          [1, 2, True, True])
+    check("MG2 反向对照：不传 compact_global ⇒ 两份全局块必须原样保留"
+          "（钉住合并函数的另一支没被这次改动误伤 —— 生产两处调用都给，这一支只给单测）",
+          [sum(1 for l in _mg_fine.splitlines() if l.startswith("Shot")),
+           _mg_fine.count("全局"), _mg_fine.splitlines()[-1] == _svc.STEP1_5_GLOBAL_CONSTRAINT],
+          [2, 2, True])
+    check("MG3 图N 现读 media_manifest，不硬编码图1/图2（编号归属是 Step 0 定的，写死就会漂）",
+          [("图3" in _mg_glob) and ("图5" in _mg_glob) and ("图1" not in _mg_glob),
+           "植小妞 保湿盈润护理油" in _mg_glob], [True, True])
+    _mg_voice = {"声音语气": {"语速": "中等", "语调": "轻快平稳", "重音": "关键词重读",
+                              "停顿": "短停顿", "情绪": "中", "呼吸感": "自然呼吸"}}
+    # 原来这一条是"两向"（粗档只回 [character1]、细档六项照旧）。开关整条删除后没有第二向，
+    # 判据改成【钉死单向】：不管分镜里写了多少声音属性，后端都不许把那六项塞回 prompt。
+    _mg_v = _svc._voice_block_from_shot(_mg_voice)
+    check("MG4 声音六项一律不进 prompt（这一刀在后端，提示词管不到它）",
+          [_mg_v, any(k in _mg_v for k in ("语速", "语调", "重音", "停顿", "情绪", "呼吸感"))],
+          ["[character1]", False])
+    check("MG5 提示词与装配口对齐：1.5 明写「全局声明你不要写」，且两个调用点（多镜/单镜）都接了 compact_global_block",
+          [("你不要写" in _svc.COMPILE_COMPACT_BLOCK), _scw.count("compact_global_block(product_name, media_manifest")],
+          [True, 2])
+    check("MG6 漏镜兜底：粗档过滤只认行首 Shot，且装配后紧跟时间轴逐镜校验（缺镜必须抛，不许静默少一镜）",
+          ['lines = [l for l in lines if l.startswith("Shot")]' in _scw,
+           0 <= _scw.find("compact_global_block(product_name, media_manifest")
+           < _scw.find("prompt = force_verbatim_speech(prompt, storyboard)")],
+          [True, True])
+    # MG7 去文字水印这句【必须同时有负向和正向填充】：2026-10-14 实测原片字幕是被 wan3 重新渲染成伪文字的，
+    #     只写"不得出现字幕"压不住（它照样补一堆乱码笔画）⇒ 钉住"填满 + 不许黑块/马赛克 + 不许伪文字"三样。
+    _mg_tail = _svc.STEP1_5_GLOBAL_CONSTRAINT
+    check("MG7 后置约束那句去文字水印：负向（不得出现字幕/水印）+ 正向（区域用连续画面填满）+ 反伪文字三样齐",
+          [all(k in _mg_tail for k in ("不得出现字幕", "水印", "用连续的真实画面内容填满",
+                                       "马赛克", "伪文字")),
+           "不得出现字幕" in _mg_tail and "水印" in _mg_tail],   # 合同判据 text-has= 认的两个词不许掉
+          [True, True])
+    check("MG7b 粗档全局块也带这句（后端写一次，不靠模型逐镜自觉）+ 逐镜行被明令不许抄原片屏幕文字",
+          ["伪文字" in _mg_glob, "不许出现任何关于画面文字的描述" in _svc.COMPILE_COMPACT_BLOCK],
+          [True, True])
+    # ---- MG8/MG9：水印与画面文字这条规则【住在哪】----
+    # 为什么单独钉：这条规则散在 5 个地方（1.0 补强、1.5 严禁事项、1.5 后置约束段、粗档全局块、粗档覆盖节）。
+    # 2026-10-23 现网漂过两次：① 常量升级了、正文里那句"必须 exact match"的示例尾行还是旧短版
+    # ② "禁止逐镜行写画面文字"只写在收紧节里 ⇒ 默认档没有这条。两处都是"改了 A 没改 B"。
+    _sp8 = _svc.step1_5_system_prompt()
+    _sb8 = _svc._storyboard_system_prompt(14.0, "scene_cut")
+    check("MG8 1.5 正文的示例尾行由常量注入（占位符必须已被替换；正文与后端常量逐字同源）",
+          ["{{GLOBAL_CONSTRAINT}}" not in _sp8,
+           _svc.STEP1_5_GLOBAL_CONSTRAINT in _sp8,
+           'STEP1_5_SYSTEM_PROMPT.replace("{{GLOBAL_CONSTRAINT}}", STEP1_5_GLOBAL_CONSTRAINT)' in _scw],
+          [True, True, True])
+    check("MG8b 去水印三样必须住在【主提示词】里（两档共用），不许只住在 COARSE 里（换档就丢规则）",
+          [all(k in _sp8 for k in ("用连续的真实画面内容填满", "伪文字", "文字层不属于要继承的内容")),
+           all(k in _svc.COMPILE_COMPACT_BLOCK or k in _sp8 for k in ("字幕", "水印")),
+           ("用连续的真实画面内容填满" in _sp8.split("【输出粒度覆盖")[0])],
+          [True, True, True])
+    check("MG8c 1.0 分镜腿同一条规则在【调用侧补强】里（fine 档也有），且口播字段被明确豁免",
+          ["不许抄画面上出现的文字内容" in _sb8, "「口播」字段不受此限" in _sb8,
+           "不许抄画面上出现的文字内容" in _sb8.split("【超级复刻·粗档补强")[0]],
+          [True, True, True])
+    _mg9_p = ('Shot 1 [0.0-00:02.00]: 特写, 双手托碟; "它的基底只用植物油，" [character1];\n'
+              'Shot 2 [2.0-00:04.00]: 特写, 屏幕下方字幕写着新上架; "台词" [character1];\n'
+              'Shot 3 [4.0-00:06.00]: 特写, 画面带台标; "台词三" [character1];\n'
+              'Shot 4 [6.0-00:08.00]: 特写, 双手揉推小腿; "屏幕上写着优惠" [character1];\n'
+              + _svc.STEP1_5_GLOBAL_CONSTRAINT)
+    check("MG9 编译期文本闸：逐镜行写了画面文字就点名重发；台词位与固定约束段里的『字幕/屏幕写着』不许算（防误伤口播）",
+          [_svc.burned_text_lines(_mg9_p), _svc.burned_text_lines("Shot 1 [0.0-00:02.00]: 特写, 双手托碟; \"台词\" [character1];")],
+          [[2, 3], []])
+    check("MG9b 反向对照：把引号剥离那步去掉 ⇒ Shot 4 会被误判（证明判据真的在看非台词部分，不是关键词表扫全文）",
+          bool(re.search(r"字幕|花字|水印", _mg9_p.split(chr(34))[3] or "")), False)
+
+    # ---- MG10/MG11：提示词不许硬编码行业/性别/品类（这条腿要能跑 3C·食品·家居·工具·宠物）----
+    _mg10 = _svc.compact_global_block("任意产品名", [{"image_id": "图1", "type": "product"},
+                                                    {"image_id": "图2", "type": "model"}])
+    check("MG10 后端全局块不写死性别、不写死穿戴：主体人物=模特，外观含『穿戴或手持』两种；示例品类不许进正文",
+          ["女性" not in _mg10, "主体人物一律替换为模特" in _mg10, "手持" in _mg10,
+           "任意产品名" in _mg10], [True, True, True, True])
+    check("MG10b 粗档覆盖节与 1.5 正文都不留『图N 中的女性』这类性别化弱引用示例",
+          ["女性" not in _svc.COMPILE_COMPACT_BLOCK,
+           "图N 中的女性" not in _sp8, "图N 中的那个人" in _sp8], [True, True, True])
+    check("MG10c 示例节必须自带『只演示格式、不是事实源』守卫（否则模型会把示例里的航空杯/露营桌抄进真实分镜）",
+          "都不是事实源" in _sp8 and "只演示格式" in _sp8, True)
+    _box_mid = [[330, 1075], [390, 1075], [390, 1110], [330, 1110]]      # 竖屏 720×1280 的水平居中字幕
+    _y_real = _svc.classify_frame_text([("字幕内容", 0.99, _box_mid)], [], frame_size=(720, 1280))[0]
+    _y_none = _svc.classify_frame_text([("字幕内容", 0.99, _box_mid)], [])[0]
+    _y_wrong = _svc.classify_frame_text([("字幕内容", 0.99, _box_mid)], [], frame_size=(1920, 1080))[0]
+    check("MG11 坐标按这一帧的真实分辨率归一：竖屏 720×1280 里水平居中的字幕 ⇒ x≈0.5、y≈0.854",
+          [abs((_y_real["center"][0] or 0) - 0.5) < 0.01, abs((_y_real["center"][1] or 0) - 0.854) < 0.01],
+          [True, True])
+    check("MG11b 拿不到尺寸就输出 null（不猜）；传错尺寸就跟着错 ⇒ 证明归一化真在读 frame_size，不是写死的",
+          [_y_none["center"] == [None, None], abs(_y_wrong["center"][0] - 0.1875) < 0.01], [True, True])
+    _mg_keys = ("不得出现字幕", "水印", "用连续的真实画面内容填满", "马赛克", "伪文字")
+
+    check("MG7c 反向对照：摘掉【正向填充】那半句，MG7 那组关键词必须凑不齐（证明钉的是实质不是关键词表）",
+          all(k in _mg_tail.replace(
+              "原片里被这些烧录文字占据的区域（画面下方与中部的横条、角落角标）必须用连续的真实画面内容填满：", "")
+              for k in _mg_keys), False)
 else:
     check("N0 super_clone_wan3 没导进来（整组没跑 = 假绿，直接红）: %s" % _imp_err, False, True)
 

@@ -13,8 +13,10 @@ import sys
 WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HYPIT_WS = os.path.join(WS, "hypit_runs")
 GEN = os.path.join(WS, "scripts", "hypit-assemble.py")
-sys.path.insert(0, r"D:\video-skill")
-sys.path.insert(0, r"D:\video-skill\backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 
 total, fails = [0], []
 
@@ -29,7 +31,8 @@ def check(name, got, want):
 
 
 import hypit_bridge as hb            # noqa: E402
-SRC_BRIDGE = open(os.path.join(r"D:\video-skill\backend", "hypit_bridge.py"), encoding="utf-8").read()
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+SRC_BRIDGE = open(os.path.join(BACKEND, "hypit_bridge.py"), encoding="utf-8").read()
 
 # ──  leg 名：段必须按 leg 命名，不能按完成先后 ─────────────────────────────────────
 NEED1 = "need:author%3AC%3A%5Cdsh%5Chypit_runs%5Cproductions%5Creplica-final%5Cclone.svml%3A%3A" \
@@ -46,7 +49,7 @@ check("1f 空 body 不炸", hb._leg_name({}), "")
 TMP = os.path.join(HYPIT_WS, "productions", "_assemble-selftest")
 shutil.rmtree(TMP, ignore_errors=True)
 os.makedirs(os.path.join(TMP, "clips"), exist_ok=True)
-SRCDIR = os.environ.get("HYPIT_JOBS_DIR") or r"D:\video-skill\outputs\_hypit_jobs"
+SRCDIR = os.environ.get("HYPIT_JOBS_DIR") or os.path.join(BACKEND, r"outputs\_hypit_jobs")
 saved_ws, saved_mig = hb.HYPIT_WORKSPACE, hb._DB_MIGRATED["ok"]
 hb.HYPIT_WORKSPACE = HYPIT_WS
 real_src = None

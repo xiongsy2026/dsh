@@ -7,16 +7,31 @@ import tempfile
 tmp = tempfile.mkdtemp()
 os.environ["DELIVERY_LEDGER"] = os.path.join(tmp, "delivery.json")
 os.environ["DSH_WORKSPACE"] = tmp
-sys.path.insert(0, r"D:\video-skill\backend")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 import gateway as G  # noqa: E402
 import delivery_ledger as L  # noqa: E402
 
 fails = []
 
 
+def _safe(s):
+    """GBK 控制台上「⇒/🔴」会把 print 打崩=闸跑到一半没结果（最坏的假安静）。
+    只按【输出流编码】做 errors=replace；绝不 sys.stdout.reconfigure（造"零输出+exit 0"的静默假绿），
+    也别裸 s.encode()（默认 utf-8 永不失败=没兜住）。"""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        s.encode(enc)
+        return s
+    except (UnicodeEncodeError, LookupError):
+        return s.encode(enc, "replace").decode(enc, "replace")
+
+
 def check(name, got, want):
     a, b = json.dumps(got, ensure_ascii=False, default=str), json.dumps(want, ensure_ascii=False, default=str)
-    print(("PASS " if a == b else "FAIL ") + name + ("" if a == b else " => %r 期望 %r" % (got, want)))
+    print(_safe(("PASS " if a == b else "FAIL ") + name + ("" if a == b else " => %r 期望 %r" % (got, want))))
     if a != b:
         fails.append(name)
 
@@ -57,11 +72,22 @@ except Exception:
 L.open_obligation = orig
 check("8 台账炸了不影响这次调用", ok, True)
 
-src = open(r"D:\video-skill\backend\gateway.py", encoding="utf-8").read()
+src = open(os.path.join(BACKEND, r"gateway.py"), encoding="utf-8").read()
 # 只认【缩进的调用点】—— 顶格的 `def _register_delivery_dewatermark(...)` 是同串前缀，量顺序会指到定义行
 i1 = src.find(chr(10) + "        _register_delivery_dewatermark(params, vals)")
-i2 = src.find("return _dewatermark_run(")
-check("9 先记账再花钱（登记在 _dewatermark_run 之前）", [i1 > 0, i2 > 0, i1 < i2], [True, True, True])
+# 🔴 9 号钉的是【结构】不是函数名：2026-10-05 另一会话把 `_dewatermark_run` 换成共享的 `_rh_video_edit_run`
+#   （dewatermark/enhance 同一套 AI App 协议），写死函数名的锚点当场就红了——那是锚点漂，不是回归。
+#   规则本身没变：登记必须发生在同一分支里、在下一次 return（= 花钱）之前。
+import re as _re
+_seg = _re.search(r'purpose"\] == "dewatermark":(.*?)(?=\n    if |\n@app)', src, _re.S)
+_body = _seg.group(1) if _seg else ""
+_i_reg = _body.find("_register_delivery_dewatermark(")
+# 🔴 钉"生成腿被调用之前"，不是"下一次 return 之前"：后者会被"先调 runner → 再记账 → return 结果"
+#    这种坏形态蒙过去（本会话反向对照实测：那样改这条断言仍然全绿 = 假保险）。
+#    用 `_…_run(` 这个形态匹配生成腿调用，改名（_dewatermark_run → _rh_video_edit_run）也还认。
+_sp = _re.search(r"_[A-Za-z0-9_]*_run\(", _body)
+check("9 先记账再花钱（登记在 dewatermark 分支内、生成腿被调之前）",
+      [bool(_seg), _i_reg >= 0, bool(_sp) and _i_reg < _sp.start()], [True, True, True])
 near = src.rfind("vals, err = _dewatermark_payload(params)", 0, i1)   # 取登记之前【最近】那次（文件里还有别的同名调用点）
 check("10 本地参数校验仍在登记之前（错参数不该先留下欠账）", [near > 0, near < i1], [True, True])
 

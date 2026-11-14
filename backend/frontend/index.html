@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 视频工作台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #0f0f1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .home-header {
+            text-align: center; margin-bottom: 36px;
+        }
+        .home-header h1 {
+            font-size: 2.4em; color: #fff; letter-spacing: 4px;
+            background: linear-gradient(90deg, #6c3ce0, #3b82f6, #06b6d4);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .home-header p {
+            color: #888; font-size: 1em; margin-top: 10px;
+        }
+        .card-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px;
+            max-width: 800px; width: 90%;
+        }
+        .nav-card {
+            background: #16162a; border: 1px solid #2a2a5c; border-radius: 16px;
+            padding: 24px 18px; text-align: center; cursor: pointer;
+            transition: all .3s; text-decoration: none; display: flex;
+            flex-direction: column; align-items: center; justify-content: flex-start;
+            min-height: 220px;
+        }
+        .nav-card:hover {
+            border-color: #6c3ce0; transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(108,60,224,.25);
+        }
+        .nav-card .card-icon {
+            font-size: 2.6em; margin-bottom: 10px;
+        }
+        .nav-card .card-title {
+            font-size: 1.1em; font-weight: 700; color: #fff; margin-bottom: 8px;
+        }
+        .nav-card .card-desc {
+            font-size: .78em; color: #888; line-height: 1.55;
+            flex: 1; display: flex; align-items: center; text-align: center;
+        }
+        .nav-card .card-tag {
+            display: inline-block; margin-top: 10px; padding: 3px 12px;
+            border-radius: 20px; font-size: .72em; font-weight: 600;
+        }
+        .tag-replica { background: rgba(108,60,224,.2); color: #a78bfa; }
+        .tag-toddler { background: rgba(6,182,212,.2); color: #22d3ee; }
+        .tag-motion { background: rgba(14,165,233,.2); color: #38bdf8; }
+        .tag-translate { background: rgba(16,185,129,.2); color: #34d399; }
+        .tag-h3 { background: rgba(245,158,11,.2); color: #fbbf24; }
+        .tag-tvc { background: rgba(239,68,68,.2); color: #f87171; }
+        .tag-ip { background: rgba(236,72,153,.2); color: #f472b6; }
+        .tag-oneshot { background: rgba(250,204,21,.2); color: #fde047; }
+        .tag-detail { background: rgba(20,184,166,.2); color: #2dd4bf; }
+        .tag-hypit { background: rgba(168,85,247,.2); color: #c084fc; }
+        .tag-fetch { background: rgba(99,102,241,.2); color: #818cf8; }
+        .card-grid { grid-template-columns: repeat(4, 1fr); max-width: 1800px; gap: 16px; }
+        @media (max-width: 1200px) { .card-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 640px) { .card-grid { grid-template-columns: 1fr; } }
+
+        /* === API 健康指示牌 === */
+        .health-bar {
+            max-width: 1800px; width: 90%; margin-bottom: 28px;
+            background: #16162a; border: 1px solid #2a2a5c; border-radius: 12px;
+            padding: 14px 20px;
+        }
+        .health-bar-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .health-bar-title {
+            font-size: .82em; color: #888; font-weight: 600; letter-spacing: 1px;
+        }
+        .health-refresh-btn {
+            background: none; border: 1px solid #2a2a5c; color: #888;
+            font-size: .72em; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+            transition: all .2s;
+        }
+        .health-refresh-btn:hover { border-color: #6c3ce0; color: #a78bfa; }
+        .health-grid {
+            display: flex; flex-wrap: wrap; gap: 10px;
+        }
+        .health-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 20px; font-size: .76em; font-weight: 600;
+            border: 1px solid transparent;
+        }
+        .health-chip .dot {
+            width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+        }
+        .health-chip .name { color: #e0e0e0; }
+        .health-chip .meta { color: #666; font-size: .9em; font-weight: 400; }
+        /* 状态颜色 */
+        .health-ok {
+            background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3);
+        }
+        .health-ok .dot { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,.5); }
+        .health-ok .meta { color: #10b981; }
+        .health-down {
+            background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3);
+        }
+        .health-down .dot { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,.5); }
+        .health-down .meta { color: #f87171; }
+        .health-degraded {
+            background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.3);
+        }
+        .health-degraded .dot { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,.5); }
+        .health-degraded .meta { color: #fbbf24; }
+        .health-loading {
+            background: rgba(100,100,100,.1); border-color: rgba(100,100,100,.2);
+        }
+        .health-loading .dot { background: #666; }
+        .health-loading .meta { color: #666; }
+        .health-chip:hover .health-tooltip {
+            display: block;
+        }
+        .health-tooltip {
+            display: none; position: absolute; bottom: 100%; left: 50%;
+            transform: translateX(-50%); margin-bottom: 6px;
+            background: #1a1a2e; border: 1px solid #2a2a5c; border-radius: 6px;
+            padding: 6px 10px; font-size: .7em; color: #aaa; white-space: nowrap;
+            z-index: 100;
+        }
+        .health-chip { position: relative; }
+    </style>
+</head>
+<body>
+    <div class="home-header">
+        <h1>AI VIDEO STUDIO</h1>
+        <p>选择工作模式</p>
+    </div>
+
+    <!-- API 健康指示牌 -->
+    <div class="health-bar">
+        <div class="health-bar-header">
+            <span class="health-bar-title">API 状态指示牌</span>
+            <button class="health-refresh-btn" onclick="checkHealth()">刷新</button>
+        </div>
+        <div class="health-grid" id="health-grid">
+            <span class="health-chip health-loading"><span class="dot"></span><span class="name">检测中...</span></span>
+        </div>
+    </div>
+
+    <div class="card-grid">
+        <a class="nav-card" href="/screenplay-kb">
+            <div class="card-icon">📚</div>
+            <div class="card-title">洋子剧本知识库</div>
+            <div class="card-desc">5403 份剧本/编剧理论/类型片拆解 + FTS5 trigram 全文检索 → BM25 排序 → 命中段落 + 文档路径 + 跨阶段参考画像。基于洋子 film-knowledge-bridge 本地 SQLite 索引。</div>
+            <span class="card-tag tag-h3">SCREENPLAY KB</span>
+        </a>
+        <a class="nav-card" href="/short-drama-agent">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">短剧带货 · 钩子灵感大脑</div>
+            <div class="card-desc">产品品类+人群+场景+情绪 → 好莱坞大片开场钩子知识库（30 部经典 + HELL GRIND）→ SKILL 粗筛+向量检索+MiMo 精排改写 → 前 3 秒 Seedance 钩子 Prompt + 后续衔接指令</div>
+            <span class="card-tag tag-h3">SHORT DRAMA HOOK</span>
+        </a>
+        <a class="nav-card" href="/one-shot-video">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">一句话生视频</div>
+            <div class="card-desc">输入一句话意图 + 商品图（可选），GPT 自动推理 41 字段 → Seedance 2.0 生成 9:16 / 15s / 720p 电商带货短视频</div>
+            <span class="card-tag tag-oneshot">ONE-SHOT VIDEO</span>
+        </a>
+        <a class="nav-card" href="/hypit">
+            <div class="card-icon">✨</div>
+            <div class="card-title">Hypit</div>
+            <div class="card-desc">参考视频或 Brief → Agent 按 Hypit skill 理解、生成素材并编排可编辑成片；工作台管理项目、Runtime、Studio 与 Build</div>
+            <span class="card-tag tag-hypit">HYPIT</span>
+        </a>
+        <a class="nav-card" href="/womenswear">
+            <div class="card-icon">🎯</div>
+            <div class="card-title">女装带货 · 一键生成</div>
+            <div class="card-desc">商品链接 + 模仿视频链接，自动生成橱窗展示视频（白底图→展示图→动作迁移）</div>
+            <span class="card-tag tag-replica">WOMENSWEAR STUDIO</span>
+        </a>
+        <a class="nav-card" href="/douyin-batch">
+            <div class="card-icon">📥</div>
+            <div class="card-title">抖音账号批量下载</div>
+            <div class="card-desc">粘账号主页链接 + 选数量，依次下载该账号自己的作品到 C:\视频下载（需先粘 cookie）</div>
+            <span class="card-tag tag-fetch">BATCH FETCH</span>
+        </a>
+        <a class="nav-card" href="/publish">
+            <div class="card-icon">📤</div>
+            <div class="card-title">视频发布工作台</div>
+            <div class="card-desc">RPA 一键发布视频到抖音创作者中心，支持标题/标签</div>
+            <span class="card-tag tag-translate">PUBLISH</span>
+        </a>
+        <a class="nav-card" href="/prompt-reverse">
+            <div class="card-icon">🔍</div>
+            <div class="card-title">提示词反推</div>
+            <div class="card-desc">上传爆款视频，AI 自适应抽帧 + 多模态分析，反推 H3 视频生成 prompt</div>
+            <span class="card-tag tag-h3">PROMPT REVERSE</span>
+        </a>
+        <a class="nav-card" href="/framewright">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">Framewright 工作台</div>
+            <div class="card-desc">导演主导的电影化编译器：Intake 复述与决策 → Production Spine → 单阶段编译 Storyboard / Keyframes / Video Prompt（Seedance 2.0/2.5 · MiniMax H3）</div>
+            <span class="card-tag tag-replica">FRAMEWRIGHT</span>
+        </a>
+        <a class="nav-card" href="/replica-wan3">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">爆款复刻 wan3.0</div>
+            <div class="card-desc">视频 + 产品图 + H3 Prompt → RunningHub wan3.0 工作流复刻新视频</div>
+            <span class="card-tag tag-motion">WAN3 REPLICA</span>
+        </a>
+        <a class="nav-card" href="/agnes-image">
+            <div class="card-icon">🖼️</div>
+            <div class="card-title">Agnes Image</div>
+            <div class="card-desc">选定免费最新：agnes-image-2.5-flash。文生图 / 图生图 / 多图合成。1K–4K，含 9:16。</div>
+            <span class="card-tag tag-hypit">AGNES IMAGE</span>
+        </a>
+        <a class="nav-card" href="/agnes-flash">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">Agnes Video</div>
+            <div class="card-desc">选定免费最新：agnes-video-2.5-flash。文生 / 图参考 / 音频参考。720P，4–12 秒。不支持参考视频。</div>
+            <span class="card-tag tag-hypit">AGNES VIDEO</span>
+        </a>
+        <a class="nav-card" href="/agnes-25">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">Agnes 2.5</div>
+            <div class="card-desc">agnes-video-2.5：文生 / 图参考 / 1 条参考视频。720P–2K，4–12 秒。可替代 Wan3 吃原片。</div>
+            <span class="card-tag tag-hypit">AGNES 2.5</span>
+        </a>
+        <a class="nav-card" href="/super-clone-wan3">
+            <div class="card-icon">🚀</div>
+            <div class="card-title">超级复刻 wan3.0</div>
+            <div class="card-desc">不限时长 1:1 复刻：超过 15s 自动切段拼接；默认只换产品，可选换脸/换背景文字</div>
+            <span class="card-tag tag-oneshot">SUPER CLONE</span>
+        </a>
+        <a class="nav-card" href="/video-person-scene">
+            <div class="card-icon">🎭</div>
+            <div class="card-title">视频换人换背景</div>
+            <div class="card-desc">原视频 + 人物图 + 背景图 → 先换人（DreamID-V / V2）再换背景，RunningHub AI App 编排</div>
+            <span class="card-tag tag-ip">PERSON / SCENE</span>
+        </a>
+        <a class="nav-card" href="/account-kb">
+            <div class="card-icon">🧠</div>
+            <div class="card-title">账号知识库 · 视频 RAG 蒸馏</div>
+            <div class="card-desc">对标视频 20+ 条入库 → MiMo+GPT 账号级分析 → 蒸馏专属账号内容 Skill（在线审核）</div>
+            <span class="card-tag tag-oneshot">ACCOUNT KB</span>
+        </a>
+        <a class="nav-card" href="/hot-explosion-wan3">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">裂变出片 · 账号大脑</div>
+            <div class="card-desc">skill 快照 + 裂变需求 → 视频方案裂变 → 批量勾选直接生成（Wan3.0 满血网关）</div>
+            <span class="card-tag tag-oneshot">FISSION</span>
+        </a>
+        <a class="nav-card" href="/hook-extend">
+            <div class="card-icon">🪝</div>
+            <div class="card-title">钩子延展 · Omni 续接</div>
+            <div class="card-desc">原视频前 5 秒钩子 + 延展 prompt → Omni 续接 10 秒新视频</div>
+            <span class="card-tag tag-oneshot">HOOK EXTEND</span>
+        </a>
+        <a class="nav-card" href="/replica">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">爆款复刻工作流</div>
+            <div class="card-desc">上传爆款视频 + 产品图，AI 自动解析分镜、替换产品、生成带货视频</div>
+            <span class="card-tag tag-replica">VIRAL REPLICA</span>
+        </a>
+        <a class="nav-card" href="/replica-motion">
+            <div class="card-icon">🎞️</div>
+            <div class="card-title">爆款复刻 · 动作迁移</div>
+            <div class="card-desc">爆款视频分镜切分→关键帧产品替换→审核→RunningHub 动作迁移→拼接成片，分阶段审核可重做</div>
+            <span class="card-tag tag-motion">REPLICA + MOTION</span>
+        </a>
+        <a class="nav-card" href="/structural-replica">
+            <div class="card-icon">🧩</div>
+            <div class="card-title">结构性复刻工作流</div>
+            <div class="card-desc">原视频+产品图+卖点 → MiMo分镜JSON → Image2故事板海报 → RPA生成15s视频，分阶段审核</div>
+            <span class="card-tag tag-replica">STRUCTURAL REPLICA</span>
+        </a>
+        <a class="nav-card" href="/toddler-chef">
+            <div class="card-icon">👶</div>
+            <div class="card-title">涨粉 · 小孩做菜</div>
+            <div class="card-desc">一键生成萌娃硬核教学脚本，含九宫格分镜 + Seedance 2.0 视频提示词</div>
+            <span class="card-tag tag-toddler">TODDLER CHEF</span>
+        </a>
+        <a class="nav-card" href="/motion-transfer">
+            <div class="card-icon">🎭</div>
+            <div class="card-title">动作迁移</div>
+            <div class="card-desc">上传参考视频 + 参考图，RunningHub 工作流驱动人物复刻动作</div>
+            <span class="card-tag tag-motion">MOTION TRANSFER</span>
+        </a>
+        <a class="nav-card" href="/video-translate">
+            <div class="card-icon">🌍</div>
+            <div class="card-title">视频翻译</div>
+            <div class="card-desc">上传视频，ASR 识别 → 翻译 → TTS 配音 → 口型同步，生成翻译版视频</div>
+            <span class="card-tag tag-translate">VIDEO TRANSLATE</span>
+        </a>
+        <a class="nav-card" href="/ai-edit">
+            <div class="card-icon">✂️</div>
+            <div class="card-title">AI 剪辑</div>
+            <div class="card-desc">使用 OpenMontage 审查素材、管理剪辑流水线和 Backlot 审片，支持自然语言调整 B-roll 并导出成片</div>
+            <span class="card-tag tag-motion">AI EDIT · OPENMONTAGE</span>
+        </a>
+        <a class="nav-card" href="/toutiao">
+            <div class="card-icon">📰</div>
+            <div class="card-title">今日头条二创</div>
+            <div class="card-desc">抖音链接 → ASR文案 → LLM改写故事 → 配图 → 自动发布图文/微头条</div>
+            <span class="card-tag tag-translate">TOUTIAO RECREATE</span>
+        </a>
+        <a class="nav-card" href="/h3-studio">
+            <div class="card-icon">🐚</div>
+            <div class="card-title">海螺 H3 Studio</div>
+            <div class="card-desc">上传图片+提示词，调用 RunningHub 海螺 H3 大模型生成视频，支持多参/首尾帧两种模式切换</div>
+            <span class="card-tag tag-h3">H3 STUDIO</span>
+        </a>
+        <a class="nav-card" href="/h3-director">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">H3 导演台</div>
+            <div class="card-desc">多段分镜时间轴编辑，首尾帧/参考素材/源视频改写，原生立体声音频，一次生成长视频</div>
+            <span class="card-tag tag-h3">H3 DIRECTOR</span>
+        </a>
+        <a class="nav-card" href="/tvc">
+            <div class="card-icon">🎥</div>
+            <div class="card-title">一键产品 TVC</div>
+            <div class="card-desc">产品图+人群+主题 → GPT5.5 分镜提示词 → image2 4K 故事板 → SD2 生成 15 秒 TVC 成片</div>
+            <span class="card-tag tag-tvc">PRODUCT TVC</span>
+        </a>
+        <a class="nav-card" href="/detail-image">
+            <div class="card-icon">🖼️</div>
+            <div class="card-title">详情图生成</div>
+            <div class="card-desc">产品图+产品名 → GPT5.5 推理 N 个差异化场景提示词 → ideogram4 并发生成 N 张电商详情场景图</div>
+            <span class="card-tag tag-detail">DETAIL IMAGE</span>
+        </a>
+        <a class="nav-card" href="/multi-shot">
+            <div class="card-icon">🎞️</div>
+            <div class="card-title">首尾帧无限生成</div>
+            <div class="card-desc">复刻模式（原视频切帧+产品替换）与原创模式（GPT 推理脚本+关键帧生成）两条管线，H3 FL2VA 双帧并发生成 N 片段，ffmpeg concat 拼接成长视频</div>
+            <span class="card-tag tag-h3">MULTI-SHOT STITCH</span>
+        </a>
+        <a class="nav-card" href="/one-shot">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">爆款复刻</div>
+            <div class="card-desc">上传爆款视频 → MiMo 解析画面+音频 → Grok/GPT 反推 Seedance Prompt → 生成等价新视频（2.0/2.0-fast/2.0-mini/2.5）</div>
+            <span class="card-tag tag-h3">ONE-SHOT REPLICA</span>
+        </a>
+        <a class="nav-card" href="http://localhost:3000" target="_blank" rel="noopener">
+            <div class="card-icon">🎭</div>
+            <div class="card-title">IP 工厂</div>
+            <div class="card-desc">AI 虚拟 IP 孵化与运营平台（独立服务）。需先在 C:\ipgongchang 启动 run-web，默认端口 3000</div>
+            <span class="card-tag tag-ip">IP FACTORY</span>
+        </a>
+    </div>
+
+    <script>
+        // API 健康检测
+        async function checkHealth() {
+            const grid = document.getElementById("health-grid");
+            grid.innerHTML = '<span class="health-chip health-loading"><span class="dot"></span><span class="name">检测中...</span></span>';
+            try {
+                const r = await fetch("/api/health/models");
+                const d = await r.json();
+                if (!d.success || !d.models) {
+                    grid.innerHTML = '<span class="health-chip health-down"><span class="dot"></span><span class="name">检测失败</span></span>';
+                    return;
+                }
+                const kindLabel = { llm: "LLM", image: "图片", video: "视频" };
+                grid.innerHTML = d.models.map(m => {
+                    const cls = m.status === "ok" ? "health-ok" : m.status === "down" ? "health-down" : "health-degraded";
+                    const statusText = m.status === "ok" ? `${m.latency_ms}ms` : m.status === "down" ? "故障" : "异常";
+                    const tooltip = m.error ? m.error : (m.extra || (m.status === "ok" ? "正常" : ""));
+                    return `<span class="health-chip ${cls}" title="${tooltip}">
+                        <span class="dot"></span>
+                        <span class="name">${m.name}</span>
+                        <span class="meta">${kindLabel[m.kind] || ""} · ${m.model || ""}</span>
+                        <span class="meta">${statusText}</span>
+                    </span>`;
+                }).join("");
+            } catch (e) {
+                grid.innerHTML = '<span class="health-chip health-down"><span class="dot"></span><span class="name">服务不可达</span></span>';
+            }
+        }
+        // 页面加载时自动检测一次
+        checkHealth();
+        // 每 60s 自动刷新
+        setInterval(checkHealth, 60000);
+    </script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-r"""8090（D:\video-skill\app.py）的日志编码与"盘上真值纠状态"回归闸。
+r"""8090（app.py）的日志编码与"盘上真值纠状态"回归闸。
 
 跑法：python scripts/check-8090-log-encoding.py
 
@@ -21,8 +21,10 @@ import os
 import re
 import subprocess
 import sys
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
-APP_ROOT = r"D:\video-skill"
+APP_ROOT = BACKEND
 APP_PY = os.path.join(APP_ROOT, "app.py")
 SCRATCH_SR_DIR = os.path.join(APP_ROOT, "outputs", "sr_20261006_162002")   # 事故那条的产物（只读）
 
@@ -94,7 +96,8 @@ check("E1b echo() 的四位回显点都在（SR 两处 + one-shot + redo_shot + 
 CHECK_U = "\u2713"      # 就是打死那条任务的那个字符 U+2713
 PROBE = r'''
 import io, json, os, sys
-sys.path.insert(0, r"D:\video-skill")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 import app as A
 
 class Gbk(io.TextIOBase):
@@ -211,11 +214,11 @@ check("S2c 每条历史都带展示状态（页面按它渲染，缺字段就是
 #    判据形状：先量"子进程 stdout 到底是什么编码"，再看崩不崩 ——
 #    只看退出码会出假绿（上一版就这样：父进程里 import app 之后环境带上 UTF-8 位，
 #    子进程根本没走 gbk，却报"没崩"）。
-_L = os.path.join(r"D:\video-skill", "start_8090.cmd")
+_L = os.path.join(BACKEND, "start_8090.cmd")
 _lc = open(_L, encoding="ascii", errors="replace").read() if os.path.isfile(_L) else ""
 check("F1 8090 有启动脚本（没它就只能手敲 python app.py，stdout 编码全凭运气）",
       bool(_lc), True)
-_app_src = open(os.path.join(r"D:" + chr(92), "video-skill", "app.py"),
+_app_src = open(os.path.join(BACKEND, r"app.py"),
                 encoding="utf-8", errors="replace").read()
 # 守卫探的那个路径【必须是 app.py 真注册过的路由】。为什么钉这条而不是钉 URL 字面量：
 # 2026-10-10 我把守卫写成了 /api/health/models —— 那是 8100 的口，8090 上永远不应答，
@@ -247,7 +250,7 @@ def _run_print(extra_env):
     e.update(extra_env)
     code = "import sys;print('ENC=' + str(sys.stdout.encoding));print('  ' + chr(0x2713) + ' composer', flush=True)"
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, env=e,
-                       cwd=r"D:" + chr(92) + "video-skill")
+                       cwd=BACKEND)
     out = (r.stdout or b"").decode("utf-8", "replace")
     enc = out.split("ENC=")[-1].splitlines()[0].strip() if "ENC=" in out else "?"
     return r.returncode, enc, (r.stderr or b"").decode("utf-8", "replace")
@@ -264,7 +267,7 @@ check("F4 脚本给的环境里同一句不崩，而且字符是真发出去了�
 rc_bad, _e2, _x2 = _run_print({"PYTHONIOENCODING": "gbk"})
 check("F5 反向对照：环境换成 gbk ⇒ 又崩（决定生死的就是这一位，不是巧合）", rc_bad != 0, True)
 check("F6 pythonw 那条路的形状有出处：app.py 里 print 走的是 echo()，不是裸 print 崩业务",
-      "def echo(" in open(os.path.join(r"D:" + chr(92), "video-skill", "app.py"),
+      "def echo(" in open(os.path.join(BACKEND, r"app.py"),
                          encoding="utf-8", errors="replace").read(), True)
 report("\n=== 8090 日志编码/状态纠正闸：%d 条断言，失败 %d ===" % (TOTAL, len(fails)))
 if fails:

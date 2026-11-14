@@ -24,11 +24,14 @@ import sys
 import tempfile
 
 BS = chr(92)
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import gateway as gw            # noqa: E402
 
-GW_PY = r"D:\video-skill\backend\gateway.py"
-MA_PY = r"D:\video-skill\backend\model_admin.py"
+GW_PY = os.path.join(BACKEND, r"gateway.py")
+MA_PY = os.path.join(BACKEND, r"model_admin.py")
 PASS, FAIL = [], []
 
 
@@ -145,11 +148,22 @@ env = dict(os.environ, GATEWAY_SPEND_APPROVALS=APPR, GATEWAY_LEDGER=LEDG,
            GATEWAY_FORM_GATE=STUB_URL)
 env.pop("PYTHONUTF8", None)
 TASK = r"C:" + BS + "dsh" + BS + "productions" + BS + "ef1ba285"
+# 🔴 2026-10-30 换芯补的一步：`video.generate/wan3-prime` 现在是【按秒】计价的 lane（provider yz30，
+#    4 分/秒），而 `count_from_args` 对按秒的 lane 只认盘上的提交计划 —— 真产物 ef1ba285 是 10-11 那批，
+#    根本没有 `_submit_plan.json` ⇒ approve 会在"算不出秒数"那一支就先拒建，
+#    B1/B3/B5/B6/B7/B8 全部从"报价五格的出处"退化成"被更早的拒因打断"（测不到本意，还看着像换芯弄坏了）。
+#    所以这里给闸自己造一份 15 秒单窗的计划：单段 15s × 4 分/秒 = 60 分 ——
+#    与换芯前那条 60 分/段 的数字【恰好同量级】，B3 的期望值一个都不必改（改了就等于把新口径写死进闸）。
+TASK = os.path.join(tmp, "quote-task-15s")
+os.makedirs(os.path.join(TASK, "outputs"), exist_ok=True)
+with open(os.path.join(TASK, "outputs", "_submit_plan.json"), "w", encoding="utf-8") as _pf:
+    json.dump({"count": 1, "windows": [{"start": 0.0, "end": 15.0}], "target_duration": 15.0,
+               "trim": None, "task_id": "quote-prov-fixture"}, _pf)
 SID = "session-quoteprov"
 # 先把账户种进【临时账本】：真账本里 default/local 早就有行，而 `Ledger.balance()` 对没行的账户
 # 会**自动插一行 100000**（这就是"凭空余额"的来源）。2026-10-12 余额改成 known_balance 之后，
 # 没行的账户报价正文会印"当前余额：?" —— 那是诚实，但 fixture 必须演的是现网形状，所以这里显式种行。
-_seed = ("import sys;sys.path.insert(0,r'D:" + BS + "video-skill');"
+_seed = ("import sys;sys.path.insert(0,r'" + WS + "');"
          "from backend import gateway as g;"
          "print('seeded', g.Ledger(g._LEDGER_PATH).balance('default'))")
 _ps = subprocess.run([sys.executable, "-c", _seed], capture_output=True, text=True,
@@ -166,7 +180,7 @@ check("B2 stdout 里不含核销码（码进管道=agent 能自己伪造人证�
       bool(re.search(r"\b[0-9A-Z]{6}\b.*核销|核销码", out)), False)
 # facts 必须在【同一份临时账本】里读：本进程的 SPEND_APPROVALS_PATH/_LEDGER_PATH 指向线上文件，
 # 拿它读临时条子会得到"没建上"的假红 ⇒ 用同样的 env 起一个只读子进程问 quote_facts。
-_PROBE = ("import json,sys;sys.path.insert(0,r'D:" + BS + "video-skill');"
+_PROBE = ("import json,sys;sys.path.insert(0,r'" + WS + "');"
           "from backend import gateway as gw;print(json.dumps(gw.quote_facts(sys.argv[1],sys.argv[2])))")
 r2 = subprocess.run([sys.executable, "-c", _PROBE, SID, "default"],
                     capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -265,16 +279,79 @@ _s = ma.index("APPROVAL_PAGE = r")
 page = ma[_s:ma.index('\n"""\n', _s)]
 check("D0 页面块真的取到了（切空=后面三条全成真空判绿）",
       [len(page) > 3000, "URLSearchParams" in page], [True, True])
-check("D1 批准页按 ?session= 筛卡，并给「这条会话没有待批条子」的明说（不是空列表）",
-      [("URLSearchParams(location.search).get('session')" in page), ("none-mine" in page),
+check("D1 批准页按 ?session= 筛卡，空结果必须【说明是哪一种空】（不是空列表、也不是一句死话术）",
+      [("URLSearchParams(location.search).get('session')" in page), ("session_state" in page),
        ("没有待批条子" in page), ("会话 ${E(tail(p.session))}" in page)], [True, True, True, True])
 gwsrc = io.open(GW_PY, encoding="utf-8", errors="replace").read()
 check("D2 反向对照·页面里不许长出第二份数字核对（判据只在 gateway 一份）",
       [k in page for k in ("unit_price(", "quote_problems(", "charged_total")], [False, False, False])
+
+# ── D4/D5/D6（2026-10-14 现网）：批准页的空态分五种状态，判据只在 gateway 一份 ──
+# 现场：客户 16:14 就在批准窗点了【批准，开始跑】，条子 ok_cda1bfd1 处于"已批准·0/1 段待消费"，
+#      而页面只读 /api/spend/pending（那时已空），于是对所有空结果一律印
+#      "Agent 还没跑 gateway.py approve" —— 那句当场是错的，还会把人推去"再建一张"（批两遍）。
+_NOW = 1791965700.0                       # 2026-10-14 16:15:00，固定住免得闸随时间漂
+_LIVE = 1791969300.0                      # 明天到期
+_DEAD = 1791962100.0                      # 一小时前就过期
+def _g(used, count, exp, **kw):
+    d = {"id": "ok_test", "capability": "video.generate", "purpose": "wan3-prime", "account": "local",
+         "session": "s-a", "count": count, "used": used, "credits": 60, "used_credits": used * 60,
+         "created": _NOW - 60, "expires": exp, "attest": {"method": "dsh-card-click", "at": _NOW - 36}}
+    d.update(kw)
+    return d
+_ST_FIX = {
+    "pending": ({"pending": [{"id": "pend_1", "session": "s-a", "capability": "video.generate",
+                              "purpose": "wan3-prime", "account": "local", "count": 1,
+                              "credits": 60, "expires": _LIVE}], "grants": []}, "pending"),
+    "approved-waiting": ({"pending": [], "grants": [_g(0, 1, _LIVE)]}, "approved-waiting"),
+    "consumed": ({"pending": [], "grants": [_g(1, 1, _LIVE)]}, "consumed"),
+    "expired": ({"pending": [], "grants": [_g(0, 1, _DEAD)]}, "expired"),
+    "none": ({"pending": [], "grants": []}, "none"),
+}
+_stgot = {k: gw.approval_session_state("s-a", data=v, now=_NOW) for k, (v, _) in _ST_FIX.items()}
+check("D4 五种状态各判各的（现网那条必须落 approved-waiting，不是 none）",
+      [_stgot[k]["state"] for k in _ST_FIX], [v for _, v in _ST_FIX.values()])
+check("D5 五态互不相同 + 话术对得上：已批过的那句要明说「不用再点」，从没建过的那句才提 approve",
+      [len({v["state"] for v in _stgot.values()}) == 5,
+       "不用再点" in _stgot["approved-waiting"]["text"],
+       "approve" in _stgot["none"]["text"],
+       _stgot["approved-waiting"]["head"] != _stgot["none"]["head"]], [True, True, True, True])
+check("D5b 脚注也分状态：已批过的那一态【不许】再出现「让它先建条子」，"
+      "而从没建过的那一态必须有 —— 否则只是把误导挪了个地方",
+      [all("先建条子" not in x for x in _stgot["approved-waiting"]["foot"]),
+       any("先跑 gateway.py approve" in x or "建条子" in x for x in _stgot["none"]["foot"]),
+       all(isinstance(v["foot"], list) and v["foot"] for v in _stgot.values()),
+       any("作废" in x for x in _stgot["pending"]["foot"])], [True, True, True, True])
+check("D5c 已批准那一态不许借用【待批】的 15 分钟 TTL 说事（现网页脚就是这么误导的）",
+      [any("15 分钟" in x for x in _stgot["approved-waiting"]["foot"]),
+       "还剩 24 小时" in _stgot["approved-waiting"]["text"] or "还剩" in _stgot["approved-waiting"]["text"]],
+      [False, True])
+check("D6 变异对照·同一张条子只把到期时间挪到过去 ⇒ 必须从 approved-waiting 变 expired"
+      "（证明它真在读 expires/used，不是把五句写死）",
+      gw.approval_session_state("s-a", data={"pending": [], "grants": [_g(0, 1, _DEAD)]},
+                                now=_NOW)["state"], "expired")
+check("D6b 变异对照·把 grants 整份清空 ⇒ 同一会话必须退回 none（= 旧页面那句），"
+      "说明现网那句只对【从没建过条子】成立",
+      gw.approval_session_state("s-a", data={"pending": [], "grants": []}, now=_NOW)["state"], "none")
+check("D6c 判据只有一份：状态词与段数核对都只在 gateway 里，页面拿到什么就念什么"
+      "（页面里出现 approved-waiting / used 比较 = 长出第二份分类器）",
+      [("approved-waiting" in gwsrc), ("approved-waiting" in page),
+       ("- p.used" in page), ("approval_session_state(" in gwsrc)], [True, False, False, True])
+check("D6d 接线：/api/spend/pending 带 session 时必须把判定一起回（handler 漏调 ⇒ 页面静默退回旧那句），"
+      "且页面 fetch 真的把 session 带上",
+      [("session_state" in ma and "approval_session_state(_qs)" in ma and "_qs" in ma),
+       ("'/api/spend/pending'+(MYSID?'?session=" in page)], [True, True])
+check("D6e 页面只渲染服务端给的 head/text/foot（不再自己判状态、也不再写死脚注），"
+      "且兜底仍保留「没有待批条子」字样（D1 不许因为改造变空）",
+      [("st&&st.head" in page), ("st&&st.text" in page), ("st.foot" in page),
+       ("没有待批条子" in page), ("让它先建条子" in page)], [True, True, True, True, False])
+
+
 check("D3 gateway 侧四个判据函数都在，且 approve 分支引用的是【带会话号】那条 URL",
       [all(("def " + fn) in gwsrc for fn in ("quote_numbers_in", "quote_facts",
                                             "quote_problems", "approval_entry_problems")),
-       gwsrc.count("appr_url") >= 3, "approval 点一次" not in gwsrc], [True, True, True])
+       ("approval?session=" in gwsrc and gwsrc.count("% appr_url") >= 1),
+       "approval 点一次" not in gwsrc], [True, True, True])
 
 # ── E 组 变异对照：判据改空转 ⇒ C 组必须失配（证明它咬人） ──────────────────────
 _ns = {"quote_problems": lambda *a, **k: [], "approval_entry_problems": lambda *a, **k: []}

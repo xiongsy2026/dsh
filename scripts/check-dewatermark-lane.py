@@ -17,12 +17,15 @@ import sys
 import tempfile
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 import httpx  # noqa: E402
 from backend import gateway as g  # noqa: E402
 
-SRC = open(r"D:\video-skill\backend\gateway.py", encoding="utf-8").read()
-CFG = open(r"D:\video-skill\config.py", encoding="utf-8").read()
+SRC = open(os.path.join(BACKEND, r"gateway.py"), encoding="utf-8").read()
+CFG = open(os.path.join(BACKEND, r"config.py"), encoding="utf-8").read()
 LIVE = "--live" in sys.argv
 out = []
 
@@ -58,7 +61,7 @@ check("B7 四个节点号 + App 号 + 默认提示词都在 config",
                              "RUNNINGHUB_DEWATERMARK_PROMPT_NODE", "RUNNINGHUB_DEWATERMARK_PROMPT")), True)
 
 # ---- C 花钱前的本地拦截 ----
-REAL = r"D:\video-skill\backend\services\file.mp4"   # 盘上真有个 mp4，只用来走"文件存在"这条路
+REAL = os.path.join(BACKEND, r"services\file.mp4")   # 盘上真有个 mp4，只用来走"文件存在"这条路
 check("C1 缺 video_path ⇒ 本地拒", (g.call("video.edit")["success"], "video_path" in (g.call("video.edit")["error"] or "")),
       (False, True))
 check("C2 公网 URL 当输入 ⇒ 拒（上传步骤会炸，别让上游替我们报错）",
@@ -130,7 +133,8 @@ httpx.AsyncClient = FakeClient   # 只换传输层：upload_resource/submit_task
 vals, err = g._dewatermark_payload({"video_path": REAL, "output_path": os.path.join(tempfile.gettempdir(), "dw-e1.mp4")})
 check("E0 前置：正常参数过校验", err, None)
 CALLS.clear()
-res = g._dewatermark_run(vals, "APP-TEST", api_key="FAKE-KEY", poll_interval=0.01)
+res = g._rh_video_edit_run(vals, "APP-TEST", api_key="FAKE-KEY", label="去水印", poll_interval=0.01,
+                           nodes_fn=lambda up, v: g._dewatermark_nodes(up, v["duration"], v["fps"], v["prompt"]))
 urls = [c["url"].replace("https://www.runninghub.ai", "") for c in CALLS]
 check("E1 三次写 + 一次下载，端点顺序对", urls,
       ["/openapi/v2/media/upload/binary", "/openapi/v2/run/ai-app/APP-TEST", "/openapi/v2/query", "https://rh/out.mp4"])
@@ -155,7 +159,8 @@ os.remove(vals["output_path"])
 CALLS.clear()
 MODE["query"] = "FAILED"
 vals2, _ = g._dewatermark_payload({"video_path": REAL, "output_path": os.path.join(tempfile.gettempdir(), "dw-e2.mp4")})
-res2 = g._dewatermark_run(vals2, "APP-TEST", api_key="FAKE-KEY", poll_interval=0.01)
+res2 = g._rh_video_edit_run(vals2, "APP-TEST", api_key="FAKE-KEY", label="去水印", poll_interval=0.01,
+                            nodes_fn=lambda up, v: g._dewatermark_nodes(up, v["duration"], v["fps"], v["prompt"]))
 check("E11 上游 FAILED ⇒ success:false 且点名 OOM", (res2["success"], "memory" in res2["error"]), (False, True))
 check("E12 失败也回 job_id（可据此查上游，不重提交）", res2["job_id"], "TASK-777")
 check("E13 失败绝不在盘上留一个「成功文件」", os.path.exists(vals2["output_path"]), False)
@@ -164,7 +169,8 @@ check("E13 失败绝不在盘上留一个「成功文件」", os.path.exists(val
 MODE["query"] = "SUCCESS"
 MODE["body"] = b"E404-ish" * 20
 vals3, _ = g._dewatermark_payload({"video_path": REAL, "output_path": os.path.join(tempfile.gettempdir(), "dw-e3.mp4")})
-res3 = g._dewatermark_run(vals3, "APP-TEST", api_key="FAKE-KEY", poll_interval=0.01)
+res3 = g._rh_video_edit_run(vals3, "APP-TEST", api_key="FAKE-KEY", label="去水印", poll_interval=0.01,
+                            nodes_fn=lambda up, v: g._dewatermark_nodes(up, v["duration"], v["fps"], v["prompt"]))
 check("E14 下载体过小 ⇒ 判失败（不把错误页存成 mp4）", res3["success"], False)
 check("E15 过小那次也没落盘", os.path.exists(vals3["output_path"]), False)
 MODE["body"] = b"V" * 4096
@@ -172,7 +178,8 @@ MODE["body"] = b"V" * 4096
 # 给 job_id = 只捞结果，绝不重提交（双花）
 CALLS.clear()
 vals4, _ = g._dewatermark_payload({"video_path": REAL, "output_path": os.path.join(tempfile.gettempdir(), "dw-e4.mp4")})
-res4 = g._dewatermark_run(vals4, "APP-TEST", api_key="FAKE-KEY", job_id="TASK-ORPHAN", poll_interval=0.01)
+res4 = g._rh_video_edit_run(vals4, "APP-TEST", api_key="FAKE-KEY", label="去水印", job_id="TASK-ORPHAN", poll_interval=0.01,
+                            nodes_fn=lambda up, v: g._dewatermark_nodes(up, v["duration"], v["fps"], v["prompt"]))
 check("E16 有 job_id ⇒ 不上传不提交，只查 + 下载", [c["url"].split("/openapi/")[-1] if "/openapi/" in c["url"] else c["url"]
                                                     for c in CALLS], ["v2/query", "https://rh/out.mp4"])
 check("E17 查的是那个孤儿任务本身", next(c for c in CALLS if "query" in c["url"])["json"]["taskId"], "TASK-ORPHAN")
@@ -184,7 +191,7 @@ check("F1 轮询里查询异常退避重试同一个 taskId（连续 6 次才判
       ("fails += 1" in SRC, "if fails >= 6:" in SRC, "min(poll_interval, 3 * fails)" in SRC), (True, True, True))
 check("F2 判死时只报 taskId、不重新提交", "别重提交" in SRC, True)
 check("F3 超时那次也回 job_id（不静默丢任务）",
-      ('"error": "去水印：轮询超时' in SRC, '"job_id": tid' in SRC), (True, True))
+      ('轮询超时' in SRC, '"job_id": tid' in SRC), (True, True))
 
 if LIVE:
     print("\n--live：这条会真按 GPU 秒扣钱，先按 AGENTS.md 报价并等确认，"

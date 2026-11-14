@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""super-clone skill runner：薄封装 D:\\video-skill 的 super_clone_wan3.run_pipeline。
+"""super-clone skill runner：薄封装 backend 的 super_clone_wan3.run_pipeline。
 
 只做参数整理 + 调用 + 打印结果 JSON，不重写管线、不复制视频引擎（PRD §6.2 共用工具层）。
 
@@ -16,9 +16,10 @@ import argparse
 import asyncio
 import json
 import os
+import subprocess
 import sys
 
-VIDEO_SKILL_HOME = os.environ.get("VIDEO_SKILL_HOME", r"D:\video-skill")
+VIDEO_SKILL_HOME = os.environ.get("VIDEO_SKILL_HOME", os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 # 只改【错误策略】不改编码：正解是按输出流能力丢字（GBK 控制台上 print 中文是正常需求）。
 # 以前踩过的坑是 sys.stdout.reconfigure(encoding="utf-8") —— 那会造出"零输出 + exit 0"的静默假绿。
@@ -175,7 +176,7 @@ def compile_collision(gate: dict | None, output_dir: str) -> tuple:
        同名产物（prompt.txt / storyboard.json / 回执）互相覆盖，MiMo 与编译器还要各跑一遍。
 
     🔴 祖先那一支不算撞车（2026-10-12 现网 18:26，一整天"点火零产物"的真死因）：
-       8100 用 `D:\\video-skill\\.venv\\Scripts\\pythonw.exe` 起子进程，那是个**重定向壳** ——
+       8100 用 `.venv\Scripts\pythonw.exe` 起子进程，那是个**重定向壳** ——
        实测 `Popen.pid=65192` 而真正执行 run.py 的是它的**子进程 55020**。牌子写的是壳的号，
        于是 run.py 一读牌子 = 我自己爸、`_pid_alive` 为真 ⇒ **把自己拒了**，
        compile.log 里那句【已经在跑 pid=58268】是它自己打印的，outputs/ 因此是空的。
@@ -212,18 +213,37 @@ def fold_scene_text(customer_request, scene_text) -> str:
     return "\n".join(lines).strip()
 
 
-# 三档的唯一源 = SKILL.md『声音模式与换音色』(193-199)。这里不再解释语义，只做入口一致性判定。
-VOICE_MODES = ("preserve_original", "timbre_swap", "rewrite_voice")
+# 档位语义的唯一源 = SKILL.md『声音模式与换音色』。这里不解释语义，只做入口一致性判定：
+# 表上能选 ≠ 这条流程真做得到 —— 做不到的那档必须【出声拒】，不许悄悄降级交回原声。
+VOICE_MODES = ("preserve_original", "timbre_swap", "rewrite_text", "rewrite_voice")
+SWAP_MODES = ("rewrite_text",)          # 走 run_narration_swap 后处理腿的档
+MODE_NOT_WIRED = ("rewrite_voice",)     # 选项在表上，但今天没有实现路径 ⇒ 入口拒
 
 
-def voice_mode_problems(mode, has_audio) -> str:
-    """声音档与"有没有交目标人声"必须自洽。判据抽成纯函数 ⇒ 闸直接跑值表，不靠人在场。
+def voice_mode_problems(mode, has_audio, has_script=False) -> str:
+    """声音档与"交没交目标人声 / 新口播文案"必须自洽。判据抽成纯函数 ⇒ 闸直接跑值表，不靠人在场。
     返回错误串；空串 = 放行。"""
     if mode not in VOICE_MODES:
         return "声音档只认 %s（收到 %r）" % ("/".join(VOICE_MODES), mode)
-    if mode in ("timbre_swap", "rewrite_voice") and not has_audio:
+    if mode in MODE_NOT_WIRED:
+        return ("%s 今天没有实现路径（新音色参考取哪一段、要不要口型同步，两条都还没定）"
+                "⇒ 改口播不换人请选 rewrite_text，只换音色请选 timbre_swap。"
+                "🔴 不许拿 timbre_swap 顶替：那是把没改的口播当改过交付。" % mode)
+    if mode in ("timbre_swap",) and not has_audio:
         return ("%s 必须给目标人声参考（--voice-audio）：没有音色可换，"
                 "我不会拿原片原声冒充换过声音" % mode)
+    # 🔴 2026-10-14 用户改口径：rewrite_text（原音色改口播）= 【必须给新口播音频】并送进 wan3 的
+    #    reference_audio。旧规则恰好相反（"给了音频=自相矛盾"），因为当时假定"新词靠后处理换轨、
+    #    音色取自成片原声"。那条假定今天被实测打掉：wan3 把【参考视频的原声】整条搬进成片
+    #    （成片音轨与源音轨相关系数 0.884，FunASR 听到的是原片词），所以不给新音频 = 口播根本没改。
+    #    ⇒ 不传音频这一档就拒，绝不拿原片原声当"已改口播"交回。
+    if mode in SWAP_MODES and not has_audio:
+        return ("%s（改口播）必须给【新口播音频】（--voice-audio / 表单「新口播音频」那一格）："
+                "这条 lane 的声音来自参考视频，不给新音频就只会播出原片那条声。"
+                "🔴 上游对 reference_audio 的用法（照它念、还是只取音色）未实测 ⇒ 出片后必须 ASR 复验。" % mode)
+    if mode in SWAP_MODES and not has_script:
+        return ("%s 必须给新口播文案（表单「新口播文案」那一格，一行一句）："
+                "文案与音频要能逐句对上，没有文案就没法核对音频说的是哪句。" % mode)
     if mode == "preserve_original" and has_audio:
         return ("preserve_original（原声保留）却给了 --voice-audio = 自相矛盾："
                 "贴回原声就不会换音色（SKILL.md 硬规则 13 的穿帮形状）")
@@ -231,6 +251,360 @@ def voice_mode_problems(mode, has_audio) -> str:
 
 
 FORM_GATE_URL = "http://127.0.0.1:8100/api/skills/form?session="
+
+
+def direct_narration_done(video_path: str) -> str:
+    """这条片子是不是【已经直出念新词】（wan3 一次出片就说了改后的口播）⇒ 返回物证路径，没有回空串。
+    物证住 output_dir（任务 outputs 根），片子住 outputs/step2_wan3/… ⇒ 往上找几层，不猜文件名。"""
+    d = os.path.dirname(os.path.abspath(str(video_path or "")))
+    for _ in range(6):
+        cand = os.path.join(d, "voice_script_binding.json")
+        if os.path.isfile(cand):
+            try:
+                with open(cand, encoding="utf-8") as fh:
+                    rec = json.load(fh) or {}
+                if float(rec.get("coverage") or 0) >= 0.999 and not (rec.get("problems") or []):
+                    return cand
+            except Exception:                                  # noqa: BLE001
+                return ""
+            return ""
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return ""
+
+
+def apply_narration_swap(video_path, vals, log=print) -> str:
+    """voice_mode=rewrite_text 的后处理腿（改口播 · 音色不变）。其它档返回空串、什么都不做。
+
+    🔴 每改一句 = 一次 RunningHub 声音克隆，且这条腿【不在网关账本上】⇒ 调用点只能落在
+       人已批准、片子已经到手之后。失败一律 SystemExit：宁可没有这一条，也不许把没改的
+       原片当"口播已改"交回给人（那是静默冒充，比没做更坏）。
+    """
+    if str(vals.get("voice_mode") or "") not in SWAP_MODES:
+        return ""
+    _nd = direct_narration_done(video_path)
+    if _nd:
+        log("[改口播] 这一条是【直出】的：新词已经在 prompt 台词位里（物证 %s）⇒ 不再走换轨，"
+            "换了就是一条片子里两条声，还重复花一次克隆的钱" % _nd)
+        return ""
+    script = str(vals.get("voice_script") or "").strip()
+    if not script:
+        raise SystemExit("[改口播] voice_mode=%s 但没有新口播文案 ⇒ 不做（没得改，不是改好了）"
+                         % vals.get("voice_mode"))
+    src = str(video_path or "")
+    if not os.path.isfile(src):
+        raise SystemExit("[改口播] 成片不在盘上（%s）⇒ 先拿到片子再换轨" % src)
+    _ensure_video_skill_on_path()
+    from backend.services import voiceover_replace as vo      # noqa: E402
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(src)), "narration")
+    log("[改口播] 对成片自己做 ASR + 人声分离（本地、0 分上游），逐句对照…")
+    rec = asyncio.run(vo.run_narration_swap(src, out_dir, script, on_log=log))
+    got = str(rec.get("video_out") or "")
+    if not (got and os.path.isfile(got)):
+        raise SystemExit("[改口播] 后处理没产成物（%s）⇒ 不许把原片当改好的交付" % got)
+    log("[改口播] 换轨成片 → %s ｜ 重做 %s 句、保留 %d 句 ｜ 克隆实扣合计 %s"
+        % (got, rec.get("clone_calls"),
+           len(rec.get("rows") or []) - int(rec.get("clone_calls") or 0),
+           rec.get("usage_total")))
+    _tick_narration(os.path.dirname(os.path.abspath(src)),
+                    os.path.join(out_dir, "narration_swap.json"))
+    return got
+
+
+LIPSYNC_CAP = ("lipsync", "default")
+
+
+def apply_lip_sync(video_path, vals, log=print) -> str:
+    """口型对齐腿（RunningHub LatentSync，经网关 lipsync/default）。
+
+    🔴 为什么必须是一条【后处理腿】而不是 wan3 的参数（2026-10-13 用户裁定"wan3.0 没法直出了，
+       得加口型对齐工作流"）：wan3-prime 的入参名单里没有任何口型字段（`_PRIME_YZ_MEDIA` 只有
+       reference_image/video/audio/file），而改口播那条腿自己就写着"不做口型同步"⇒ 换了词嘴形
+       就对不上。对齐的目标音频 = **换轨后成片自己的音轨**（本地抽，0 分），不再另外造一条 TTS。
+    🔴 花钱边界：这一条走网关 ⇒ 20 分/次（登记值·这条腿在账本里 0 次调用 = 未实测），
+       且 `lipsync` 属于【默认要批】⇒ 没条子就 0 分未扣、任务未发起，本函数原样把拒因念出来。
+       绝不"顺手"提交：宁可交一条嘴形没对齐的片子并如实说明，也不替人点批准。
+    返回对齐后的路径；没做/做错一律回空串（调用方据此继续交付，不许把没做的当做了）。
+    """
+    if str(vals.get("voice_mode") or "") not in SWAP_MODES:
+        return ""
+    src = str(video_path or "")
+    if not os.path.isfile(src):
+        log("[口型] 没有可对齐的成片（%s）⇒ 跳过" % src)
+        return ""
+    _ensure_video_skill_on_path()
+    from backend import gateway as gw                        # noqa: E402
+    work = os.path.join(os.path.dirname(os.path.abspath(src)), "lipsync_work")
+    os.makedirs(work, exist_ok=True)
+    audio = os.path.join(work, "target_audio.wav")
+    if not _extract_audio_track(src, audio):
+        log("[口型] 抽不出音轨 ⇒ 不做（没有音频就没有对齐的根据，不是「整条送过去碰运气」）")
+        return ""
+    segs, how = _lip_segments(src)
+    if how == "no-face":
+        log("[口型] storyboard 里【没有一个镜头有正脸】⇒ 这一刀不做（0 分、不发请求）："
+            "画面上根本没有嘴，花 20 分重画只会把产品特写画坏")
+        return ""
+    params = {"video_path": src, "audio_path": audio, "output_dir": work}
+    if segs:
+        params["segments"] = segs
+    win = " ".join("%.1f-%.1f" % (s["start"], s["end"]) for s in segs[:6]) or "—"
+    log("[口型] %s → LatentSync（%s·%d 段 %s）… 这一步花 20 分/次，要先有人批"
+        % (os.path.basename(src), "selective" if segs else "整条", len(segs), win))
+    env = gw.invoke(LIPSYNC_CAP[0], LIPSYNC_CAP[1], "local", params)
+    cr = env.get("credits") or {}
+    rec = {"video_in": src, "audio_in": audio, "segments": segs, "segments_from": how,
+           "capability": "%s/%s" % LIPSYNC_CAP, "unit_price": gw.unit_price(*LIPSYNC_CAP),
+           "charged": cr.get("charged"), "estimated": cr.get("estimated"),
+           "ok": bool(env.get("ok")), "error": str(env.get("error") or ""),
+           "video_out": str((env.get("result") or {}).get("path") or ""),
+           "mode": str((env.get("result") or {}).get("mode") or "")}
+    try:
+        with open(os.path.join(work, "lip_sync.json"), "w", encoding="utf-8") as fh:
+            json.dump(rec, fh, ensure_ascii=False, indent=2)
+    except Exception as e:                                    # noqa: BLE001
+        log("[口型] 物证没写成(%s)⇒ 这一格打不上钩" % type(e).__name__)
+    got = rec["video_out"]
+    if not env.get("ok") or not (got and os.path.isfile(got)):
+        log("[口型] 没做成：%s ⇒ 交付用的还是没对齐的那条（%s）"
+            % (str(rec["error"])[:180] or "上游没落出文件", src))
+        return ""
+    cr2 = _tick_lip_sync(os.path.dirname(os.path.abspath(src)), os.path.join(work, "lip_sync.json"))
+    log("[口型] 对齐成片 → %s ｜ 实扣 %s 分%s" % (got, rec["charged"], cr2))
+    return got
+
+
+def _extract_audio_track(video: str, out_wav: str, log=print) -> bool:
+    """本地抽音轨（0 分、不发任何请求）。抽不出 = 不做，不许拿原视频当"已对齐"。
+    🔴 死因必须说出来（2026-10-14 现网）：这函数原先 `except: return False` 把 ffmpeg 的 stderr
+       和异常一起吃掉 ⇒ 日志只剩一句"抽不出音轨"，而盘上那条片子手动抽是好的，没法定位。
+    """
+    try:
+        p = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video,
+                            "-vn", "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", out_wav],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=180)
+    except Exception as e:                                     # noqa: BLE001
+        log("[口型] 抽音轨抛异常(%s: %s) ⇒ 不做" % (type(e).__name__, str(e)[:160]))
+        return False
+    if p.returncode != 0:
+        log("[口型] ffmpeg 回 %s：%s" % (p.returncode, (p.stderr or "")[:220]))
+        return False
+    if not os.path.isfile(out_wav):
+        log("[口型] ffmpeg 说成功但没落文件：%s" % out_wav)
+        return False
+    sz = os.path.getsize(out_wav)
+    if sz <= 1024:
+        log("[口型] 抽出来只有 %d 字节，不像音轨 ⇒ 不做（这条片子可能根本没声）" % sz)
+        return False
+    return True
+
+
+def _sec(v):
+    """storyboard 里的时间既写 `00:03.00` 也写 `15.0`，两种都要能读（读不出回 None，不猜）。"""
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v or "").strip()
+    if not s:
+        return None
+    if ":" in s:
+        parts = s.split(":")
+        try:
+            return sum(float(p) * (60 ** (len(parts) - 1 - i)) for i, p in enumerate(parts))
+        except ValueError:
+            return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _near_sidecar(start_dir: str, name: str, up: int = 4) -> str:
+    """从片子所在目录往上找同名旁文件（段目录 / narration / step2_wan3 三种落点都在这条链上）。"""
+    d = os.path.abspath(start_dir or "")
+    for _ in range(up + 1):
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return p
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return ""
+
+
+def _face_windows(video_path: str):
+    """storyboard 里「正脸入镜」的镜头窗口 = 口型穿帮【唯一看得见】的地方。
+    判据 = 面部微表情那一组字段里没写「未入镜 / 看不清」。
+    🔴 三种结果要分开：`None` = 没有 storyboard 这份事实源（不能据此断定没人露脸）；
+       `[]` = 读到了、而且逐镜都写着未入镜 ⇒ 这一刀【不该做】。"""
+    sb = _near_sidecar(os.path.dirname(os.path.abspath(video_path or "")), "storyboard.json")
+    if not sb:
+        return None
+    try:
+        with open(sb, encoding="utf-8") as fh:
+            rows = json.load(fh) or []
+    except Exception:                                          # noqa: BLE001
+        return None
+    out = []
+    for s in rows if isinstance(rows, list) else []:
+        if not isinstance(s, dict):
+            continue
+        t = s.get("时间区间") or {}
+        a, b = _sec(t.get("开始时间")), _sec(t.get("结束时间"))
+        if a is None or b is None or b <= a:
+            continue
+        face = "".join(str(v) for v in (s.get("面部微表情") or {}).values())
+        if not face.strip() or any(k in face for k in ("未入镜", "看不清")):
+            continue
+        out.append({"start": a, "end": b})
+    return out
+
+
+def _speech_windows(video_path: str) -> list:
+    """改口播那份对账单里的「什么时候在说话」。TTS 换轨那条腿逐句落 rows；
+    客户整稿音频那条腿（narration_audio.json）是整条替换、没有逐句时间 ⇒ 读不到就交空。"""
+    p = _near_sidecar(os.path.dirname(os.path.abspath(video_path or "")), "narration_swap.json")
+    if not p:
+        return []
+    try:
+        with open(p, encoding="utf-8") as fh:
+            rows = (json.load(fh) or {}).get("rows") or []
+        return [{"start": float(r.get("start", 0)), "end": float(r.get("end", 0))}
+                for r in rows if float(r.get("end") or 0) > float(r.get("start") or 0)]
+    except Exception:                                          # noqa: BLE001
+        return []
+
+
+def _lip_segments(video_path: str) -> tuple:
+    """口型这一刀要重画哪几段，以及这个结论是【怎么定出来的】。
+
+    🔴 为什么要交这份窗口（2026-10-14 现网）：那条 15s 成片里只有镜 1–2（0–4.8s）有正脸说话，
+       其余 10.2s 是手、产品特写和背面 —— 拿整条去跑 LatentSync = 花 20 分重画根本没有嘴的画面。
+       上一版这里只读 `narration/narration_swap.json`（只有 TTS 换轨那条腿才写得出来），
+       客户给整稿音频的形状读不到 ⇒ 静默退成整条模式（`lip_sync.json` 里 segments 空就是这么来的）。
+    两份判据：storyboard 的「面部微表情」（有没有嘴）× 换轨台账（什么时候在说话）。
+    都有 ⇒ 交集；只有嘴的窗口 ⇒ 用它（face）；两份都没读到 ⇒ unknown，由调用方退成整条。
+    🔴 「读到了 storyboard 但一镜正脸都没有」单独回 no-face ⇒ 调用方【不做这一刀】，不是退成整条。
+    """
+    faces = _face_windows(video_path)
+    speech = _speech_windows(video_path)
+    if faces is None:                                          # 没有 storyboard 这份事实源
+        return (speech, "speech") if speech else ([], "unknown")
+    if not faces:                                              # 读到了：一镜正脸都没有
+        return [], "no-face"
+    if not speech:
+        return faces, "face"
+    inter = []
+    for f in faces:
+        for w in speech:
+            a, b = max(f["start"], w["start"]), min(f["end"], w["end"])
+            if b - a >= 0.25:
+                inter.append({"start": round(a, 3), "end": round(b, 3)})
+    if not inter:
+        return faces, "face"
+    return sorted(inter, key=lambda x: x["start"]), "face+speech"
+
+
+def _tick_lip_sync(task_dir: str, evidence: str) -> str:
+    """给合同的 lip-sync 那一格打钩；打不上只出声（required=0，不影响片子）。"""
+    try:
+        from backend import skill_contract as skc             # noqa: E402
+        r = skc.tick("super-clone", task_dir, "lip-sync", evidence=evidence,
+                     model="RunningHub LatentSync 工作流（网关 lipsync/default）",
+                     impl="gateway:invoke:lipsync")
+        return "" if r.get("ok") else ("｜回执没打上钩：%s" % str(r.get("error") or "")[:100])
+    except Exception as e:                                     # noqa: BLE001
+        return "｜回执这一步没走通(%s)" % type(e).__name__
+
+
+def narration_audio_verdict(script: str, heard: str) -> dict:
+    """纯判据：客户稿与实际听到的，两个方向各算一次覆盖率。空表 = 口播真改了。
+    🔴 为什么两个方向都要：只查"稿子被说到"会漏掉【原片旧词还在】那种（今天就是这么翻车的：
+       prompt 台词位逐字是新词，成片播的却是参考视频的原声）。"""
+    from difflib import SequenceMatcher
+    import re as _re
+
+    # 🔴 只留汉字与字母数字：ASR 会在句尾补句号、逗号数量也和客户稿不一致，
+    #    早先只去空白 ⇒ 一条完全正确的配音被判"残留 11%"（判据自己算错会把合格对象判红）。
+    _KEEP = _re.compile(r"[^0-9A-Za-z\u4e00-\u9fff]")
+
+    def norm(x):
+        return _KEEP.sub("", str(x or ""))
+
+    a, b = norm(script), norm(heard)
+    if not a:
+        return {"said_coverage": 1.0, "stale": 0.0, "problems": [], "heard_chars": len(b)}
+
+    def cov(x, y):
+        if not x:
+            return 1.0
+        m = SequenceMatcher(None, x, y, autojunk=False)
+        return round(sum(blk.size for blk in m.get_matching_blocks()) / float(len(x)), 4)
+
+    said, stale = cov(a, b), cov(b, a)
+    probs = []
+    if said < 0.9:
+        probs.append("新稿只有 %.0f%% 被听到" % (said * 100))
+    if stale < 0.9:
+        probs.append("听到的内容里 %.0f%% 不属于新稿（多半是原片旧词还在播）" % ((1 - stale) * 100))
+    return {"said_coverage": said, "stale": stale, "problems": probs, "heard_chars": len(b)}
+
+
+def verify_narration_audio(video_path, vals, log=print) -> bool:
+    """出片之后【必须听一遍】：本地 FunASR 复验成片音轨说的是不是客户新稿（0 分上游生成，
+    只有文本校对那条腿按 token 实扣，免批不免账）。复验不过就在交付里明写"口播没改"。
+    🔴 参数发出去了 ≠ 生效 —— 这条就是用来堵这个的。
+    """
+    src = str(video_path or "")
+    script = str(vals.get("voice_script") or "").strip()
+    if not script or not os.path.isfile(src):
+        return False
+    _ensure_video_skill_on_path()
+    import asyncio
+    from pathlib import Path
+    from backend.services.prompt_reverser import _extract_voiceover
+    from backend.services.super_clone_wan3 import _ffprobe_duration
+    work = os.path.join(os.path.dirname(os.path.abspath(src)), "narration_verify")
+    os.makedirs(work, exist_ok=True)
+    try:
+        segs = asyncio.run(_extract_voiceover(src, Path(work), _ffprobe_duration(src) or 0.0)) or []
+    except Exception as e:                                    # noqa: BLE001
+        log("[口播复验] 跑不起来(%s: %s)⇒ 这一条【没验过】，交付时不许说口播已改"
+            % (type(e).__name__, str(e)[:120]))
+        return False
+    heard = "".join(str(s.get("text") or "") for s in segs)
+    v = narration_audio_verdict(script, heard)
+    v.update({"film": src, "asr_segments": len(segs), "heard": heard,
+              "executor": "runner:verify_narration_audio",
+              "note": "本地 FunASR 复验；verdict 只比文本，不判音色"})
+    try:
+        with open(os.path.join(work, "narration_audio_verify.json"), "w", encoding="utf-8") as fh:
+            json.dump(v, fh, ensure_ascii=False, indent=2)
+    except OSError as e:
+        log("[口播复验] 物证没写成(%s)" % type(e).__name__)
+    if v["problems"]:
+        log("[口播复验] 🔴 不合格：%s ｜ 听到的是「%s」⇒ 交付必须明写【口播没改】"
+            % ("；".join(v["problems"]), heard[:46]))
+        return False
+    log("[口播复验] ✓ 听到的就是新稿（覆盖 %.2f、残留 %.2f）" % (v["said_coverage"], v["stale"]))
+    return True
+
+
+def _tick_narration(task_dir: str, evidence: str) -> None:
+    """给合同的 narration-swap 那一格打钩。打不上只出声，不影响这条片子（它是 required=0）。"""
+    try:
+        _ensure_video_skill_on_path()
+        from backend import skill_contract as skc             # noqa: E402
+        r = skc.tick("super-clone", task_dir, "narration-swap", evidence=evidence,
+                     model="IndexTTS · RunningHub AI App 1965614643077070850（不在网关账本上）",
+                     impl="backend:invoke:voiceover_replace.run_narration_swap")
+        if not r.get("ok"):
+            print("[改口播] 回执这一格没打上钩：%s" % str(r.get("error") or "")[:120])
+    except Exception as e:                                    # noqa: BLE001
+        print("[改口播] 回执这一步没走通(%s: %s) ⇒ 不影响片子" % (type(e).__name__, str(e)[:80]))
 
 
 def form_coverage_gap(gate) -> str:
@@ -379,24 +753,44 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--product-name", default=None, help="产品名（入口校验：不能为空）")
     p.add_argument("--customer-request", default=None, help="缺省用 --product-name")
     p.add_argument("--scene-text", default=None,
-                   help="场景替换描述 = 背景的唯一输入口（只走文字）。会并进 customer_request 的「背景要求」段，"
+                   help="场景替换描述：有 --scene-image 时只补图里没有的细节（冲突以图为准），"
+                        "没图时是背景唯一输入口。会并进 customer_request 的「背景要求」段，"
                         "因为编译器只从那里读背景（references/compiler-contract.md 任务4）")
     p.add_argument("--output-dir", default=None, help="缺省用 <任务目录>/outputs")
     p.add_argument("--product-facts", default=None, help="客户明确陈述的非视觉事实")
     p.add_argument("--model-image", default=None, help="该段唯一脸图（一段一张脸）")
     p.add_argument("--extra-model-images", nargs="*", default=None, help="多脸时其余脸图(不整段塞)")
     p.add_argument("--voice-mode", default=None, choices=list(VOICE_MODES),
-                   help="声音档：preserve_original 原声保留 / timbre_swap 只换音色 / rewrite_voice 换人声+改口播。"
-                        "唯一语义源 = SKILL.md『声音模式与换音色』；这一档决定 --voice-audio 必给还是禁给。")
+                   help="声音档：%s。改口播不换人 = rewrite_text（走 run_narration_swap 后处理腿）。"
+                        "唯一语义源 = SKILL.md『声音模式与换音色』；这一档决定 --voice-audio 必给还是禁给。"
+                        % " / ".join(VOICE_MODES))
+    p.add_argument("--voice-script", default=None,
+                   help="新口播文案（一行一句，句数必须与成片口播对上）。表单「新口播文案」那一格直灌这里。"
+                        "🔴 2026-10-14 起这条路是【直出】：编译前灌进各镜「口播」位（apply_customer_narration），"
+                        "wan3 一次出片就念新词，物证 voice_script_binding.json（覆盖率不满即拒、0 分）。"
+                        "限制：一段一条稿（整条自动切段时带着整稿会被点名拒，逐段跑或改走后处理换轨）。"
+                        "⚠️ 直出【不等于】口型已对齐：嘴形由模型自己画，要按新词重画是另一步 lipsync/default（20 分/次·未实测·要批）。")
     p.add_argument("--voice-audio", action="append", default=None,
                    help="目标音色参考音频（可多次给，≤5 段、单段 1-15s、总长 ≤15s）。"
                         "换人（男/女）时必须给：Wan 生成时直接用该音色合成口播，原片原声不贴回。"
                         "不换人（换产品/换背景）时不给，原片原声照常贴回。")
-    # 🔴 没有 --scene-image：本 lane 背景只走文字（2026-10-09 定）。客户参考图先由 agent
-    #    用看图能力转成文字写进 --customer-request，图不作为生成入参。引擎侧 scene_image_path
-    #    仍然存在（别的线路在用），但这条入口不传 ⇒ 传了会直接 argparse 报错，不会静默收下。
+    # 🔴 2026-10-31 用户定「背景就一个背景，本地要能传进wan3.0」⇒ 恢复 --scene-image 透传。
+    #    引擎侧 scene_image_path 一直在（_build_media_manifest 把场景图编成 图N，上传后与产品/模特图
+    #    一起进 wan3.0 的 image_urls；编译器把该图当背景事实源，各 Shot 只是机位不同、背景全程不变）。
+    #    scene_text/--scene-text 仍有效：有图时文字只补图里没有的细节，冲突以图为准。
+    p.add_argument("--scene-image", default=None,
+                   help="背景参考图（本地路径，可选）。给了就进引擎：场景 图N → 随素材上传 → wan3.0 参考图；"
+                        "背景定调以该图为事实源，scene_text 只补图中没有的细节。")
     p.add_argument("--trim-start", type=float, default=None)
     p.add_argument("--trim-end", type=float, default=None)
+    p.add_argument("--narration-audio", default=None,
+                   help="只给 --stage narration 用：客户【已经念好新词】的那条音频。"
+                        "整条替换成片口播（本地、0 分、不调克隆/上游），音色=这条音频的人。"
+                        "🔴 与 narration-swap（逐句克隆）互斥，两条不能同时跑。")
+    p.add_argument("--film", default=None,
+                   help="只给 --stage lipsync 用：指定要对哪一条【成片】对口型；"
+                        "缺省取这条任务里最新的一条成片（wan3_job.json 的 output_path）。"
+                        "🔴 这不是原片（那是 --video），也别拿它去绕提交。")
     p.add_argument("--resolution", default=None)
     p.add_argument("--aspect-ratio", default=None)
     p.add_argument("--engine", default="wan3", choices=["wan3"],
@@ -404,17 +798,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extra-note", default=None,
                    help="extra_compile_note：合同 storyboard-fact-check 那一步的【唯一授权手段】——"
                         "MiMo 的分镜/动作标签与原片不符时，在这里按秒写死真实时间轴压过它（重编译 0 分）")
+    p.add_argument("--resume", action="store_true",
+                   help="复用盘上已落盘的分镜（Step1 产物过 Checkpoint A 复验才复用，0 token、不再花视频解析）。"
+                        "2026-10-23 加：以前入口只有【整条重跑】一种走法，于是"
+                        "\"改一句措辞重编译\"也要把 Step1 分镜腿重跑一遍 —— 那条腿实测会"
+                        " finish_reason=length 截断（现网死过一次），白烧一次还带崩整条。")
     p.add_argument("--split-by-shots", action="store_true")
     p.add_argument("--as-duration-chunk", action="store_true", help="按段调用时置 True（难单每段 True）")
     p.add_argument("--from-form", action="store_true",
                    help="🔴 值全部从这条会话【已提交】的右栏表单读（媒体是服务端存的绝对路径），"
                         "命令行显式给的参数只作覆盖。没有它 agent 就得手抄参数 —— 抄就有猜错的那一天。")
-    p.add_argument("--stage", default="submit", choices=["compile", "submit", "wait"],
+    p.add_argument("--stage", default="submit", choices=["compile", "submit", "wait", "narration", "lipsync"],
                    help="compile=只走到「物证+回执+合同核验」就返回（不提交、不建预扣、0 分）；"
                         "submit=照常出片。SKILL.md 要求「不符就补 extra-note 重编译（0 分）」，"
                         "这一档就是那句散文的合法出口 —— 以前没有它，遵守它只能绕开入口。\n"
                         "wait=【只捞不投】第 5 步：读盘上已提交未落盘的任务号（wan3_job.json），"
                         "查询 + 下载 + 交付，一个提交请求都不发。")
+    p.add_argument("--reuse-compile", action="store_true",
+                   help="只给 --stage submit 用：命中编译缓存（compile_fp 相同 + 两份物证 sha8 对得上 + "
+                        "回执必需步全勾）⇒ 跳过 MiMo/FunASR/Grok，直接读盘上那份 prompt.txt 提交。"
+                        "🔴 不命中就【当场拒】（0 分、一个模型都不调），不许「半复用」。")
+    # 🔴 服务端【批准即点火】走这一档，不走上面那条硬档（2026-10-23 现网：人批完点链接，服务端起的
+    #    那台从 Step0 重跑分镜+编译，人问"提交就提交，怎么又重写编译了"）。
+    #    为什么不能复用硬档：条子已经批的是【提交】这件事；缓存恰好不命中（例如批完之后 extra_note
+    #    又改过、或物证被重写过）时，硬档会【当场拒】⇒ 一张已生效的批准花不出去、也没人重报价 = 卡死。
+    #    软档的语义："能复用就省掉分镜+编译（0 token 0 分），不能复用就照常重编再投"。
+    p.add_argument("--reuse-compile-if-hit", action="store_true", dest="reuse_compile_soft",
+                   help="只给 --stage submit 用：命中编译缓存就复用、不命中就全量重编译（不拒）。"
+                        "服务端批准即点火用的就是这一档。")
     p.add_argument("--session", default=None,
                    help="DSH 会话 id（默认读 $env:DSH_SESSION_ID）。用于查右栏那张表有没有出现过；"
                         "读不到就不判（常驻服务里没有会话 id，绝不猜一个填进去）。")
@@ -450,6 +861,111 @@ def report_compiled(sid: str, ok: bool, error: str = "") -> None:
     except (urllib.error.URLError, OSError, ValueError) as e:
         print("[编译回执] 8100 没收下（%s: %s）⇒ 编译结果照样落盘，但没人被自动叫醒，"
               "请自己回一句让 agent 接着报价" % (type(e).__name__, str(e)[:100]))
+
+
+def find_film(a, sid: str) -> str:
+    """这条任务里【要交付的那条片子】：显式 --film > 盘上最新成片（wan3_job.json 的 output_path 优先）。
+    找不到的话宁可拒，也不许拿原片或上一次的片子当成品（那是静默冒充）。"""
+    import glob
+    explicit = str(getattr(a, "film", "") or "").strip()
+    if explicit:
+        if not os.path.isfile(explicit):
+            raise SystemExit("[找片] --film 指向的文件不在盘上：%s" % explicit)
+        return explicit
+    tdir = str((read_form_gate(sid) or {}).get("task_dir") or "").strip()
+    cands = []
+    if tdir:
+        for pat in (os.path.join(tdir, "outputs", "**", "wan3_job.json"),
+                    os.path.join(tdir, "outputs", "**", "*prime*.mp4")):
+            for p in glob.glob(pat, recursive=True):
+                dest = p
+                if p.endswith("wan3_job.json"):
+                    try:
+                        with open(p, encoding="utf-8") as f:
+                            dest = str((json.load(f) or {}).get("output_path") or "").strip()
+                    except (OSError, ValueError):
+                        continue
+                if dest and os.path.isfile(dest):
+                    cands.append(dest)
+        cands = sorted(set(cands), key=os.path.getmtime)
+    if not cands:
+        raise SystemExit("[找片] 这条任务里找不到成片（既没有 wan3_job.json 的 output_path，"
+                         "也没有 *prime*.mp4）⇒ 先跑 --stage wait 把片子捞回来，别拿原片凑数")
+    return cands[-1]
+
+
+def stage_narration(a, sid: str) -> int:
+    """`--stage narration --narration-audio <音频>`：客户自己给了念好的那条声音 ⇒ 整条替换（0 分本地）。
+
+    🔴 为什么要有这一档：换口播的三条路里，克隆（narration-swap）与口型（lipsync）此刻都堵在
+       RunningHub `605 余额不足`，而 wan3 的音轨是从参考视频搬来的、不念 prompt 里的台词
+       ⇒ 没有这一档，"客户给了音频"这件事就没有合法出口，只能被手搓 ffmpeg（合同外的手段）。
+    """
+    src = find_film(a, sid)
+    aud = str(getattr(a, "narration_audio", "") or "").strip()
+    if not aud or not os.path.isfile(aud):
+        raise SystemExit("[换口播] --narration-audio 要指向盘上真实存在的那条音频（给的是 %r）" % aud)
+    _ensure_video_skill_on_path()
+    import asyncio
+    from backend.services import voiceover_replace as vo
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(src)), "narration")
+    rec = asyncio.run(vo.run_narration_audio(src, aud, out_dir, on_log=lambda m: print("[换口播] %s" % m)))
+    got = str(rec.get("video_out") or "")
+    if not (got and os.path.isfile(got)):
+        raise SystemExit("[换口播] 没落成片（%s）⇒ 不许把没换的那条当已换交付" % got)
+    _tick_narration_file(os.path.dirname(os.path.abspath(src)),
+                         os.path.join(out_dir, "narration_audio.json"))
+    vals = dict(((read_form_gate(sid) or {}).get("params")) or {}) if sid else {}
+    # 🔴 复验比的是【哪一份稿】必须说清，且命令行覆盖优先 —— 与 `--from-form` 那条合并规则同一套。
+    #    2026-10-14 现网 18:52：这条会话的表是第 1 段（0-15s）交的，第 2 段（16-30s）换完轨之后
+    #    复验仍去读表里那份旧稿 ⇒ 算出"新稿只 23% 被听到"，而实际听到的就是这次传进去的 6 句新稿
+    #    （自己复核 = 双向 1.000）。判据拿错稿子 = 把改成功的片子报成"口播没改"，和漏报一样是事故。
+    _cli_script = str(getattr(a, "voice_script", "") or "").strip()
+    if _cli_script:
+        vals["voice_script"] = _cli_script
+        print("[口播复验] 比对的稿子来源 = 命令行 --voice-script（表单里那份已提交过、不用它）")
+    else:
+        vals["voice_script"] = vals.get("voice_script") or ""
+        print("[口播复验] 比对的稿子来源 = 表单载荷（这次没给 --voice-script；跨段复验请显式传稿）")
+    verify_narration_audio(got, vals)
+    print("[换口播] 交付请用这一条 → %s（音色=你给的音频；口型未重画，要补得等 RunningHub 充值）" % got)
+    return 0
+
+
+def _tick_narration_file(task_dir: str, evidence: str) -> None:
+    """给合同的 narration-file 那一格打钩（打不上只出声，这条本身是 required=0）。"""
+    try:
+        from backend import skill_contract as skc              # noqa: E402
+        r = skc.tick("super-clone", task_dir, "narration-file", evidence=evidence,
+                     model=skc.NO_MODEL, impl="backend:invoke:voiceover_replace.run_narration_audio")
+        if not r.get("ok"):
+            print("[换口播] 回执这一格没打上钩：%s" % str(r.get("error") or "")[:140])
+    except Exception as e:                                     # noqa: BLE001
+        print("[换口播] 回执这一步没走通(%s: %s)" % (type(e).__name__, str(e)[:90]))
+
+
+def stage_lipsync(a, sid: str) -> int:
+    """`--stage lipsync`：第 6 步「对口型」的合法出口 —— 只对【盘上已有的成片】跑一次网关口型腿。
+
+    🔴 为什么必须有这一档（2026-10-14 现网）：口型原来只在 wait/submit 两条路的尾巴上顺带跑，
+       那一跑抽音轨失败（我的函数把 ffmpeg 的死因吞了）⇒ 片子在手、20 分的条子也批了，
+       却没有任何一条合法路能【只重跑这一刀】。不重新编译、不重新提交：每 call 一次 wan3
+       就是一段批准额度 + 上游一次新计费，拿它来"再试一次口型"就是双花。
+    """
+    film = find_film(a, sid)
+    vals = {}
+    try:
+        vals = dict(((read_form_gate(sid) or {}).get("params")) or {}) if sid else {}
+    except Exception as e:                             # noqa: BLE001
+        print("[口型] 读不到判定口(%s)⇒ 拿不到 voice_mode ⇒ 这一刀不做（不猜档位）" % type(e).__name__)
+    print("[口型] 目标成片 → %s" % film)
+    got = apply_lip_sync(film, vals, log=print)
+    if not got:
+        print("[口型] 没做成 ⇒ 交付用的还是没对齐的那条，交付时要如实说")
+        return 1
+    print("[口型] 对齐成片 → %s" % got)
+    print("[下一步] present 这一条 → 跑 scripts/deliver_pack.py 原样贴 markdown")
+    return 0
 
 
 def find_pending_jobs(task_dir: str) -> list:
@@ -520,8 +1036,68 @@ def wait_only(a, sid: str) -> int:
             bad += 1
             print("        还没到手 ⇒ 继续用同一条 --stage wait 捞（号还在 %s），**不要重投**。" % j["file"])
         else:
-            print("        到手：接下来 present → deliver_pack → 原样贴 markdown。")
+            _p = {}
+            try:
+                _p = dict(((read_form_gate(sid) or {}).get("params")) or {}) if sid else {}
+            except Exception as e:                            # noqa: BLE001
+                print("[等待] 读不到表单里的声音档(%s)⇒ 这一条不做换轨，交付时如实说口播没改" % type(e).__name__)
+            try:
+                _sw = apply_narration_swap(path, _p)
+            except SystemExit as e:
+                bad += 1
+                print("[改口播] 这一条没换成：%s" % str(e)[:200])
+                continue
+            _tgt = _sw or path                              # 直出那条不需要换轨 ⇒ 片子本身就是新的
+            _lip = apply_lip_sync(_tgt, _p)                  # 口型这一刀与"有没有换轨"无关，只看 voice_mode
+            _tgt = _lip or _tgt
+            verify_narration_audio(_tgt, _p)                # 🔴 交出去之前必须听一遍：说的是不是新稿
+            report_frame_text(_tgt, tdir, params=_p)        # 同一姿势：交出去之前必须【看一遍有没有字】
+            if _sw or _lip:
+                print("        到手 + 口播已改%s ⇒ 交付用 %s"
+                      % ("、口型已对齐" if _lip else "（口型【没】对齐，原因见上一行）", _tgt))
+            else:
+                print("        到手：接下来 present → deliver_pack → 原样贴 markdown。")
     return 2 if bad else 0
+
+
+def report_frame_text(film: str, tdir: str, product_images=None, params=None) -> dict:
+    """成片抽帧 + 本机 OCR ⇒ 「全画面干净」这件事落到物证 `frame_text_verify.json`（**0 分、0 上游调用**）。
+
+    🔴 为什么挂在这里而不是让 agent 记得跑：合同 `negative-lock` 那一格只查 prompt 文本里有没有
+       「不得出现字幕」这句话，**不查像素**（2026-10-14 现网：那句在位、钩照打、成片 8/8 帧仍带原片字幕）。
+       音轨有 `verify_narration_audio()` 复验、画面文字一个复验口都没有 ⇒ 负向词被当成了质量证据。
+       这一步是「拿到片」这条路上必然发生的动作，绑在它后面才有牙齿；写在散文里等于不存在的步骤。
+    ⚠️ 白名单来自**产品图自己的 OCR**（合同明令包装真实文字必须保留），不是拍脑袋的词表；
+       读不到 OCR 引擎时如实写「这一项没做」，绝不留「空白 = 过了」。
+    """
+    try:
+        _ensure_video_skill_on_path()
+        from backend.services import super_clone_wan3 as scw      # noqa: BLE001
+    except Exception as e:                                        # noqa: BLE001
+        print("[画面文字] 引擎没导进来(%s)⇒ 这一项没做，交付时如实说明" % type(e).__name__)
+        return {}
+    if not product_images:
+        d = os.path.join(tdir, "inputs", "product_images")
+        product_images = [os.path.join(d, f) for f in sorted(os.listdir(d))] if os.path.isdir(d) else []
+    out = os.path.join(tdir, "outputs", "frame_text_verify.json")
+    try:
+        rep = scw.verify_frame_text(film, out, product_image_paths=product_images)
+    except Exception as e:                                        # noqa: BLE001
+        print("[画面文字] 复验没做成：%s: %s ⇒ 这一项【没做】，不许当「过了」"
+              % (type(e).__name__, str(e)[:140]))
+        return {}
+    if rep.get("clean") is True:
+        print("[画面文字] ✅ %s 帧（引擎 %s，间隔 %ss）0 处非包装文字 ⇒ 全画面干净"
+              % (rep.get("frames_checked"), rep.get("engine"), rep.get("interval_seconds")))
+    elif rep.get("clean") is False:
+        print("[画面文字] 🔴 %s" % rep.get("note"))
+        for s in (rep.get("suspects") or [])[:6]:
+            print("            t=%ss 读到「%s」conf=%s 位置=%s"
+                  % (s.get("t"), str(s.get("text"))[:28], s.get("conf"), s.get("center")))
+        print("            物证：%s ⇒ 交付必须带上这一条（换无字幕源或走 dewatermark 加工腿）" % out)
+    else:
+        print("[画面文字] ⚠ %s" % rep.get("note"))
+    return rep
 
 
 def submitted_but_unpaid(task_dir: str) -> list:
@@ -560,6 +1136,10 @@ def main(argv=None) -> int:
     #    拿 missing_required 拦它等于逼人再提交一次 —— 那正是这一档要避免的双花。
     if a.stage == "wait":
         return wait_only(a, sid)
+    if a.stage == "narration":
+        return stage_narration(a, sid)
+    if a.stage == "lipsync":
+        return stage_lipsync(a, sid)
 
     # ① 入口自己读表：值来自"客户在右栏提交的那一份"，命令行显式给的只作覆盖（来源逐格印出来）。
     if a.from_form:
@@ -613,10 +1193,12 @@ def main(argv=None) -> int:
     if not (vals.get("product_name") or "").strip():
         raise SystemExit("product-name 不能为空（入口校验）")
     if vals.get("voice_mode"):                # 没声明就不管（老写法照跑）；声明了就必须自洽
-        _v = voice_mode_problems(vals["voice_mode"], bool(vals.get("voice_audio")))
+        _v = voice_mode_problems(vals["voice_mode"], bool(vals.get("voice_audio")),
+                                 bool(str(vals.get("voice_script") or "").strip()))
         if _v:
             raise SystemExit(_v)
-    # 背景只走文字：--scene-text 并进 customer_request 的「背景要求」段（编译器只认这一处）。
+    # 背景文字通道：--scene-text 并进 customer_request 的「背景要求」段（编译器从这一处读背景细节；
+    # 有 --scene-image 时图为事实源，这段文字只补图里没有的细节）。
     _req = fold_scene_text(vals.get("customer_request"), vals.get("scene_text"))
     # 🔴 表单前置（在导入引擎之前，失败就 0 分）：见 form_gate_verdict 的现网事故形状。
     if not sid:
@@ -633,6 +1215,14 @@ def main(argv=None) -> int:
         _fg = form_gate_verdict(_gate)
         if _fg:
             raise SystemExit(_fg)
+    # 🔴 花钱那一刀的身份：网关读会话只有一处（`gateway._session_of`：先看 params["session"]，
+    #    否则读 DSH_SESSION_ID），而这条流水线从入口到 `run_one_segment_prime` 一路【没把 --session 往下传】
+    #    ⇒ 从 DSH 自带 agent 之外（Qoder / 运维 shell）跑起来的这一台身份是空串 ⇒ 人批过的按会话绑的条子
+    #    对不上号，回 approval_required（2026-10-14 现网 16:39：条子 ok_3de3fb96 段 0/1 没被消费、0 分未扣，
+    #    18 分钟编译白等）。这里补的是【同一条会话】—— 上面表单前置刚用同一个 sid 过了判定口，不是猜的 id。
+    if sid and not os.environ.get("DSH_SESSION_ID"):
+        os.environ["DSH_SESSION_ID"] = sid
+        print("[身份] 本次以会话 %s 提交（这条入口不往 params 里塞 session，只能走网关那唯一读法）" % sid)
     # ⓪d 自己挂牌（只在「只编译」这一档）：所有会早退的校验都过了、还没动引擎之前。
     #     不挂牌的那半形状现网演过一遍：agent 自己起的编译跑完，挂号被"这台不是我起的"拒掉
     #     ⇒ 产物落盘却没人被叫醒；收工拦截也看不见它 ⇒ 它一收工，客户对着右栏干等。
@@ -643,6 +1233,22 @@ def main(argv=None) -> int:
     from backend.services.super_clone_wan3 import run_pipeline  # noqa
 
     os.makedirs(vals["output_dir"], exist_ok=True)
+    # 🔴 extra_note 的【物证回读】：这一格是编译输入之一（也算进 compile_fp），但表单里没有这一格、
+    #    只有 CLI --extra-note 能传。2026-10-23 现网形状：人审帧后 agent 带 extra-note 编译过一份，
+    #    随后【批准即点火】那条命令没有这一格 ⇒ 算出的 compile_fp 必然不符 ⇒ 软复用永远不命中
+    #    ⇒ 每次点链接都从 Step1 重跑分镜+编译，还会把人已批的那份 prompt.txt 原地重写掉。
+    #    物证就在段目录里（extra_note.txt 由编译自己落盘，合同 storyboard-fact-check 那一格），
+    #    读它 = 用回【那份已批产物真正吃过的原文】，不是猜一个新值。
+    if not str(vals.get("extra_note") or "").strip():
+        for _cand in (os.path.join(vals["output_dir"], "step2_wan3", "extra_note.txt"),
+                      os.path.join(vals["output_dir"], "extra_note.txt")):
+            if os.path.isfile(_cand):
+                with open(_cand, encoding="utf-8") as _ef:
+                    vals["extra_note"] = _ef.read().strip()
+                print("[入口] extra_note 表单/命令行都没给 ⇒ 回读编译物证 %s（%d 字）；"
+                      "不回读会算出另一个 compile_fp，把已批的那份 prompt 重编掉"
+                      % (_cand, len(vals["extra_note"])))
+            break
     try:
         result = asyncio.run(run_pipeline(
         task_id=vals["task_id"],
@@ -653,6 +1259,7 @@ def main(argv=None) -> int:
         trim_start=vals.get("trim_start"),
         trim_end=vals.get("trim_end"),
         model_image_path=vals.get("model_image"),
+        scene_image_path=vals.get("scene_image") or None,
         product_name=vals["product_name"],
         product_facts=vals.get("product_facts"),
         resolution=vals.get("resolution"),
@@ -662,8 +1269,16 @@ def main(argv=None) -> int:
         extra_compile_note=vals.get("extra_note"),
         extra_model_image_paths=list(vals["extra_model_images"]) if vals.get("extra_model_images") else None,
         voice_audio_paths=list(vals["voice_audio"]) if vals.get("voice_audio") else None,
+        voice_script=str(vals.get("voice_script") or "").strip() or None,
         as_duration_chunk=vals.get("as_duration_chunk") or False,
         stop_after=("compile" if a.stage == "compile" else None),
+        # 🔴 `--stage compile` 那一档【永远不复用】：它的语义就是"把编译走一遍"，
+        #    让它命中缓存等于把"重编译 0 分"那个合法出口变成假出口（改完 extra-note 重编会读到旧 prompt）。
+        reuse_compile=((bool(getattr(a, "reuse_compile", False)) or bool(getattr(a, "reuse_compile_soft", False)))
+                       and a.stage != "compile"),
+        # 硬档（--reuse-compile）不命中就当场拒；软档（--reuse-compile-if-hit，服务端点火用的）不命中就重编。
+        reuse_compile_strict=bool(getattr(a, "reuse_compile", False)),
+        resume=bool(getattr(a, "resume", False)),
         ))
     except Exception as e:                                    # noqa: BLE001
         # 编译炸了也要回程报一句 —— 否则交完表页面永远停在"编译中"，人只能来问
@@ -673,16 +1288,38 @@ def main(argv=None) -> int:
     print(json.dumps(result, ensure_ascii=False, default=str))
     if isinstance(result, dict) and result.get("compiled_only"):
         # ⑤ 只编译档位：物证与回执已经落盘，一条都没提交 ⇒ 明确出声，别让人以为在跑
-        print("[档位=只编译] 0 分、没建预扣、没提交。提示词/分镜/回执在：" +
+        #    ⚠️ "0 分"只管【出片腿】：Step1 后面那条抽帧补充腿是 video.analyze（免批但不免账，
+        #    8 帧一次实测 178 分），它花没花、花了多少在上一行日志里写得很死，这里不许含糊成"0 分"。
+        print("[档位=只编译] 没建预扣、没提交 ⇒ 出片腿 0 分；看图腿(video.analyze)另按台账计"
+              "（见上面「抽帧补充…」那行的实扣）。提示词/分镜/回执在：" +
               "、".join(str(s.get("dir")) for s in (result.get("segments") or [])[:6]))
         print("[下一步] 对着 frames/ 逐秒核动作与分镜；不符就补 --extra-note 重跑同一条 --stage compile"
-              "（还是 0 分）；认可后去掉 --stage（或 --stage submit）再走报价。")
+              "（出片腿还是 0 分；抽帧腿命中缓存就 0 新支出，日志会写「累计实扣」而不是「本次实扣」）；"
+              "认可后去掉 --stage（或 --stage submit）再走报价。")
         if a.stage == "compile":
             report_compiled(sid, True)                        # 交表即点火的回程：叫 agent 来报价
         return 0
     if isinstance(result, dict):
         if result.get("success") is False or result.get("error"):
             return 2
+    _sw = apply_narration_swap((result or {}).get("final_path")
+                               or (result or {}).get("local_path"), vals) \
+        if isinstance(result, dict) else ""
+    _film = str((result or {}).get("final_path") or (result or {}).get("local_path") or "")
+    if _sw:
+        result["narration_swapped_path"] = _sw
+    _lip = apply_lip_sync(_sw or _film, vals)               # 口型这一刀只看 voice_mode，与换没换轨无关
+    if _lip:
+        result["lip_synced_path"] = _lip
+    _final = _lip or _sw or _film
+    verify_narration_audio(_final, vals)   # 交出去之前必须听一遍：说的是不是新稿
+    if _final and os.path.isfile(_final):
+        report_frame_text(_final, os.path.dirname(os.path.normpath(str(vals["output_dir"]))),
+                          product_images=vals.get("product_images"), params=vals)
+    if _sw or _lip:
+        print("[改口播] 交付三件套请用这一条 → %s（%s）"
+              % (_final,
+                 "口型已对齐" if _lip else "口型【没】对齐：原因见上一行，交付时要如实说"))
     return 0
 
 

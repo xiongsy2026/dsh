@@ -24,8 +24,9 @@ import re
 import subprocess
 import sys
 import time
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
-WS = r"C:\dsh"
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIVE = os.path.join(WS, ".dsh", "skills")
 BASE = os.path.join(WS, ".dsh", "skill_lock.json")
 REAL_HINT = r"D:\weeksir-skills"          # 装物理锁后 junction 该指到这里
@@ -54,7 +55,8 @@ def read(p):
 
 # 🔴 指纹一律用【服务端那两个解析器】算，闸里不再自己抠段（自己写一遍 = 第二份判据，
 #    而这次 L6 就是被这条抓到：闸算出空集、线上有 3 档）。
-sys.path.insert(0, r"D:\video-skill")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 try:
     from backend import model_admin as MA                 # noqa: E402
     from backend import skill_contract as SC              # noqa: E402

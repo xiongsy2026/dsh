@@ -12,6 +12,8 @@ import os
 import subprocess
 import sys
 import tempfile
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PACK = os.path.join(HERE, "deliver_pack.py")
@@ -193,7 +195,8 @@ j17 = json.loads("{" + (r17.stdout or "").split("{", 1)[1])
 check("17 反向对照：放进 productions/<任务>/outputs 后路径判据翻真（不是恒 FAIL 的假严格）",
       j17.get("checks", {}).get("在 productions/<task>/…/outputs 下"), True)
 # 18 有界性：latest_receipt 拿盘根当 root 必须直接不扫（这条是 15 的根因，单独钉）
-sys.path.insert(0, r"D:\video-skill")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import skill_contract as _sc                      # noqa: E402
 _t1 = time.time()
 _root_scan = _sc.latest_receipt(os.path.splitdrive(os.path.abspath(_FAKE))[0] + os.sep)
@@ -291,7 +294,7 @@ check("27 --no-net 是【跳过】不是【验过】：跳了哪几条必须写�
       j23.get("net_skipped"), ["直链可达(200/206)", "直链回的是图片(image/*)"])
 sys.path.insert(0, HERE)
 import deliver_pack as _dp                               # noqa: E402
-_adm = open(r"D:\video-skill\backend\model_admin.py", encoding="utf-8", errors="replace").read()
+_adm = open(os.path.join(BACKEND, r"model_admin.py"), encoding="utf-8", errors="replace").read()
 _m = _re.search(r"^FILM_INLINE_TYPES\s*=\s*\{(.*?)\}", _adm, _re.M | _re.S)
 _inline = set(x.lower() for x in _re.findall(r'"([a-z0-9]+)"\s*:', _m.group(1))) if _m else set()
 check("28 覆盖对照：交付脚本认的类型 ⊆ 服务端 FILM_INLINE_TYPES（服务端不发=直链404，贴图一起废）",

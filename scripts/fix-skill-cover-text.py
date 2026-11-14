@@ -10,8 +10,9 @@ import os
 import sys
 
 from PIL import Image, ImageFilter
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-OUT = r"C:\dsh\assets\skill_covers"
+OUT = os.path.join(WS, r"assets\skill_covers")
 
 
 def crop_169_high(src, dst, keep_top=0.80):
@@ -43,7 +44,7 @@ blur_band(os.path.join(OUT, "short-drama.png"), os.path.join(OUT, "short-drama.f
 
 # 2026-10-04「视频去水印」候选：两版底部都被画上了乱码拉丁字（v3 甚至把我提示词里的 "16:9" 照抄进去了
 # ⇒ 教训①又验一遍：任何字面量都可能被画出来）。原图留着，产出 .clean 供人眼复检。
-COVERS2 = r"C:\dsh\productions\_skill-covers"
+COVERS2 = os.path.join(WS, r"productions\_skill-covers")
 crop_169_high(os.path.join(COVERS2, "cover-video-dewatermark-v3-sweep.png"),
               os.path.join(COVERS2, "cover-video-dewatermark-v3-clean.png"), keep_top=0.78)
 crop_169_high(os.path.join(COVERS2, "cover-video-dewatermark-v2-before-after.png"),

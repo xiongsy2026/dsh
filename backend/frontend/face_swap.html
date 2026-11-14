@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频换脸</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f1a; color: #e0e0e0; min-height: 100vh;
+        }
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px; background: #16162a;
+            border-bottom: 1px solid #2a2a5c; position: sticky; top: 0; z-index: 10;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .topbar a {
+            color: #888; text-decoration: none; font-size: .85em;
+            padding: 6px 12px; border: 1px solid #2a2a5c; border-radius: 8px;
+        }
+        .topbar a:hover { color: #fff; border-color: #6c3ce0; }
+        .topbar-title {
+            font-size: 1.1em; color: #fff; font-weight: 600;
+            letter-spacing: 1px;
+        }
+        .topbar-tag {
+            font-size: .7em; color: #f0abfc; padding: 3px 8px;
+            background: rgba(240, 171, 252, .1); border: 1px solid rgba(240, 171, 252, .3);
+            border-radius: 4px;
+        }
+        .main {
+            display: grid; grid-template-columns: 400px 1fr;
+            gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto;
+        }
+        @media (max-width: 1000px) { .main { grid-template-columns: 1fr; } }
+        .panel-card {
+            background: #16162a; border: 1px solid #2a2a5c;
+            border-radius: 12px; padding: 16px; margin-bottom: 16px;
+        }
+        .panel-title {
+            font-size: .9em; font-weight: 600; color: #a78bfa;
+            margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+        }
+        .panel-title::before {
+            content: ''; width: 3px; height: 14px; background: #a78bfa;
+            border-radius: 2px;
+        }
+        /* 上传区 */
+        .upload-zone {
+            border: 2px dashed #2a2a5c; border-radius: 10px;
+            padding: 20px; text-align: center; cursor: pointer;
+            transition: border-color .2s; margin-bottom: 12px; min-height: 100px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .upload-zone:hover { border-color: #a78bfa; }
+        .upload-zone.has-file { border-color: #22d3ee; border-style: solid; }
+        .upload-zone .icon { font-size: 2em; margin-bottom: 8px; }
+        .upload-zone .hint { font-size: .8em; color: #666; }
+        .upload-zone .filename { font-size: .85em; color: #22d3ee; margin-top: 4px; }
+        /* 输入 */
+        label { display: block; font-size: .85em; color: #999; margin-bottom: 6px; }
+        input[type="number"], select {
+            width: 100%; padding: 8px 12px; background: #1e1e38;
+            border: 1px solid #2a2a5c; border-radius: 8px; color: #e0e0e0;
+            font-size: .9em; margin-bottom: 12px;
+        }
+        input:focus, select:focus { outline: none; border-color: #a78bfa; }
+        /* 按钮 */
+        .btn-primary {
+            width: 100%; padding: 14px; background: linear-gradient(135deg, #7c3aed, #a78bfa);
+            border: none; border-radius: 10px; color: #fff; font-size: 1em;
+            font-weight: 600; cursor: pointer; transition: opacity .2s;
+        }
+        .btn-primary:hover { opacity: .9; }
+        .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+        /* 状态 */
+        .status-bar {
+            background: #1e1e38; border-radius: 10px; padding: 16px;
+            min-height: 200px;
+        }
+        .phase { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .phase-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #333; flex-shrink: 0;
+        }
+        .phase-dot.done { background: #22c55e; }
+        .phase-dot.active { background: #a78bfa; animation: pulse 1s infinite; }
+        .phase-dot.error { background: #ef4444; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+        .phase-text { font-size: .85em; color: #999; }
+        .phase-text.active { color: #e0e0e0; }
+        /* 日志 */
+        .log-box {
+            background: #0a0a18; border-radius: 8px; padding: 12px;
+            margin-top: 12px; max-height: 300px; overflow-y: auto;
+            font-family: "Cascadia Code", "Fira Code", monospace;
+            font-size: .78em; line-height: 1.6; color: #666;
+        }
+        .log-box .log-line { margin-bottom: 2px; }
+        /* 预览 */
+        .preview-area {
+            display: flex; flex-direction: column; gap: 16px;
+        }
+        .preview-card {
+            background: #16162a; border: 1px solid #2a2a5c;
+            border-radius: 12px; overflow: hidden;
+        }
+        .preview-card video {
+            width: 100%; max-height: 500px; background: #000;
+        }
+        .preview-card .info {
+            padding: 12px 16px; font-size: .85em; color: #999;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .btn-download {
+            padding: 6px 16px; background: #22c55e; border: none;
+            border-radius: 6px; color: #fff; font-size: .85em;
+            cursor: pointer; text-decoration: none;
+        }
+        .btn-download:hover { opacity: .85; }
+        /* 隐藏 */
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-left">
+            <a href="/">← 返回</a>
+            <span class="topbar-title">视频换脸</span>
+            <span class="topbar-tag">RunningHub AI</span>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- 左栏：输入 -->
+        <div class="left-col">
+            <div class="panel-card">
+                <div class="panel-title">原视频</div>
+                <div class="upload-zone" id="videoZone" onclick="document.getElementById('videoInput').click()">
+                    <div class="icon">🎬</div>
+                    <div class="hint">点击上传视频（含人脸）</div>
+                    <div class="filename" id="videoName"></div>
+                </div>
+                <input type="file" id="videoInput" accept="video/*">
+            </div>
+
+            <div class="panel-card">
+                <div class="panel-title">新人脸图</div>
+                <div class="upload-zone" id="faceZone" onclick="document.getElementById('faceInput').click()">
+                    <div class="icon">👤</div>
+                    <div class="hint">点击上传人脸图（半身正面效果更好）</div>
+                    <div class="filename" id="faceName"></div>
+                </div>
+                <input type="file" id="faceInput" accept="image/*">
+            </div>
+
+            <div class="panel-card">
+                <div class="panel-title">参数</div>
+                <label>生成秒数（非会员 ≤10）</label>
+                <input type="number" id="duration" value="8" min="1" max="10" step="1">
+                <label>输出宽度</label>
+                <input type="number" id="width" value="576" min="256" max="1920">
+                <label>输出高度</label>
+                <input type="number" id="height" value="1024" min="256" max="1920">
+                <label>实例类型</label>
+                <select id="instanceType">
+                    <option value="default">default (24G)</option>
+                    <option value="plus" selected>plus (48G)</option>
+                    <option value="ultra">ultra (84G)</option>
+                </select>
+            </div>
+
+            <button class="btn-primary" id="submitBtn" onclick="submitTask()">开始换脸</button>
+
+            <div class="panel-card" style="margin-top: 16px;">
+                <div class="panel-title">状态</div>
+                <div class="status-bar" id="statusBar">
+                    <div class="phase" id="phaseUpload">
+                        <div class="phase-dot" id="dotUpload"></div>
+                        <span class="phase-text" id="textUpload">上传素材</span>
+                    </div>
+                    <div class="phase" id="phaseSubmit">
+                        <div class="phase-dot" id="dotSubmit"></div>
+                        <span class="phase-text" id="textSubmit">提交任务</span>
+                    </div>
+                    <div class="phase" id="phaseGenerate">
+                        <div class="phase-dot" id="dotGenerate"></div>
+                        <span class="phase-text" id="textGenerate">生成中...</span>
+                    </div>
+                    <div class="phase" id="phaseDone">
+                        <div class="phase-dot" id="dotDone"></div>
+                        <span class="phase-text" id="textDone">完成</span>
+                    </div>
+                    <div class="log-box" id="logBox"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右栏：预览 -->
+        <div class="right-col preview-area" id="previewArea">
+            <div class="preview-card" id="resultCard" style="display: none;">
+                <video id="resultVideo" controls></video>
+                <div class="info">
+                    <span id="resultInfo"></span>
+                    <a class="btn-download" id="downloadBtn" href="#" download>下载视频</a>
+                </div>
+            </div>
+            <div class="preview-card" style="display: flex; align-items: center; justify-content: center; min-height: 300px; color: #444;">
+                <div style="text-align: center;">
+                    <div style="font-size: 3em; margin-bottom: 12px;">🎭</div>
+                    <div>换脸结果将在这里预览</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 文件上传处理
+        const videoInput = document.getElementById('videoInput');
+        const faceInput = document.getElementById('faceInput');
+        const videoZone = document.getElementById('videoZone');
+        const faceZone = document.getElementById('faceZone');
+        const videoName = document.getElementById('videoName');
+        const faceName = document.getElementById('faceName');
+
+        videoInput.addEventListener('change', () => {
+            if (videoInput.files.length) {
+                videoName.textContent = videoInput.files[0].name;
+                videoZone.classList.add('has-file');
+            }
+        });
+        faceInput.addEventListener('change', () => {
+            if (faceInput.files.length) {
+                faceName.textContent = faceInput.files[0].name;
+                faceZone.classList.add('has-file');
+            }
+        });
+
+        // 拖拽上传
+        [videoZone, faceZone].forEach(zone => {
+            zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = '#a78bfa'; });
+            zone.addEventListener('dragleave', () => { zone.style.borderColor = ''; });
+            zone.addEventListener('drop', e => {
+                e.preventDefault(); zone.style.borderColor = '';
+                const input = zone === videoZone ? videoInput : faceInput;
+                if (e.dataTransfer.files.length) {
+                    input.files = e.dataTransfer.files;
+                    input.dispatchEvent(new Event('change'));
+                }
+            });
+        });
+
+        function setPhase(phase, status) {
+            const dot = document.getElementById('dot' + phase);
+            const text = document.getElementById('text' + phase);
+            dot.className = 'phase-dot';
+            if (status === 'active') { dot.classList.add('active'); text.classList.add('active'); }
+            else if (status === 'done') { dot.classList.add('done'); text.classList.remove('active'); }
+            else if (status === 'error') { dot.classList.add('error'); text.classList.remove('active'); }
+            else { text.classList.remove('active'); }
+        }
+
+        function addLog(msg) {
+            const logBox = document.getElementById('logBox');
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logBox.appendChild(line);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        async function submitTask() {
+            const btn = document.getElementById('submitBtn');
+            if (!videoInput.files.length) { alert('请上传原视频'); return; }
+            if (!faceInput.files.length) { alert('请上传人脸图片'); return; }
+
+            btn.disabled = true;
+            btn.textContent = '处理中...';
+            ['Upload', 'Submit', 'Generate', 'Done'].forEach(p => setPhase(p, ''));
+
+            try {
+                // 上传文件
+                setPhase('Upload', 'active');
+                addLog('上传视频...');
+                const videoForm = new FormData();
+                videoForm.append('file', videoInput.files[0]);
+                const videoResp = await fetch('/api/upload', { method: 'POST', body: videoForm });
+                const videoData = await videoResp.json();
+                if (!videoData.success) throw new Error('视频上传失败: ' + videoData.error);
+                addLog('视频上传完成: ' + videoData.path);
+
+                addLog('上传人脸图...');
+                const faceForm = new FormData();
+                faceForm.append('file', faceInput.files[0]);
+                const faceResp = await fetch('/api/upload', { method: 'POST', body: faceForm });
+                const faceData = await faceResp.json();
+                if (!faceData.success) throw new Error('人脸图上传失败: ' + faceData.error);
+                addLog('人脸图上传完成: ' + faceData.path);
+                setPhase('Upload', 'done');
+
+                // 提交任务
+                setPhase('Submit', 'active');
+                addLog('提交换脸任务...');
+                const submitResp = await fetch('/api/face-swap/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        video_path: videoData.path,
+                        face_image_path: faceData.path,
+                        duration: parseInt(document.getElementById('duration').value) || 8,
+                        width: parseInt(document.getElementById('width').value) || 576,
+                        height: parseInt(document.getElementById('height').value) || 1024,
+                        instance_type: document.getElementById('instanceType').value,
+                    }),
+                });
+                const submitResult = await submitResp.json();
+                if (!submitResult.success) throw new Error('提交失败: ' + submitResult.error);
+                const taskId = submitResult.task_id;
+                addLog('任务已提交: ' + taskId);
+                setPhase('Submit', 'done');
+
+                // 轮询状态
+                setPhase('Generate', 'active');
+                addLog('等待生成...');
+                let result = null;
+                for (let i = 0; i < 120; i++) {
+                    await new Promise(r => setTimeout(r, 5000));
+                    const statusResp = await fetch('/api/face-swap/status/' + taskId);
+                    const statusData = await statusResp.json();
+                    if (statusData.status === 'SUCCESS') {
+                        result = statusData;
+                        break;
+                    }
+                    if (statusData.status === 'FAILED') {
+                        throw new Error('生成失败: ' + (statusData.error || '未知错误'));
+                    }
+                    if (i % 6 === 0) addLog('生成中... ' + (i * 5) + 's');
+                }
+                if (!result) throw new Error('生成超时');
+                setPhase('Generate', 'done');
+
+                // 显示结果
+                setPhase('Done', 'active');
+                const video = document.getElementById('resultVideo');
+                video.src = '/api/face-swap/result/' + taskId;
+                document.getElementById('resultCard').style.display = '';
+                document.getElementById('resultInfo').textContent =
+                    `时长: ${result.duration || '?'}s | 任务: ${taskId}`;
+                document.getElementById('downloadBtn').href = '/api/face-swap/result/' + taskId;
+                addLog('✓ 换脸完成！');
+                setPhase('Done', 'done');
+
+            } catch (e) {
+                addLog('✗ 错误: ' + e.message);
+                ['Upload', 'Submit', 'Generate', 'Done'].forEach(p => {
+                    if (document.getElementById('dot' + p).classList.contains('active')) {
+                        setPhase(p, 'error');
+                    }
+                });
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '开始换脸';
+            }
+        }
+    </script>
+</body>
+</html>

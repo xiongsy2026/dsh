@@ -14,17 +14,24 @@ B 组 真跑 invoke()：临时账本 + 临时批准簿 + 适配器打桩（绝�
 C 组 接线：回执判在批准判之前（AST 行号，不是字符串顺序直觉）
 D 组 变异：判据换恒 [] ⇒ 无回执那条必须改判；捞回豁免摘掉 ⇒ job_id 那条必须变红
 E 组 覆盖对照：判据只一份（网关读 check_receipt，没抄第二份），管线那处核验还在
+F 组 批准即点火的防撞（2026-10-14）：任务目录里那张 .submit.pid 活着 = 服务端已经替这条已批方案
+   起了提交腿 ⇒ 第二次 call 必须拒在【消费之前】；牌子死了/超龄 ⇒ 放行（补跑失败段是合法动作）。
+   真进程（子进程 sleep）当活牌，杀掉后同一张牌改判"死"——不靠编一个不存在的 pid。
 全离线、0 消耗。
 """
 import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
 BS = chr(92)
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import gateway as gw            # noqa: E402
 from backend import skill_contract as sc     # noqa: E402
 
@@ -76,11 +83,14 @@ check("A5 反查唯一性：wan3-prime 只对应一档（对应多档时 skill_f
       sc.skill_for_spend("video.generate", "wan3-prime"), "super-clone")
 
 # ── B 组 真跑 invoke()（临时账本/条子 + 适配器打桩） ────────────────────────────────
+# 🔴 活牌的 pid 必须是【真进程】：编一个大数只能测"读不到"，测不出"活着拦、死后放"这一对。
+#    sleep 120 秒是给整条闸留余量，finally 里必 terminate + wait（闸自己不许留孤儿进程）。
+_kid = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(120)"])
 tmp = tempfile.mkdtemp(prefix="spend-receipt-")
 _out_dir = os.path.join(tmp, "step2_wan3")
 os.makedirs(_out_dir, exist_ok=True)
 _keep = (gw.SPEND_APPROVALS_PATH, getattr(gw, "_LEDGER_PATH", None), getattr(gw, "_ledger", None),
-         gw._yz_prime_run)
+         gw._tianyue_video_run)
 calls = []
 
 
@@ -93,7 +103,7 @@ try:
     gw.SPEND_APPROVALS_PATH = os.path.join(tmp, "appr.json")
     gw._LEDGER_PATH = os.path.join(tmp, "ledger.sqlite")
     gw._ledger = None
-    gw._yz_prime_run = _stub
+    gw._tianyue_video_run = _stub
     seg_out = os.path.join(_out_dir, "seg01-prime.mp4")
     P = dict(NOForm, output_path=seg_out)
 
@@ -164,11 +174,50 @@ try:
           [len(calls), env3.get("ok")], [1, False])       # 桩故意抛 ⇒ ok False，但调用点已到适配器
     check("B8 失败退段：这次没消耗，批准额度要退回（拿别人的授权替自己的绕道买单=最坏形状）",
           [x.get("used") for x in gw._approvals_load().get("grants", [])], [0])
+
+    # ── B9/B10 批准即点火的防撞（同一套物证：回执齐、条子齐，唯一变量是那张牌子） ──
+    _card = os.path.join(tmp, ".submit.pid")
+    with io.open(_card, "w", encoding="utf-8") as f:
+        f.write(str(_kid.pid))
+    env4 = gw.invoke("video.generate", "wan3-prime", account="t",
+                     params=dict(NOForm, output_path=seg_out, session="s-ok"))
+    check("B9 服务端已经为这条已批方案起了提交腿（牌子上是别人的活 pid）⇒ 再 call 一次必须拒，"
+          "且拒因点名 submit.log 与只读口（不许只说'被拦了'）",
+          [env4.get("ok"), "kickoff-collision" in str(env4.get("error")),
+           "submit.log" in str(env4.get("error")),
+           "/api/skills/obligation" in str(env4.get("error"))],
+          [False, True, True, True])
+    check("B9b 拒在【消费之前】：适配器没被调、批准额度没被吃（否则一张批准能出两条片）",
+          [len(calls), [x.get("used") for x in gw._approvals_load().get("grants", [])],
+           len(gw.ledger().pending_holds() or [])],
+          [1, [0], 0])
+    check("B9c 拒因给的是【不用你再动手】：明说不需要你再提交、去哪看进度、什么条件下才允许补跑"
+          "（拒绝文案是攻击面：教人'重新提交一次'等于把这条闸变成提示）",
+          [("不需要你再提交" in str(env4.get("error"))),
+           any(k in str(env4.get("error")) for k in ("退出", "摘牌")),
+           "补跑" in str(env4.get("error"))],
+          [True, True, True])
+    with io.open(_card, "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))                      # 牌子上就是本进程 = 服务端起的那条 runner 自己在提交
+    env5 = gw.invoke("video.generate", "wan3-prime", account="t",
+                     params=dict(NOForm, output_path=seg_out, session="s-ok"))
+    check("B10 正向对照·牌子上是自己 ⇒ 必须放行到适配器（防误杀：被服务端点火的那台提交不了=一条都不出）",
+          [len(calls), "kickoff-collision" in str(env5.get("error"))], [2, False])
+    with io.open(_card, "w", encoding="utf-8") as f:
+        f.write("")                                    # 空牌子（写半截崩了）⇒ 按没有牌子算，不许永久锁死
+    check("B10b 牌子上没有合法 pid ⇒ 不拦（读不出=没有事实，不能当'有人在跑'）",
+          len(gw.kickoff_collision_problems("video.generate", "wan3-prime",
+                                            {"output_path": seg_out})), 0)
 finally:
-    (gw.SPEND_APPROVALS_PATH, gw._LEDGER_PATH, gw._ledger, gw._yz_prime_run) = _keep
+    (gw.SPEND_APPROVALS_PATH, gw._LEDGER_PATH, gw._ledger, gw._tianyue_video_run) = _keep
+    _kid.terminate()
+    try:
+        _kid.wait(timeout=10)
+    except Exception:                                   # noqa: BLE001
+        _kid.kill()
 
 # ── C 组 接线（顺序用 AST 行号，不靠直觉） ──────────────────────────────────────────
-src = io.open(r"D:\video-skill\backend\gateway.py", encoding="utf-8", errors="replace").read()
+src = io.open(os.path.join(BACKEND, r"gateway.py"), encoding="utf-8", errors="replace").read()
 lines = src.splitlines()
 i_fn = next(i for i, l in enumerate(lines) if l.startswith("def invoke("))
 i_end = next(i for i in range(i_fn + 1, len(lines)) if lines[i].startswith("def "))
@@ -179,6 +228,9 @@ check("C1 回执判在【预扣之前】、且判在批准闸之前（顺序错�
        rel("spend_contract_problems(")], [True, rel("spend_contract_problems(")])
 check("C2 拒绝分支里不建 hold、不发 HTTP（return 在 preauth 之前）",
       "return" in "\n".join(body[rel("spend_contract_problems("):rel("spend_contract_problems(") + 9]), True)
+check("C3 防撞判在【回执之后、批准与预扣之前】—— 顺序错了就先吃别人的额度再报失败",
+      0 <= rel("spend_contract_problems(") < rel("kickoff_collision_problems(")
+      < rel("check_spend_approval(") < rel("ledger().preauth"), True)
 
 # ── D 组 变异对照 ──────────────────────────────────────────────────────────────────
 _orig = gw.spend_contract_problems
@@ -195,13 +247,79 @@ check("D2 变异·判据在源码里各只定义一次（不抄第二份）",
        src.count("CONTRACT_RECEIPT_WALK") >= 3], [1, 1, True])
 
 # ── E 组 覆盖对照 ─────────────────────────────────────────────────────────────────
-pipe = io.open(r"D:\video-skill\backend\services\super_clone_wan3.py",
+pipe = io.open(os.path.join(BACKEND, r"services\super_clone_wan3.py"),
                encoding="utf-8", errors="replace").read()
 check("E1 管线自己那道核验还在（网关这条是补咽喉，不是替它；两处判据同源 check_receipt）",
       ["verify_or_raise(" in pipe, "check_receipt(" in src or "load_receipt(" in src], [True, True])
 check("E2 网关不许长出第二份'回执合格'判据（步/手段/版本一律读 skill_contract）",
       [k in src for k in ("def contract_shape_problems", "def impl_problems", "def _yz_impl_ok")],
       [False, False, False])
+
+# ── F 组 批准即点火防撞：牌子状态判据 + 变异 + 判据只有一份 ─────────────────────────
+# 🔴 活牌用【真起的子进程】，死牌用【真杀掉的同一个进程】：编一个大数只能测"读不出"，
+#    测不出"活着拦、死后放"这一对——而这一对正是这条守卫的全部价值（死后不放=补跑永远跑不了）。
+_kid2 = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(120)"])
+_fcard = os.path.join(tmp, ".submit.pid")
+
+
+def _card(val):
+    with io.open(_fcard, "w", encoding="utf-8") as f:
+        f.write(str(val))
+
+
+def _kc(params_extra=None):
+    p = {"output_path": seg_out}
+    p.update(params_extra or {})
+    return len(gw.kickoff_collision_problems("video.generate", "wan3-prime", p))
+
+
+try:
+    _card(_kid2.pid)
+    _st_live = gw.submit_card_state(_fcard)
+    check("F1 真活进程当牌子 ⇒ alive=True 且防撞【拒】（这就是服务端替这条已批方案起的那台还在跑）",
+          [_st_live["alive"], _st_live["pid"], _kc()], [True, _kid2.pid, 1])
+    check("F1b 带 job_id（去捞已提交的任务）⇒ 不拦：只断第二次提交，不断查询（重投=双花）",
+          _kc({"job_id": "J-9"}), 0)
+    check("F1c 没有合同档认领的腿（h3 / motion-rpa）⇒ 不在射程，明说不假装管得住",
+          [len(gw.kickoff_collision_problems("video.generate", "h3", {"output_path": seg_out})),
+           len(gw.kickoff_collision_problems("video.generate", "motion-rpa",
+                                             {"output_path": seg_out}))], [0, 0])
+    _card("not-a-pid")
+    check("F2 牌子上不是合法 pid（半截文件）⇒ 按没有牌子算，不许当成'有人在跑'",
+          [gw.submit_card_state(_fcard)["alive"], _kc()], [False, 0])
+    _card(os.getpid())
+    _mt = os.path.getmtime(_fcard)
+    os.utime(_fcard, (_mt - gw.SUBMIT_PID_MAX_AGE - 60, _mt - gw.SUBMIT_PID_MAX_AGE - 60))
+    _st_old = gw.submit_card_state(_fcard)
+    check("F3 超龄的牌子 ⇒ 按死牌算（没人摘牌 ≠ 这条任务被一个已被系统复用的 pid 永久锁死）",
+          [_st_old["alive"], "超过" in _st_old["why"]], [False, True])
+    _card(_kid2.pid)
+    _kc_src = src[src.index("def kickoff_collision_problems"):
+                  src.index("# 🔴 判定口地址可用 env 覆盖")]
+    _ns_f = {"receipt_dirs": gw.receipt_dirs, "submit_card_state": gw.submit_card_state,
+             "_os": os, "_time": __import__("time"), "SUBMIT_PID_NAME": gw.SUBMIT_PID_NAME,
+             "SUBMIT_PID_MAX_AGE": gw.SUBMIT_PID_MAX_AGE, "SUBMIT_PID_GUARD": True}
+    exec(compile(_kc_src.replace('if not st["alive"]:', "if True:"), "mutated", "exec"), _ns_f)
+    check("F4 变异·把'死牌跳过'改成'一律跳过' ⇒ 活牌也放行（证明 F1/B9 咬的是这条分支，不是恒拒）",
+          [len(_ns_f["kickoff_collision_problems"]("video.generate", "wan3-prime",
+                                                   {"output_path": seg_out})), _kc()], [0, 1])
+    _kid2.terminate()
+    _kid2.wait(timeout=10)
+    _st_dead = gw.submit_card_state(_fcard)
+    check("F5 同一个文件、同一个判据：那台真退出 ⇒ 判死并放行（补跑失败的段是合法出口）",
+          [_st_dead["alive"], "不在" in _st_dead["why"], _kc()], [False, True, 0])
+finally:
+    if _kid2.poll() is None:
+        _kid2.terminate()
+        _kid2.wait(timeout=10)
+check("F6 收尾·闸自己起的子进程已回收（不许留孤儿）", _kid2.poll() is not None, True)
+_ma = io.open(os.path.join(BACKEND, r"model_admin.py"), encoding="utf-8", errors="replace").read()
+_ks = _ma[_ma.index("def kickoff_submit"):(_ma.index("def compiled_report")
+                                           if "def compiled_report" in _ma else len(_ma))]
+check("F7 判据只有一份：8100 的复用检查读网关那份 submit_card_state，自己不读文件、不算年龄",
+      ["gateway.submit_card_state(" in _ks, "_proc_alive" in _ks,
+       src.count("def submit_card_state"), _ma.count("def submit_card_state")],
+      [True, False, 1, 0])
 
 shutil.rmtree(tmp, ignore_errors=True)
 check("收尾 临时目录已清（闸自己不许留残留）", os.path.isdir(tmp), False)

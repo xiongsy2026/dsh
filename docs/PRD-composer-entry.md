@@ -40,7 +40,7 @@
 **非目标（🔴 越界即违规）—— 这 7 条与 `docs/tasks-composer-entry.json` 的 `hard_boundaries` 逐字一致，两份必须同步改**
 1. 不做「敲 / 弹候选」的命令面板（要接管键盘事件与光标定位，另立任务）
 2. 不把首页 skill dock 整块搬进对话里常驻 —— 卡片式 dock 仍只在首页，对话里只加轻量 chips
-3. 不新增技能、不改任何 SKILL.md —— 只对齐 SKILLS 表与实况（客户可见面仍限 SKILL_DOCK_ALLOW 那 5 条）
+3. 不新增技能、不改任何 SKILL.md —— 只对齐 SKILLS 表与实况（客户可见面 = `SKILL_DOCK_ALLOW` 这一张表；2026-10-05 用户拍板加第 6 条 `prompt-reverse` ⇒ 名单以 `check-skill-dock.py` 的 APPROVED 为准，两处必须同改）
 4. 不动 DSH 内核（@deepseek-ai/dsh-*）与官方 composer DOM 结构 —— 只插自己的节点
 5. 不依赖 CSS Modules 哈希 class（升级必漂），只克隆原生按钮 className + data-ws-* 标记
 6. 不改 setSkillPrompt 的命令置前语义（清旧 /技能 前缀、命令置前、描述在后）

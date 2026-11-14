@@ -59,7 +59,7 @@ inputs[{path,sha8,size}] / steps[{id, ok, evidence{path,sha8,字段}}] / deviati
 没有 `--force`、没有环境变量能一键关掉整套（那等于把铁律降级成建议）。
 
 ## 强度到哪为止（别 over-claim）
-- 拦得住"忘了/图省事"，**拦不住蓄意伪造**：能改 `D:\video-skill` 源码的 agent 理论上能写一份假回执。
+- 拦得住"忘了/图省事"，**拦不住蓄意伪造**：能改 `backend` 源码的 agent 理论上能写一份假回执。
   代价是留下 `entry_argv_sha8` 与文件 mtime 的可核对痕迹，且回执由入口写、agent 手写一份要能凑齐输入指纹。
 - 覆盖范围 = 已交合同的档。没交的档今天照样能跑 —— 由 `check-skill-contract.py` **判红**来逼进度，
   不靠文档呼吁。首批红名单 = `KNOWN_SKILLS` 里除 super-clone 之外的那几条。

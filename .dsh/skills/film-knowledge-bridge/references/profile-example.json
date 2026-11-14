@@ -1,0 +1,36 @@
+{
+  "stage": "05-screenplay",
+  "selected_documents": [],
+  "deep_read_selected": false,
+  "problem": "填写当前阶段真正需要解决的结构、人物、表演或视听问题，不复制完整剧本",
+  "queries": [
+    {
+      "lane": "参考剧本候选",
+      "text": "填写英文题材词 冲突词 结构词",
+      "path_contains": [
+        "05-中日韩美高热类型片",
+        "06-全球电影节获奖剧本"
+      ],
+      "mode": "any",
+      "weight": 1.5
+    },
+    {
+      "lane": "编剧方法候选",
+      "text": "填写中文结构词 冲突词 人物关系词",
+      "path_contains": "08-编剧方法书籍\\编剧与影视专业书籍",
+      "mode": "any",
+      "weight": 1.0
+    },
+    {
+      "lane": "编剧方法候选",
+      "text": "填写对应英文方法词",
+      "path_contains": "08-编剧方法书籍\\开放版权经典",
+      "mode": "any",
+      "weight": 0.9
+    }
+  ],
+  "lane_limits": {
+    "参考剧本候选": 5,
+    "编剧方法候选": 5
+  }
+}

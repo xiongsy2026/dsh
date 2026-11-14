@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖音账号批量下载</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #0ea5e9 0%, #6366f1 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; margin-left: 10px; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 420px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .section-title { font-size: 1.02em; font-weight: 600; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+        .section-title:first-child { margin-top: 0; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #0ea5e9; }
+        .field-label { display: block; font-size: .74em; color: #777; margin: -8px 0 14px; }
+        .text-field { width: 100%; margin-bottom: 14px; padding: 12px 14px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .92em; outline: none; }
+        .text-field:focus { border-color: #0ea5e9; }
+        .text-field::placeholder { color: #555; }
+        textarea.text-field { min-height: 96px; font-family: "Cascadia Code", Consolas, monospace; font-size: .78em; resize: vertical; }
+        .text-field.small { width: 120px; display: inline-block; }
+        .hidden { display: none !important; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.05em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #0ea5e9, #6366f1); color: #fff; transition: all .2s; letter-spacing: 1px; margin-bottom: 10px; }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(14,165,233,.4); }
+        .run-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.busy { background: linear-gradient(90deg, #f59e0b, #ef4444); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
+        .ghost-btn { padding: 8px 14px; background: rgba(14,165,233,.12); border: 1px solid #2f5f80; color: #7dd3fc; border-radius: 8px; cursor: pointer; font-size: .82em; }
+        .ghost-btn:hover { background: rgba(14,165,233,.22); }
+        .ghost-btn.warn { border-color: #a16207; color: #fbbf24; background: rgba(245,158,11,.12); }
+        .ghost-btn.danger { border-color: #7f1d1d; color: #f87171; background: rgba(239,68,68,.12); }
+        .chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 20px; font-size: .76em; font-weight: 600; margin-bottom: 12px; }
+        .chip .lamp { width: 8px; height: 8px; border-radius: 50%; }
+        .chip-ok { background: rgba(20,83,45,.6); color: #4ade80; }
+        .chip-ok .lamp { background: #4ade80; }
+        .chip-warn { background: rgba(69,26,26,.6); color: #f87171; }
+        .chip-warn .lamp { background: #f87171; }
+        .count-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .count-btn { padding: 7px 14px; border-radius: 8px; border: 1px solid #3a3a5c; background: #1e1e36; color: #aaa; cursor: pointer; font-size: .84em; transition: all .15s; }
+        .count-btn:hover { border-color: #0ea5e9; color: #7dd3fc; }
+        .count-btn.on { border-color: #0ea5e9; background: rgba(14,165,233,.2); color: #7dd3fc; font-weight: 700; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 22px; margin-bottom: 18px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        .progress-wrap { background: #2a2a44; border-radius: 6px; height: 10px; overflow: hidden; margin-bottom: 12px; }
+        .progress-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #0ea5e9, #6366f1); transition: width .4s; width: 0%; }
+        .progress-fill.sweep { width: 30% !important; animation: sweep 1.8s infinite linear; transition: none; }
+        @keyframes sweep { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+        .stage-text { font-size: .9em; color: #7dd3fc; margin-bottom: 10px; word-break: break-all; }
+        .counters { display: flex; gap: 18px; font-size: .82em; color: #888; flex-wrap: wrap; }
+        .counters b { color: #e0e0e0; font-weight: 600; }
+        .actions { display: flex; gap: 10px; margin-top: 14px; }
+        .note { background: rgba(245,158,11,.1); border: 1px solid #6b4a12; border-radius: 10px; padding: 12px 14px; font-size: .82em; color: #fcd34d; margin-bottom: 16px; line-height: 1.6; }
+        .dir-line { font-family: Consolas, monospace; font-size: .82em; color: #a5b4fc; word-break: break-all; }
+        .table-wrap { background: #16162a; border-radius: 14px; padding: 8px; margin-bottom: 18px; max-height: 520px; overflow: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: .8em; }
+        th { position: sticky; top: 0; background: #1c1c33; color: #8b8bab; text-align: left; padding: 9px 8px; font-weight: 600; white-space: nowrap; }
+        td { padding: 8px; border-top: 1px solid #24243d; vertical-align: top; }
+        tr.r-downloading td { background: rgba(59,130,246,.12); }
+        tr.r-done td { background: rgba(34,197,94,.06); }
+        tr.r-failed td { background: rgba(239,68,68,.12); }
+        tr.r-skipped td { color: #777; }
+        td.title-cell { max-width: 420px; color: #d4d4d8; }
+        td.dim { color: #777; white-space: nowrap; }
+        .st { font-weight: 600; white-space: nowrap; }
+        .st-pending { color: #666; }
+        .st-downloading { color: #60a5fa; }
+        .st-done { color: #4ade80; }
+        .st-failed { color: #f87171; }
+        .st-skipped { color: #a16207; }
+        .file-link { color: #7dd3fc; text-decoration: none; }
+        .file-link:hover { text-decoration: underline; }
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", Consolas, monospace; font-size: .76em; color: #8b8bab; max-height: 200px; overflow-y: auto; line-height: 1.7; margin-bottom: 18px; }
+        .log-line.error { color: #f87171; }
+        .log-line.done { color: #4ade80; }
+        .history-panel { background: #16162a; border-radius: 14px; padding: 18px 22px; }
+        .hist-item { padding: 10px 0; border-top: 1px solid #24243d; cursor: pointer; display: flex; gap: 12px; font-size: .84em; align-items: baseline; }
+        .hist-item:first-of-type { border-top: none; }
+        .hist-item:hover .hist-name { color: #7dd3fc; }
+        .hist-name { color: #d4d4d8; flex: 1; }
+        .hist-meta { color: #666; white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div><h1 style="display:inline">抖音账号批量下载</h1><span class="tag">ACCOUNT BATCH</span></div>
+        <a class="back-btn" href="/">← 返回控制台</a>
+    </div>
+
+    <div class="main">
+        <aside class="input-panel">
+            <div class="section-title"><span class="dot dot-required"></span>抖音登录态</div>
+            <div id="cookie-chip" class="chip chip-warn"><span class="lamp"></span><span id="cookie-text">检查中…</span></div>
+            <button class="ghost-btn" id="cookie-toggle">粘贴新 cookie</button>
+            <div id="cookie-box" class="hidden" style="margin-top:12px">
+                <textarea class="text-field" id="cookie-input" placeholder="把浏览器里复制的 cookie 整串粘进来：&#10;name=value; name=value; ..."></textarea>
+                <button class="run-btn" id="cookie-save" style="font-size:.92em;padding:11px">保存登录态</button>
+            </div>
+
+            <div class="section-title"><span class="dot dot-required"></span>账号主页链接</div>
+            <input class="text-field" id="account-input" placeholder="账号主页 → 分享 → 复制链接，整段文案也能粘">
+
+            <div class="section-title"><span class="dot dot-optional"></span>下载数量</div>
+            <div class="count-row" id="count-row">
+                <button class="count-btn on" data-want="0">全部</button>
+                <button class="count-btn" data-want="10">10 条</button>
+                <button class="count-btn" data-want="20">20 条</button>
+                <button class="count-btn" data-want="50">50 条</button>
+                <button class="count-btn" data-want="100">100 条</button>
+            </div>
+            <label class="field-label">或指定条数</label>
+            <input class="text-field small" type="number" id="want-custom" min="1" placeholder="比如 8" style="margin-top:-6px">
+            <label class="field-label">全部＝翻完整个主页，再一条一条下完整批。可随时停止，之后「继续没下完的」接着下，已落盘的自动跳过。</label>
+
+            <div class="section-title"><span class="dot dot-optional"></span>存到哪个文件夹</div>
+            <input class="text-field" id="target-dir" value="C:\视频下载">
+            <label class="field-label">每次下载任务会在里面单独开一个文件夹（昵称_任务号），各留一份清单</label>
+
+            <div class="section-title"><span class="dot dot-optional"></span>条间隔（秒）</div>
+            <input class="text-field small" type="number" id="gap-sec" min="0" step="0.5" value="2">
+            <label class="field-label">下完一条歇这么久再下下一条</label>
+
+            <button class="run-btn" id="preview-btn">① 取作品列表</button>
+            <button class="run-btn" id="download-btn" disabled>② 依次下载</button>
+        </aside>
+
+        <section class="output-panel">
+            <div class="status-panel">
+                <div class="status-header">
+                    <span class="status-badge badge-idle" id="badge">待命</span>
+                    <span id="kind-label" style="font-size:.86em;color:#888"></span>
+                </div>
+                <div class="progress-wrap"><div class="progress-fill" id="bar"></div></div>
+                <div class="stage-text" id="stage">填好左边两项，先取列表。</div>
+                <div class="counters" id="counters"></div>
+                <div class="actions">
+                    <button class="ghost-btn danger hidden" id="abort-btn">停止</button>
+                    <button class="ghost-btn warn hidden" id="retry-btn">继续没下完的</button>
+                </div>
+            </div>
+
+            <div id="account-card" class="status-panel hidden">
+                <div class="status-header">
+                    <span style="font-size:1.05em;font-weight:600" id="acc-name">—</span>
+                    <span style="font-size:.8em;color:#888" id="acc-declared"></span>                </div>
+                <div class="counters" id="acc-meta"></div>
+            </div>
+
+            <div class="note hidden" id="note"></div>
+            <div class="status-panel hidden" id="dir-panel">
+                文件在这里：<span class="dir-line" id="dir-line"></span>
+            </div>
+
+            <div class="table-wrap hidden" id="table-wrap">
+                <table>
+                    <thead><tr>
+                        <th>#</th><th>标题</th><th>时长</th><th>发布</th><th>状态</th><th>大小</th><th>下载腿</th><th>文件</th>
+                    </tr></thead>
+                    <tbody id="tbody"></tbody>
+                </table>
+            </div>
+
+            <div class="log-box hidden" id="log-box"></div>
+
+            <div class="history-panel">
+                <div class="section-title" style="margin-top:0"><span class="dot dot-optional"></span>历史任务</div>
+                <div id="history-list"><div style="color:#666;font-size:.85em">还没有任务</div></div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const API = "/api/douyin-batch-studio";
+        const $ = id => document.getElementById(id);
+        let want = 0;
+        let feed = null;
+        let pollTimer = null;
+        let activeTask = null;
+        let activeKind = "";
+        let rateWin = [];
+
+        function esc(s) {
+            return String(s == null ? "" : s).replace(/[&<>"']/g,
+                c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+        }
+
+        async function req(path, opts) {
+            const resp = await fetch(API + path, opts);
+            let data = null;
+            try { data = await resp.json(); } catch (e) { }
+            if (!resp.ok) {
+                const detail = data && data.detail ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)) : resp.status;
+                throw new Error(detail);
+            }
+            return data;
+        }
+
+        function post(path, body) {
+            return req(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify(body || {}) });
+        }
+
+        function setBadge(status, text) {
+            const b = $("badge");
+            b.className = "status-badge " + ({ INIT: "badge-idle", RUNNING: "badge-running",
+                SUCCESS: "badge-completed", FAILED: "badge-failed" }[status] || "badge-idle");
+            b.textContent = text || status || "待命";
+        }
+
+        function setRunning(label) {
+            $("kind-label").textContent = label || "";
+            $("abort-btn").classList.remove("hidden");
+        }
+
+        async function loadCookie() {
+            try {
+                const s = await req("/cookie-status");
+                if (s.exists) {
+                    $("cookie-chip").className = "chip " + (s.has_sessionid ? "chip-ok" : "chip-warn");
+                    $("cookie-text").textContent = "已保存 " + s.cookie_count + " 条 · " + s.mtime_str
+                        + (s.has_sessionid ? "" : " · 缺登录 cookie");
+                } else {
+                    $("cookie-chip").className = "chip chip-warn";
+                    $("cookie-text").textContent = "还没有登录态，先粘 cookie";
+                }
+                if (s.default_target_dir) $("target-dir").value = s.default_target_dir;
+            } catch (e) {
+                $("cookie-chip").className = "chip chip-warn";
+                $("cookie-text").textContent = "读不到登录态：" + e.message;
+            }
+        }
+
+        $("cookie-toggle").onclick = () => $("cookie-box").classList.toggle("hidden");
+
+        $("cookie-save").onclick = async () => {
+            const raw = $("cookie-input").value.trim();
+            if (!raw) { alert("先粘贴 cookie 内容"); return; }
+            try {
+                const r = await post("/save-cookie", { cookie: raw });
+                $("cookie-input").value = "";
+                $("cookie-save").disabled = true;
+                await loadCookie();
+                $("cookie-save").disabled = false;
+                alert("已保存 " + r.cookie_count + " 条 cookie"
+                      + (r.has_sessionid ? "（含登录 cookie）" : "（没看到登录 cookie，可能翻不到第二页）")
+                      + (r.has_ttwid ? "" : "；也没看到 ttwid"));
+            } catch (e) {
+                alert("保存失败：" + e.message);
+            }
+        };
+
+        $("count-row").addEventListener("click", ev => {
+            const btn = ev.target.closest(".count-btn");
+            if (!btn) return;
+            document.querySelectorAll(".count-btn").forEach(b => b.classList.remove("on"));
+            btn.classList.add("on");
+            want = parseInt(btn.dataset.want, 10);
+            $("want-custom").value = "";
+        });
+
+        $("want-custom").addEventListener("input", () => {
+            const v = parseInt($("want-custom").value, 10);
+            if (v > 0) {
+                document.querySelectorAll(".count-btn").forEach(b => b.classList.remove("on"));
+                want = v;
+            }
+        });
+
+        function renderRows(items) {
+            const tb = $("tbody");
+            tb.innerHTML = "";
+            items.forEach(it => {
+                const tr = document.createElement("tr");
+                tr.dataset.aid = it.aweme_id;
+                const st = it.dl_status || "pending";
+                tr.className = "r-" + (st === "pending" ? "" : st);
+                const link = it.file
+                    ? '<a class="file-link" target="_blank" href="' + API + '/file?task_id='
+                      + encodeURIComponent(activeTask || "") + "&name=" + encodeURIComponent(it.file) + '">打开</a>'
+                    : '<span style="color:#555">—</span>';
+                const size = it.size_mb ? it.size_mb.toFixed(2) + "MB" : "—";
+                const leg = it.method || "—";
+                const statusText = { pending: "排队", downloading: "下载中", done: "完成",
+                    failed: "失败", skipped: "跳过" }[st] || "排队";
+                const errTip = it.error || it.skip_reason || "";
+                tr.innerHTML = '<td class="dim">' + esc(it.index) + "</td>"
+                    + '<td class="title-cell">' + esc(it.title || "（无标题）") + "</td>"
+                    + '<td class="dim">' + (it.duration_ms ? (it.duration_ms / 1000).toFixed(1) + "s" : "—") + "</td>"
+                    + '<td class="dim">' + esc(it.publish_date || "—") + "</td>"
+                    + '<td class="st st-' + esc(st) + '">' + esc(statusText)
+                    + (errTip ? '<div style="font-weight:400;font-size:.9em;opacity:.85">' + esc(errTip.slice(0, 90)) + "</div>" : "")
+                    + "</td>"
+                    + '<td class="dim">' + size + "</td>"
+                    + '<td class="dim">' + esc(leg) + "</td>"
+                    + '<td class="dim">' + link + "</td>";
+                tb.appendChild(tr);
+            });
+        }
+
+        function etaHtml(c, status) {
+            // 速率只按最近 2 分钟的实测样本算（刷新页面会重新采，所以宁可不显示也不编一个数）
+            if (status !== "RUNNING" || !c.total) return "";
+            const now = Date.now() / 1000;
+            const doneAll = (c.done || 0) + (c.failed || 0) + (c.skipped || 0);
+            rateWin.push({ t: now, d: doneAll });
+            rateWin = rateWin.filter(s => now - s.t <= 300);
+            if (rateWin.length < 2) return "";
+            const s0 = rateWin[0], s1 = rateWin[rateWin.length - 1];
+            const dn = s1.d - s0.d;
+            if (dn < 3) return "";
+            const per = (s1.t - s0.t) / dn;
+            const secs = (c.total - s1.d) * per;
+            const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+            const at = new Date(Date.now() + secs * 1000).toTimeString().slice(0, 5);
+            return "　速率 <b>" + per.toFixed(1) + " 秒/条</b>　还需 <b>"
+                + (h ? h + " 小时 " : "") + m + " 分</b>　约 <b>" + at + "</b> 下完"
+                + "（按最近 5 分钟实测）";
+        }
+
+        function paint(state) {
+            const bar = $("bar");
+            const running = state.status === "RUNNING" || state.status === "INIT";
+            if (state.kind === "preview" && running && !(state.progress > 0)) {
+                // 「全部」翻到底之前没有总数可算，进度条宁可扫也不要停在 0% 装死
+                bar.classList.add("sweep");
+                bar.style.width = "";
+            } else {
+                bar.classList.remove("sweep");
+                bar.style.width = (state.progress || 0) + "%";
+            }
+            $("stage").textContent = state.stage || "";
+            const c = state.counts || {};
+            if (state.kind === "download") {
+                $("counters").innerHTML =
+                    "共 <b>" + (c.total || 0) + "</b>　完成 <b style='color:#4ade80'>" + (c.done || 0)
+                    + "</b>　失败 <b style='color:#f87171'>" + (c.failed || 0)
+                    + "</b>　跳过 <b style='color:#fbbf24'>" + (c.skipped || 0)
+                    + "</b>　排队 <b>" + (c.pending || 0) + "</b>" + etaHtml(c, state.status);
+            } else {
+                $("counters").innerHTML = "";
+            }
+            if (state.items && state.items.length) renderRows(state.items);
+            if (state.out_dir) {
+                $("dir-panel").classList.remove("hidden");
+                $("dir-line").textContent = state.out_dir + "\\";
+            }
+            const logs = state.logs || [];
+            if (logs.length) {
+                $("log-box").classList.remove("hidden");
+                $("log-box").innerHTML = logs.map(l => {
+                    const cls = /失败|中止|error/.test(l.msg || "") ? "log-line error"
+                        : /完成/.test(l.msg || "") ? "log-line done" : "log-line";
+                    return '<div class="' + cls + '">' + esc(l.msg) + "</div>";
+                }).join("");
+                $("log-box").scrollTop = $("log-box").scrollHeight;
+            }
+        }
+
+        function showFeed(state) {
+            const extra = state || {};
+            const f = state.feed || {};
+            if (!f.sec_uid && !state.nickname) return;
+            $("account-card").classList.remove("hidden");
+            $("acc-name").textContent = state.nickname || f.nickname || "（没取到昵称）";
+            $("acc-declared").textContent = f.declared_count
+                ? "接口自报 aweme_count=" + f.declared_count + "（实测不等于作品总数）" : "";
+            $("acc-meta").innerHTML =
+                "本人作品 <b>" + (f.got || 0) + "</b>　非本人已剔除 <b>" + (f.foreign_dropped || 0)
+                + "</b>　翻了 <b>" + (f.page_sizes || []).length + "</b> 页　到底 <b>"
+                + (f.reached_end ? "是" : "否（" + esc(f.stopped_reason || "-") + "）") + "</b>";
+            const note = [];
+            if (f.maybe_anonymous) note.push("只翻到一页就停了 —— cookie 很可能已过期或没登录，重新粘一份再取。");
+            else if (f.truncated) note.push("翻到 " + (f.got || 0) + " 条就没再吐数据（停止原因 "
+                + esc(f.stopped_reason || "-") + "）。这不是到底了，是翻页断了 —— 直接再点一次「取作品列表」重试。");
+            if (f.own_total && f.got && f.got < f.own_total && f.stopped_reason !== "enough") {
+                note.push("你限了数量：列表实际翻到 " + f.own_total + " 条，这次只取了前 " + f.got + " 条。");
+            }
+            if (note.length) {
+                $("note").classList.remove("hidden");
+                $("note").innerHTML = note.map(esc).join("<br>");
+            } else {
+                $("note").classList.add("hidden");
+            }
+        }
+
+        function stopPoll() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = null;
+            $("abort-btn").classList.add("hidden");
+        }
+
+        function watch(taskId, kind) {
+            activeTask = taskId;
+            activeKind = kind;
+            rateWin = [];
+            stopPoll();
+            setRunning(kind === "preview" ? "① 取列表中" : "② 下载中");
+            pollTimer = setInterval(async () => {
+                let s;
+                try {
+                    s = await req("/status?task_id=" + encodeURIComponent(taskId));
+                } catch (e) {
+                    setBadge("FAILED", "读状态失败");
+                    $("stage").textContent = e.message;
+                    stopPoll();
+                    return;
+                }
+                paint(s);
+                if (s.kind === "preview" || s.feed) showFeed(s);
+                if (s.status === "RUNNING" || s.status === "INIT") {
+                    setBadge(s.status, s.kind === "preview" ? "取列表中" : "下载中");
+                    return;
+                }
+                stopPoll();
+                setBadge(s.status, s.status === "SUCCESS" ? "完成" : "失败");
+                if (s.kind === "preview") {
+                    feed = { sec_uid: s.sec_uid, nickname: s.nickname, items: s.items || [] };
+                    $("download-btn").disabled = !(s.items || []).length;
+                    $("download-btn").textContent = "② 依次下载 " + (s.items || []).length + " 条";
+                } else {
+                    $("retry-btn").classList.remove("hidden");
+                    loadHistory();
+                }
+            }, 2000);
+        }
+
+        $("preview-btn").onclick = async () => {
+            const text = $("account-input").value.trim();
+            if (!text) { alert("把账号主页链接（或整段分享文案）粘进来"); return; }
+            $("preview-btn").disabled = true;
+            $("preview-btn").classList.add("busy");
+            $("retry-btn").classList.add("hidden");
+            $("note").classList.add("hidden");
+            setBadge("INIT", "排队中");
+            try {
+                const r = await post("/preview", { account_input: text, want: want });
+                $("tbody").innerHTML = "";
+                $("stage").textContent = "浏览器正在翻这个账号的主页（headless，不会弹窗）…";
+                watch(r.task_id, "preview");
+            } catch (e) {
+                setBadge("FAILED", "起不来");
+                $("stage").textContent = e.message;
+            } finally {
+                $("preview-btn").disabled = false;
+                $("preview-btn").classList.remove("busy");
+            }
+        };
+
+        $("download-btn").onclick = async () => {
+            if (!feed || !feed.items || !feed.items.length) { alert("先取一次列表"); return; }
+            $("download-btn").disabled = true;
+            $("download-btn").classList.add("busy");
+            $("retry-btn").classList.add("hidden");
+            try {
+                const r = await post("/run", {
+                    sec_uid: feed.sec_uid,
+                    nickname: feed.nickname || "",
+                    items: feed.items,
+                    target_dir: $("target-dir").value.trim(),
+                    gap_sec: parseFloat($("gap-sec").value || "2"),
+                });
+                setBadge("INIT", "排队中");
+                watch(r.task_id, "download");
+            } catch (e) {
+                setBadge("FAILED", "起不来");
+                $("stage").textContent = e.message;
+                $("download-btn").disabled = false;
+            } finally {
+                $("download-btn").classList.remove("busy");
+            }
+        };
+
+        $("abort-btn").onclick = async () => {
+            if (!activeTask) return;
+            try { await post("/abort?task_id=" + encodeURIComponent(activeTask)); $("stage").textContent = "正在停止…"; }
+            catch (e) { alert(e.message); }
+        };
+
+        $("retry-btn").onclick = async () => {
+            if (!activeTask) return;
+            try {
+                await post("/retry?task_id=" + encodeURIComponent(activeTask));
+                $("retry-btn").classList.add("hidden");
+                watch(activeTask, "download");
+            } catch (e) { alert(e.message); }
+        };
+
+        async function loadHistory() {
+            try {
+                const h = await req("/history?limit=20");
+                const box = $("history-list");
+                if (!h.tasks.length) { box.innerHTML = '<div style="color:#666;font-size:.85em">还没有任务</div>'; return; }
+                box.innerHTML = h.tasks.map(t => {
+                    const c = t.counts || {};
+                    return '<div class="hist-item" data-task="' + esc(t.task_id) + '" data-kind="' + esc(t.kind) + '">'
+                        + '<span class="hist-name">' + esc(t.nickname || "（没昵称）")
+                        + ' · ' + (t.kind === "preview" ? "取列表" : "下载") + "</span>"
+                        + '<span class="hist-meta">' + esc(t.stage || "").slice(0, 40) + "　"
+                        + esc(t.created_at_str) + "</span></div>";
+                }).join("");
+            } catch (e) { }
+        }
+
+        $("history-list").addEventListener("click", async ev => {
+            const item = ev.target.closest(".hist-item");
+            if (!item) return;
+            const id = item.dataset.task;
+            try {
+                const s = await req("/status?task_id=" + encodeURIComponent(id));
+                if (s.status === "RUNNING" || s.status === "INIT") {
+                    // 回看正在跑的任务必须把轮询续上，否则数字冻在那一刻
+                    showFeed(s);
+                    watch(id, s.kind);
+                    return;
+                }
+                paint(s);
+                showFeed(s);
+                setBadge(s.status, s.status);
+                activeTask = id;
+                if (s.kind === "download") $("retry-btn").classList.remove("hidden");
+                stopPoll();
+            } catch (e) { $("stage").textContent = e.message; }
+        });
+
+        loadCookie();
+        loadHistory();
+        setInterval(() => { if (!pollTimer) loadHistory(); }, 15000);
+    </script>
+</body>
+</html>

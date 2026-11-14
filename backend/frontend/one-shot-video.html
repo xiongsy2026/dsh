@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一句话生视频 · One-Shot Video</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+
+.topbar { background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+.topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+.topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.back-btn:hover { background: rgba(255,255,255,.28); }
+
+.main { display: flex; min-height: calc(100vh - 60px); }
+.input-panel { width: 440px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+.section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-required { background: #ef4444; }
+.dot-optional { background: #fbbf24; }
+.section-hint { font-size: .75em; color: #666; margin: -8px 0 12px; line-height: 1.5; }
+
+.upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+.upload-card:hover { border-color: #6c3ce0; background: #22223e; }
+.upload-card.has-file { border-color: #22c55e; border-style: solid; }
+.upload-card input[type="file"] { display: none; }
+.upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+.upload-card .label { font-size: .9em; color: #aaa; }
+.upload-card .filename { margin-top: 8px; font-size: .85em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.upload-card .preview-img { max-width: 100%; max-height: 120px; border-radius: 8px; margin-top: 8px; object-fit: cover; }
+
+.text-field { width: 100%; box-sizing: border-box; margin-bottom: 16px; padding: 12px 14px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; color: #fff; font-size: .95em; outline: none; font-family: inherit; }
+.text-field:focus { border-color: #6c3ce0; }
+textarea.text-field { min-height: 80px; resize: vertical; line-height: 1.5; }
+
+.btn-row { display: flex; gap: 10px; margin-top: 8px; }
+.run-btn { flex: 1; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; transition: all .2s; letter-spacing: 1px; }
+.run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+.run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+.run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+.run-btn.secondary { background: #2a2a5c; font-size: .95em; padding: 12px; flex: 0 0 100px; }
+.run-btn.secondary:hover { background: #3a3a7c; transform: none; box-shadow: none; }
+
+.history-section { margin-top: 20px; }
+.history-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #1a1a30; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all .2s; border: 1px solid transparent; }
+.history-item:hover { border-color: #6c3ce0; }
+.history-item .h-info { flex: 1; min-width: 0; }
+.history-item .h-title { font-size: .82em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-item .h-meta { font-size: .7em; color: #666; margin-top: 2px; }
+.history-item .h-status { font-size: .7em; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.h-status.ok { background: #065f46; color: #6ee7b7; }
+.h-status.fail { background: #7f1d1d; color: #fca5a5; }
+.h-status.running { background: #1e3a5f; color: #60a5fa; }
+.h-status.pending { background: #2a2a44; color: #888; }
+
+.output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+
+.status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+.status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+.badge-idle { background: #2a2a44; color: #888; }
+.badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+.badge-completed { background: #14532d; color: #4ade80; }
+.badge-failed { background: #451a1a; color: #f87171; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+.stage-text { color: #a0a0c0; font-size: .88em; }
+.progress-bar { width: 100%; height: 6px; border-radius: 3px; background: #2a2a44; overflow: hidden; margin-bottom: 12px; }
+.progress-bar-fill { height: 100%; background: linear-gradient(90deg, #6c3ce0, #3b82f6); transition: width .5s; width: 0%; }
+.log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 240px; overflow-y: auto; line-height: 1.7; }
+.log-line { margin-bottom: 2px; }
+.log-line.error { color: #f87171; }
+.log-line .ts { color: #555; margin-right: 6px; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid #2a2a5c; margin-bottom: 16px; }
+.tab { padding: 8px 16px; cursor: pointer; color: #888; font-size: .85em; border-bottom: 2px solid transparent; transition: all .2s; }
+.tab.active { color: #fff; border-bottom-color: #6c3ce0; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.metadata-section { margin-bottom: 14px; padding: 14px; background: #1e1e36; border-radius: 10px; border-left: 3px solid #6c3ce0; }
+.metadata-section h3 { font-size: .82em; color: #a78bfa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+.metadata-field { display: grid; grid-template-columns: 140px 1fr; gap: 10px; font-size: .8em; margin-bottom: 4px; line-height: 1.5; }
+.metadata-field .key { color: #888; }
+.metadata-field .val { color: #e0e0e0; word-break: break-all; }
+
+.prompt-field { margin-bottom: 14px; }
+.prompt-field-label { color: #a5a5c8; font-size: .82em; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+.prompt-field-label .badge { background: #2a2a5c; color: #a5a5c8; padding: 2px 8px; border-radius: 4px; font-size: .85em; }
+.prompt-field textarea { width: 100%; padding: 12px 14px; background: #0e0e1e; border: 1px solid #3a3a5c; border-radius: 8px; color: #e0e0e0; font-size: .88em; font-family: "Cascadia Code", "Fira Code", monospace; outline: none; transition: border .2s; box-sizing: border-box; min-height: 260px; resize: vertical; line-height: 1.6; }
+.prompt-field textarea:focus { border-color: #6c3ce0; }
+
+.video-result { background: #16162a; border-radius: 14px; padding: 24px; margin-top: 20px; }
+.video-result h3 { margin-bottom: 16px; font-size: 1.1em; }
+.video-player { width: 100%; border-radius: 10px; background: #000; max-height: 520px; }
+.video-placeholder { width: 100%; height: 280px; border-radius: 10px; background: #1e1e36; display: flex; align-items: center; justify-content: center; color: #555; font-size: 1.2em; flex-direction: column; gap: 8px; }
+.video-placeholder .ph-icon { font-size: 2.5em; }
+.result-links { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+.result-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: #1e1e36; color: #60a5fa; text-decoration: none; font-size: .9em; transition: background .2s; }
+.result-link:hover { background: #2a2a5c; }
+
+.empty-state { text-align: center; padding: 80px 20px; color: #555; }
+.empty-state .icon { font-size: 3em; margin-bottom: 12px; }
+.empty-state .title { font-size: 1.1em; color: #888; margin-bottom: 6px; }
+.empty-state .desc { font-size: .85em; color: #555; }
+
+/* SSE 状态条 */
+.sse-bar { background: #1a1a30; border-bottom: 1px solid #2a2a44; padding: 8px 16px; display: flex; align-items: center; gap: 12px; min-height: 36px; border-radius: 10px; margin-bottom: 12px; }
+.sse-bar-inline { border: 1px solid #2a2a44; }
+.sse-status { display: flex; align-items: center; gap: 8px; font-size: .82em; color: #aaa; flex-shrink: 0; }
+.sse-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.sse-idle { background: #555; }
+.sse-connecting { background: #fbbf24; animation: pulse 1s infinite; }
+.sse-live { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+.sse-error { background: #ef4444; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+.sse-status-text { color: #ccc; }
+.sse-running-text { color: #fbbf24; font-weight: 600; }
+.sse-divider { color: #444; }
+.sse-logs { background: #0e0e1f; border: 1px solid #2a2a44; border-radius: 8px; max-height: 140px; overflow-y: auto; font-family: ui-monospace, "Consolas", monospace; font-size: .72em; color: #999; padding: 8px 12px; line-height: 1.6; margin-bottom: 12px; }
+.sse-logs .log-line { padding: 1px 0; }
+.sse-logs .log-line.log-error { color: #fca5a5; }
+.sse-logs .log-line.log-warn { color: #fcd34d; }
+.sse-logs .log-line .log-time { color: #666; margin-right: 6px; }
+.sse-logs .log-line .log-task { color: #6ee7b7; margin-right: 6px; }
+.sse-toggle { background: #2a2a5c; color: #aaa; border: 1px solid #3a3a5c; padding: 4px 12px; border-radius: 6px; font-size: .75em; cursor: pointer; flex-shrink: 0; }
+.sse-toggle:hover { background: #3a3a7c; color: #fff; }
+</style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>ONE-SHOT VIDEO</h1>
+        <span class="tag">一句话生视频</span>
+    </div>
+    <div class="topbar-right">
+        <span style="color:rgba(255,255,255,.7);font-size:.82em;">GPT-5.5 推理 41 字段 → Seedance 2.0 生成</span>
+    </div>
+</div>
+<div class="main">
+    <!-- 左侧：输入区 -->
+    <div class="input-panel">
+        <div class="section-title"><span class="dot dot-required"></span> 一句话意图（必填）</div>
+        <textarea class="text-field" id="userIntent" placeholder="例如：泡脚桶八层加厚长效锁温，可以泡到小腿的三阴交和足三里，折叠设计便携好收纳"></textarea>
+        <div class="section-hint">自然语言描述你想做的视频，GPT 会自动识别商品类型和卖点</div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 商品图（可选，支持多张）</div>
+        <div class="upload-card" id="productCard" onclick="document.getElementById('productInput').click()">
+            <div class="icon">📦</div>
+            <div class="label">点击上传商品图（可多选）</div>
+            <input type="file" id="productInput" accept="image/*" multiple>
+            <div class="filename" id="productFilename"></div>
+        </div>
+        <div id="productThumbs" style="display:none;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+        <div class="section-hint">用于视觉识别，会写入 identityAnchors 防止视频生成时商品崩坏。多张图会全部传给视频生成模型作为参考</div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 产品补充信息（可选）</div>
+        <textarea class="text-field" id="productInfo" placeholder="例如：产品名：泡脚桶；卖点：八层加厚、长效锁温、可泡到三阴交、折叠便携"></textarea>
+        <div class="section-hint">文字形式补充产品细节，会覆盖 GPT 的自动推理</div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 客户补充意见（可选，最高优先级）</div>
+        <textarea class="text-field" id="userSupplement" placeholder="例如：必须强调『泡到小腿』这个卖点"></textarea>
+        <div class="section-hint">最高优先级，会覆盖一切其他输入</div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 视频策略（可选）</div>
+        <select id="variantStrategy" class="text-field" style="height:auto;padding:8px 12px;">
+            <option value="all" selected>自动生成 3 种策略（A/B/C 一起出）</option>
+            <option value="A">A · 痛点切入型</option>
+            <option value="B">B · 场景沉浸型</option>
+            <option value="C">C · 对比证明型</option>
+            <option value="auto">自动（让 GPT 自己选一种，无风格约束）</option>
+        </select>
+        <div class="section-hint">选 A/B/C 只生成指定策略的一条脚本；选「自动生成 3 种」会同时出 3 条变体供对比</div>
+
+        <div class="section-title"><span class="dot dot-optional"></span> 推理模型（可选）</div>
+        <select id="engineSelect" class="text-field" style="height:auto;padding:8px 12px;">
+            <option value="gpt" selected>GPT（gpt-5.6-sol，默认）</option>
+            <option value="grok">Grok（grok-4.6）</option>
+        </select>
+        <div class="section-hint">选择编译与优化时使用的 LLM。Grok 走 SR_GROK_* 配置（与结构性复刻同源）</div>
+
+        <div class="btn-row">
+            <button class="run-btn" id="compileBtn" onclick="compilePrompt()">✨ 编译 Prompt</button>
+            <button class="run-btn secondary" onclick="clearInputs()">清空</button>
+        </div>
+
+        <div class="history-section">
+            <div class="section-title">📋 历史记录</div>
+            <div class="history-list" id="historyList" style="max-height:300px;overflow-y:auto;">
+                <div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：输出区 -->
+    <div class="output-panel">
+        <!-- SSE 实时状态条（顶部） -->
+        <div id="sseBar" class="sse-bar sse-bar-inline">
+            <div class="sse-status">
+                <span id="sseDot" class="sse-dot sse-idle"></span>
+                <span id="sseStatus" class="sse-status-text">未连接</span>
+                <span class="sse-divider">|</span>
+                <span id="sseRunning" class="sse-running-text">运行中：0</span>
+            </div>
+            <button class="sse-toggle" id="sseToggle" onclick="toggleSseLogs()">展开日志</button>
+        </div>
+        <div id="sseLogs" class="sse-logs" style="display:none;"></div>
+
+        <!-- 空状态 -->
+        <div id="emptyState" class="empty-state">
+            <div class="icon">⚡</div>
+            <div class="title">在左侧输入一句话意图</div>
+            <div class="desc">GPT 按 Seedance 2.0 规范推理 3 个不同卖点角度（痛点切入 / 场景沉浸 / 对比证明），每个角度生成 9:16 / 15s / 720p 电商带货短视频脚本</div>
+        </div>
+
+        <!-- 编译结果 + 视频 -->
+        <div id="resultArea" style="display:none;">
+            <!-- 变体选择（A/B/C 三种卖点角度） -->
+            <div class="tabs" id="variantTabs" style="margin-bottom:8px;">
+                <div class="tab active" data-variant="0" onclick="switchVariant(0)">变体 A</div>
+                <div class="tab" data-variant="1" onclick="switchVariant(1)">变体 B</div>
+                <div class="tab" data-variant="2" onclick="switchVariant(2)">变体 C</div>
+            </div>
+            <div id="variantReasoning" style="margin-bottom:12px;padding:8px 12px;background:rgba(59,130,246,.1);border-left:3px solid #3b82f6;border-radius:4px;font-size:.9em;color:#a5c5ff;"></div>
+
+            <div class="tabs">
+                <div class="tab active" data-tab="metadata" onclick="switchTab('metadata')">结构化字段</div>
+                <div class="tab" data-tab="prompt" onclick="switchTab('prompt')">最终 Prompt</div>
+                <div class="tab" data-tab="video" onclick="switchTab('video')">视频</div>
+            </div>
+
+            <!-- Tab: 结构化字段 -->
+            <div id="tab-metadata" class="tab-content active">
+                <div id="metadataView"></div>
+            </div>
+
+            <!-- Tab: 最终 Prompt -->
+            <div id="tab-prompt" class="tab-content">
+                <div class="prompt-field">
+                    <div class="prompt-field-label">
+                        <span>seedancePrompt（可编辑，编辑后生成视频时使用编辑后的版本）</span>
+                        <span class="badge" id="promptLength">0 字符</span>
+                    </div>
+                    <textarea id="promptEditor" oninput="document.getElementById('promptLength').textContent = this.value.length + ' 字符'"></textarea>
+                    <div class="btn-row" style="margin-top:8px;">
+                        <button class="run-btn secondary" id="optimizeBtn" onclick="optimizePrompt()" style="flex:0 0 auto;">🔍 优化自查</button>
+                        <span class="badge" id="optimizeStatus" style="display:none;"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: 视频 -->
+            <div id="tab-video" class="tab-content">
+                <div class="status-panel">
+                    <div class="status-header">
+                        <span>生成状态</span>
+                        <span class="status-badge badge-idle" id="videoStatusBadge">等待启动</span>
+                        <span class="stage-text" id="videoStage"></span>
+                    </div>
+                    <div class="progress-bar" id="videoProgressBar" style="display:none;">
+                        <div class="progress-bar-fill" id="videoProgressFill"></div>
+                    </div>
+                    <div class="log-box" id="videoLogs"><div class="log-line">尚未启动生成...</div></div>
+                </div>
+                <div class="video-result">
+                    <h3>📺 视频输出</h3>
+                    <div id="videoArea">
+                        <div class="video-placeholder">
+                            <div class="ph-icon">🎬</div>
+                            <div>视频生成后将在此展示</div>
+                        </div>
+                    </div>
+                    <div class="result-links" id="resultLinks" style="display:none;"></div>
+                </div>
+                <div class="btn-row" style="margin-top:16px;">
+                    <button class="run-btn" id="generateBtn" onclick="generateVideo()" disabled>🚀 生成视频</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─── 全局状态 ───
+let currentVariants = [];        // 编译返回的 3 个变体对象
+let currentVariantIdx = 0;       // 当前选中的变体索引（0/1/2）
+// 每个变体独立的编辑状态
+let variantEditorValues = {};    // {0: "编辑后prompt", 1: "...", 2: "..."}
+let variantTaskIds = {};         // {0: "task_id_xxx", 1: "...", 2: "..."}
+let variantTaskStates = {};      // {0: {status, progress, stage, logs, videoUrl}, ...}
+let currentProductImagePaths = [];  // 多图服务端路径数组，如 ['/uploads/xxx.png', ...]
+let pollTimer = null;
+
+// ─── SSE 实时日志监控 ───
+let sseSource = null;
+let sseLogsExpanded = false;
+let sseLogBuffer = [];  // 最多保留 200 条
+const SSE_MAX_LOGS = 200;
+
+function setSseStatus(state, text) {
+    const dot = document.getElementById('sseDot');
+    const st = document.getElementById('sseStatus');
+    dot.className = 'sse-dot sse-' + state;
+    st.textContent = text;
+}
+
+function appendSseLog(taskId, msg, level) {
+    const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    sseLogBuffer.push({ time, taskId, msg, level: level || 'info' });
+    if (sseLogBuffer.length > SSE_MAX_LOGS) sseLogBuffer.shift();
+    renderSseLogs();
+}
+
+function renderSseLogs() {
+    const el = document.getElementById('sseLogs');
+    if (!sseLogsExpanded) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    // 只渲染最新 60 条
+    const items = sseLogBuffer.slice(-60);
+    el.innerHTML = items.map(it => {
+        const cls = it.level === 'error' ? 'log-error' : (it.level === 'warn' ? 'log-warn' : '');
+        const tid = it.taskId ? `[${it.taskId.substring(0, 8)}]` : '';
+        return `<div class="log-line ${cls}"><span class="log-time">${it.time}</span><span class="log-task">${tid}</span>${escapeHtml(it.msg)}</div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+}
+
+function toggleSseLogs() {
+    sseLogsExpanded = !sseLogsExpanded;
+    document.getElementById('sseToggle').textContent = sseLogsExpanded ? '收起日志' : '展开日志';
+    renderSseLogs();
+}
+
+function connectSse() {
+    if (sseSource) { try { sseSource.close(); } catch(e){} }
+    setSseStatus('connecting', '连接中...');
+    try {
+        sseSource = new EventSource('/api/one-shot/events');
+        sseSource.onopen = () => setSseStatus('live', '已连接');
+        sseSource.onerror = () => { setSseStatus('error', '断开,3s 重试'); setTimeout(connectSse, 3000); };
+        sseSource.onmessage = (ev) => {
+            try {
+                const d = JSON.parse(ev.data);
+                if (d.error) { appendSseLog('', 'SSE 错误：' + d.error, 'error'); return; }
+                document.getElementById('sseRunning').textContent = '运行中：' + (d.running_count || 0);
+                (d.tasks || []).forEach(t => {
+                    const label = (t.user_intent ? t.user_intent.substring(0, 30) : t.task_id.substring(0, 8));
+                    appendSseLog(t.task_id, `[${t.status}/${t.progress}%/${t.stage || '-'}] ${label}`, 'info');
+                    (t.new_logs || []).forEach(lg => {
+                        appendSseLog(t.task_id, lg.msg, lg.level);
+                    });
+                });
+            } catch (e) { /* 忽略解析错误 */ }
+        };
+    } catch (e) {
+        setSseStatus('error', '连接失败：' + e.message);
+        setTimeout(connectSse, 3000);
+    }
+}
+
+// 启动 SSE（页面加载后）
+connectSse();
+
+function currentMetadata() {
+    const v = currentVariants[currentVariantIdx];
+    return v ? v.metadata : null;
+}
+function currentCompiledPrompt() {
+    const v = currentVariants[currentVariantIdx];
+    if (!v) return null;
+    return variantEditorValues[currentVariantIdx] !== undefined ? variantEditorValues[currentVariantIdx] : v.compiledPrompt;
+}
+
+// ─── 商品图上传（支持多张） ───
+document.getElementById('productInput').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    for (const file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const res = await fetch('/api/upload/image', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.success) {
+                currentProductImagePaths.push(data.path);
+            } else {
+                alert(`${file.name} 上传失败：` + (data.detail || '未知错误'));
+            }
+        } catch (err) {
+            alert(`${file.name} 上传失败：` + err.message);
+        }
+    }
+    renderProductThumbs();
+    e.target.value = '';  // 允许重复选择同一文件
+});
+
+function renderProductThumbs() {
+    const container = document.getElementById('productThumbs');
+    const card = document.getElementById('productCard');
+    const filename = document.getElementById('productFilename');
+    if (currentProductImagePaths.length === 0) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        card.classList.remove('has-file');
+        filename.textContent = '';
+        return;
+    }
+    card.classList.add('has-file');
+    filename.textContent = `✓ 已上传 ${currentProductImagePaths.length} 张`;
+    container.style.display = 'flex';
+    container.innerHTML = currentProductImagePaths.map((p, i) => {
+        return `<div style="position:relative;width:72px;height:72px;border-radius:6px;overflow:hidden;border:1px solid #3a3a5c;">
+            <img src="${p}" style="width:100%;height:100%;object-fit:cover;">
+            <div style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,.7);color:#fff;font-size:.65rem;padding:1px 4px;border-radius:3px;">${i+1}</div>
+            <div onclick="removeProductImage(${i})" style="position:absolute;top:2px;right:2px;background:rgba(239,68,68,.9);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.8rem;line-height:1;">×</div>
+        </div>`;
+    }).join('');
+}
+
+function removeProductImage(idx) {
+    currentProductImagePaths.splice(idx, 1);
+    renderProductThumbs();
+}
+
+// ─── 编译 Prompt ───
+async function compilePrompt() {
+    const intent = document.getElementById('userIntent').value.trim();
+    if (!intent) { alert('请输入一句话意图'); return; }
+
+    const info = document.getElementById('productInfo').value.trim();
+    const supp = document.getElementById('userSupplement').value.trim();
+    const engine = document.getElementById('engineSelect').value;
+    const strategy = document.getElementById('variantStrategy').value;
+
+    const btn = document.getElementById('compileBtn');
+    btn.disabled = true; btn.classList.add('running'); btn.textContent = '编译中...';
+
+    try {
+        const res = await fetch('/api/one-shot/compile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_intent: intent,
+                product_image_paths: currentProductImagePaths.length ? currentProductImagePaths : null,
+                product_info: info || null,
+                user_supplement: supp || null,
+                engine: engine,
+                variant_strategy: strategy,
+            }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert('编译失败：' + (data.detail || '未知错误'));
+            return;
+        }
+
+        // 兼容两种返回结构
+        let variants;
+        if (data.variants && data.variants.length) {
+            // 多变体模式
+            variants = data.variants;
+        } else if (data.metadata) {
+            // 单条模式（兼容回退）
+            variants = [{
+                variantId: 'A',
+                variantName: '单条脚本',
+                variantReasoning: '',
+                metadata: data.metadata,
+                compiledPrompt: data.compiledPrompt || '',
+            }];
+        } else {
+            alert('编译失败：未返回任何脚本');
+            return;
+        }
+
+        // 重置变体状态
+        currentVariants = variants;
+        currentVariantIdx = 0;
+        variantEditorValues = {};
+        variantTaskIds = {};
+        variantTaskStates = {};
+
+        // 渲染变体 tab 标签（多变体显示，单条隐藏）
+        const variantTabs = document.getElementById('variantTabs');
+        const variantReasoning = document.getElementById('variantReasoning');
+        if (variants.length > 1) {
+            variantTabs.style.display = 'flex';
+            variantReasoning.style.display = 'block';
+            variantTabs.innerHTML = variants.map((v, i) => {
+                const name = v.variantName || ('变体 ' + v.variantId);
+                return `<div class="tab ${i === 0 ? 'active' : ''}" data-variant="${i}" onclick="switchVariant(${i})">${v.variantId}. ${escapeHtml(name)}</div>`;
+            }).join('');
+        } else {
+            variantTabs.style.display = 'none';
+            variantReasoning.style.display = 'none';
+        }
+
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('resultArea').style.display = 'block';
+
+        renderVariant(0);
+        document.getElementById('generateBtn').disabled = false;
+        switchTab('metadata');
+    } catch (err) {
+        alert('编译失败：' + err.message);
+    } finally {
+        btn.disabled = false; btn.classList.remove('running'); btn.textContent = '✨ 编译 Prompt';
+    }
+}
+
+// ─── 切换变体 ───
+function switchVariant(idx) {
+    if (idx < 0 || idx >= currentVariants.length) return;
+    // 保存当前变体的编辑值
+    const editor = document.getElementById('promptEditor');
+    if (editor) {
+        variantEditorValues[currentVariantIdx] = editor.value;
+    }
+    currentVariantIdx = idx;
+    // 更新变体 tab 高亮
+    document.querySelectorAll('#variantTabs .tab').forEach(t => {
+        t.classList.toggle('active', parseInt(t.dataset.variant) === idx);
+    });
+    renderVariant(idx);
+}
+
+// ─── 渲染单个变体 ───
+function renderVariant(idx) {
+    const v = currentVariants[idx];
+    if (!v) return;
+
+    // 变体说明
+    const reasoning = v.variantReasoning || '';
+    const name = v.variantName || ('变体 ' + v.variantId);
+    document.getElementById('variantReasoning').innerHTML =
+        `<strong>变体 ${escapeHtml(v.variantId)} · ${escapeHtml(name)}</strong>` +
+        (reasoning ? `：${escapeHtml(reasoning)}` : '');
+
+    // 结构化字段
+    renderMetadata(v.metadata || {});
+
+    // Prompt 编辑器
+    const editor = document.getElementById('promptEditor');
+    const editedVal = variantEditorValues[idx];
+    editor.value = editedVal !== undefined ? editedVal : (v.compiledPrompt || '');
+    document.getElementById('promptLength').textContent = editor.value.length + ' 字符';
+
+    // 视频区域恢复该变体的状态
+    renderVariantVideoState(idx);
+}
+
+// ─── 渲染 metadata ───
+function renderMetadata(m) {
+    const sections = [
+        { title: '客户补充意见', fields: ['userSupplementPrompt'] },
+        { title: '商品识别与成交策略', fields: ['productCategory', 'targetAudience', 'visualAttributes', 'sellingPoints', 'purchaseReasons', 'usageScenes', 'conversionHook'] },
+        { title: '意图分析', fields: ['primaryIntent', 'sellingAngle', 'emotionalTone', 'visualStrategy', 'defaultModelNeed'] },
+        { title: '人群洞察', fields: ['primaryAudience', 'secondaryAudiences', 'buyerMindset', 'purchaseMotivations', 'purchaseBarriers', 'visualTriggers', 'voiceoverAngle'] },
+        { title: '创意路线', fields: ['routeName', 'variationSeed', 'routeReasoning', 'visualWorld', 'differentiators'] },
+        { title: '前三秒 Hook', fields: ['hookType', 'hookObjective', 'productReasoning', 'firstFrame', 'firstAction', 'audioBeat', 'viewerReason', 'textPolicy'] },
+        { title: '防崩坏稳定计划', fields: ['identityAnchors', 'riskPoints', 'negativeConstraints', 'continuityRules'] },
+        { title: '15 秒分镜', fields: ['shot1', 'shot2', 'shot3', 'shot4', 'shot5'] },
+        { title: '情绪化旁白', fields: ['voiceoverTone', 'voiceoverRhythm', 'voiceoverScript'] },
+    ];
+    const fieldLabels = {
+        userSupplementPrompt: '客户补充意见', productCategory: '商品类型', targetAudience: '目标人群',
+        visualAttributes: '视觉特征', sellingPoints: '核心卖点', purchaseReasons: '购买理由',
+        usageScenes: '使用场景', conversionHook: '转化钩子', primaryIntent: '用户真实目标',
+        sellingAngle: '成交角度', emotionalTone: '情绪方向', visualStrategy: '画面策略',
+        defaultModelNeed: '需要默认模特', primaryAudience: '核心人群', secondaryAudiences: '次级人群',
+        buyerMindset: '当下心态', purchaseMotivations: '购买动机', purchaseBarriers: '购买阻力',
+        visualTriggers: '视觉触发', voiceoverAngle: '口播角度', routeName: '路线名称',
+        variationSeed: '变化种子', routeReasoning: '路线推理', visualWorld: '视觉世界',
+        differentiators: '差异点', hookType: 'Hook 类型', hookObjective: 'Hook 目标',
+        productReasoning: '产品推理', firstFrame: '第一帧', firstAction: '第一动作',
+        audioBeat: '声音节拍', viewerReason: '留存理由', textPolicy: '文字策略',
+        identityAnchors: '身份锚点', riskPoints: '崩坏风险', negativeConstraints: '负向约束',
+        continuityRules: '连续性规则', shot1: '镜头1 (0-3s)', shot2: '镜头2 (3-6s)',
+        shot3: '镜头3 (6-9s)', shot4: '镜头4 (9-12s)', shot5: '镜头5 (12-15s)',
+        voiceoverTone: '旁白情绪', voiceoverRhythm: '旁白节奏', voiceoverScript: '旁白文案',
+    };
+    let html = '';
+    for (const sec of sections) {
+        const fields = sec.fields.map(k => {
+            const v = m[k] || '';
+            return `<div class="metadata-field"><span class="key">${fieldLabels[k] || k}：</span><span class="val">${escapeHtml(v)}</span></div>`;
+        }).join('');
+        html += `<div class="metadata-section"><h3>${sec.title}</h3>${fields}</div>`;
+    }
+    document.getElementById('metadataView').innerHTML = html;
+}
+
+function escapeHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─── Tab 切换 ───
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
+}
+
+// ─── 优化自查（调 LLM 检查分镜逻辑自洽性） ───
+async function optimizePrompt() {
+    const editor = document.getElementById('promptEditor');
+    const prompt = editor.value.trim();
+    const statusEl = document.getElementById('optimizeStatus');
+    if (!prompt) {
+        // 用状态提示替代 alert，避免浏览器静默拦截 alert 时用户看不到反馈
+        statusEl.style.display = 'inline-block';
+        statusEl.textContent = '⚠ Prompt 为空，请先编译';
+        statusEl.style.background = '#5c2a2a';
+        statusEl.style.color = '#ffaaaa';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+        return;
+    }
+
+    const engine = document.getElementById('engineSelect').value;
+    const engineLabel = engine === 'grok' ? 'Grok' : 'GPT';
+
+    const btn = document.getElementById('optimizeBtn');
+    const originalPrompt = prompt;  // 保存原文便于对比/撤销
+
+    btn.disabled = true; btn.textContent = '🔍 自查中...';
+    statusEl.style.display = 'inline-block';
+    statusEl.textContent = engineLabel + ' 正在检查分镜逻辑自洽性...';
+    statusEl.style.background = '#3a3a5c';
+    statusEl.style.color = '#a5a5c8';
+
+    try {
+        const res = await fetch('/api/one-shot/optimize-prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ compiled_prompt: prompt, engine: engine }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            statusEl.textContent = '✗ 优化失败：' + (data.detail || '未知错误');
+            statusEl.style.background = '#5c2a2a';
+            statusEl.style.color = '#ffaaaa';
+            return;
+        }
+
+        const optimized = data.optimizedPrompt;
+        if (!data.changed) {
+            statusEl.textContent = '✓ 分镜逻辑自洽，无需改动';
+            statusEl.style.background = '#2a5c2a';
+            statusEl.style.color = '#aaffaa';
+            return;
+        }
+
+        // 有改动：先把优化结果写入编辑框让用户可见，在状态栏显示采用/还原按钮
+        editor.value = optimized;
+        document.getElementById('promptLength').textContent = optimized.length + ' 字符';
+        statusEl.innerHTML = `优化完成（${data.originalLength} → ${data.optimizedLength} 字符）` +
+            ` <button class="run-btn" style="padding:2px 10px;font-size:.8em;margin-left:8px;" onclick="applyOptimized(true)">✓ 采用</button>` +
+            `<button class="run-btn secondary" style="padding:2px 10px;font-size:.8em;margin-left:4px;" onclick="applyOptimized(false)">✗ 还原</button>`;
+        statusEl.style.background = '#2a3a5c';
+        statusEl.style.color = '#a5c8ff';
+        // 把原文和优化版本存到 dataset，供 applyOptimized 读取
+        editor.dataset.pendingOriginal = originalPrompt;
+        editor.dataset.pendingOptimized = optimized;
+    } catch (err) {
+        statusEl.textContent = '✗ 优化失败：' + err.message;
+        statusEl.style.background = '#5c2a2a';
+        statusEl.style.color = '#ffaaaa';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 优化自查';
+    }
+}
+
+// ─── 优化自查结果应用/还原 ───
+function applyOptimized(adopt) {
+    const editor = document.getElementById('promptEditor');
+    const statusEl = document.getElementById('optimizeStatus');
+    const original = editor.dataset.pendingOriginal;
+    const optimized = editor.dataset.pendingOptimized;
+    if (adopt) {
+        // 已写入的就是优化版本，无需改动
+        statusEl.textContent = '✓ 已采用优化版本';
+        statusEl.style.background = '#2a5c2a';
+        statusEl.style.color = '#aaffaa';
+    } else {
+        editor.value = original || '';
+        document.getElementById('promptLength').textContent = editor.value.length + ' 字符';
+        statusEl.textContent = '已还原原文';
+        statusEl.style.background = '#3a3a5c';
+        statusEl.style.color = '#a5a5c8';
+    }
+    // 清除待处理状态
+    delete editor.dataset.pendingOriginal;
+    delete editor.dataset.pendingOptimized;
+}
+
+// ─── 生成视频 ───
+async function generateVideo() {
+    const intent = document.getElementById('userIntent').value.trim();
+    const editedPrompt = document.getElementById('promptEditor').value.trim();
+    if (!editedPrompt) { alert('Prompt 为空'); return; }
+
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true; btn.classList.add('running'); btn.textContent = '提交中...';
+
+    try {
+        const res = await fetch('/api/one-shot/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_intent: intent,
+                compiled_prompt: editedPrompt,
+                metadata: currentMetadata() || {},
+                product_image_paths: currentProductImagePaths.length ? currentProductImagePaths : null,
+                aspect_ratio: '9:16',
+                duration: '15s',
+                resolution: '720p',
+            }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert('提交失败：' + (data.detail || '未知错误'));
+            return;
+        }
+        // 记录当前变体的任务 ID 和初始状态
+        variantTaskIds[currentVariantIdx] = data.task_id;
+        variantTaskStates[currentVariantIdx] = {
+            status: 'PENDING', progress: 0, stage: '已提交',
+            logs: [{ ts: Date.now()/1000, msg: '任务已提交：' + data.task_id + (data.deduplicated ? '（复用已有任务）' : '') }],
+            videoUrl: null,
+        };
+        renderVariantVideoState(currentVariantIdx);
+        btn.textContent = '生成中...';
+        startPolling();
+    } catch (err) {
+        alert('提交失败：' + err.message);
+    } finally {
+        btn.disabled = false; btn.classList.remove('running');
+    }
+}
+
+// ─── 渲染当前变体的视频状态 ───
+function renderVariantVideoState(idx) {
+    const st = variantTaskStates[idx];
+    const badge = document.getElementById('videoStatusBadge');
+    const statusMap = { PENDING: ['badge-idle', '等待中'], RUNNING: ['badge-running', '运行中'], SUCCESS: ['badge-completed', '已完成'], FAILED: ['badge-failed', '失败'] };
+    if (!st) {
+        // 重置为初始空状态
+        badge.className = 'status-badge badge-idle';
+        badge.textContent = '等待启动';
+        document.getElementById('videoProgressBar').style.display = 'none';
+        document.getElementById('videoProgressFill').style.width = '0%';
+        document.getElementById('videoStage').textContent = '';
+        document.getElementById('videoLogs').innerHTML = '<div class="log-line">尚未启动生成...</div>';
+        document.getElementById('videoArea').innerHTML = '<div class="video-placeholder"><div class="ph-icon">🎬</div><div>视频生成后将在此展示</div></div>';
+        document.getElementById('resultLinks').style.display = 'none';
+        const generateBtn = document.getElementById('generateBtn');
+        generateBtn.disabled = false;
+        generateBtn.classList.remove('running');
+        generateBtn.textContent = '🚀 生成视频';
+        return;
+    }
+
+    const [cls, txt] = statusMap[st.status] || ['badge-idle', st.status];
+    badge.className = 'status-badge ' + cls;
+    badge.textContent = txt;
+    document.getElementById('videoProgressBar').style.display = st.status === 'RUNNING' || st.status === 'PENDING' ? 'block' : 'none';
+    document.getElementById('videoProgressFill').style.width = (st.progress || 0) + '%';
+    document.getElementById('videoStage').textContent = st.stage || '';
+
+    const logsEl = document.getElementById('videoLogs');
+    logsEl.innerHTML = (st.logs || []).slice(-50).map(l =>
+        `<div class="log-line ${l.level === 'error' ? 'error' : ''}"><span class="ts">${formatTime(l.ts)}</span>${escapeHtml(l.msg)}</div>`
+    ).join('');
+    logsEl.scrollTop = logsEl.scrollHeight;
+
+    const generateBtn = document.getElementById('generateBtn');
+    if (st.status === 'SUCCESS') {
+        generateBtn.disabled = false; generateBtn.classList.remove('running');
+        generateBtn.textContent = '🔄 重新生成';
+        if (st.videoUrl) {
+            document.getElementById('videoArea').innerHTML = `<video class="video-player" controls loop src="${st.videoUrl}"></video>`;
+            document.getElementById('resultLinks').style.display = 'flex';
+            document.getElementById('resultLinks').innerHTML = `<a class="result-link" href="${st.videoUrl}" download>⬇ 下载视频</a>`;
+        }
+    } else if (st.status === 'FAILED') {
+        generateBtn.disabled = false; generateBtn.classList.remove('running');
+        generateBtn.textContent = '🔄 重试';
+    } else {
+        generateBtn.disabled = false; generateBtn.classList.add('running');
+        generateBtn.textContent = '生成中...';
+    }
+}
+
+// ─── 轮询状态（轮询所有进行中的变体任务） ───
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(pollAllVariants, 2500);
+    pollAllVariants();
+}
+
+async function pollAllVariants() {
+    // 并行轮询所有有 task_id 的变体
+    const promises = [];
+    for (const [idxStr, taskId] of Object.entries(variantTaskIds)) {
+        const idx = parseInt(idxStr);
+        const st = variantTaskStates[idx];
+        if (!st || st.status === 'SUCCESS' || st.status === 'FAILED') continue;
+        promises.push(pollOneVariant(idx, taskId));
+    }
+    await Promise.all(promises);
+}
+
+async function pollOneVariant(idx, taskId) {
+    try {
+        const res = await fetch('/api/one-shot/status?task_id=' + taskId);
+        const data = await res.json();
+        if (!data.success) return;
+
+        const st = variantTaskStates[idx] || {};
+        st.status = data.status;
+        st.progress = data.progress || 0;
+        st.stage = data.stage || '';
+        st.logs = data.logs || [];
+        if (data.status === 'SUCCESS' && data.video_url) {
+            st.videoUrl = data.video_url;
+        }
+        variantTaskStates[idx] = st;
+
+        // 只刷新当前查看的变体
+        if (idx === currentVariantIdx) {
+            renderVariantVideoState(idx);
+            if (data.status === 'SUCCESS') {
+                loadHistory();
+            }
+        }
+
+        if (data.status === 'FAILED' && idx === currentVariantIdx) {
+            alert('变体 ' + currentVariants[idx].variantId + ' 生成失败：' + (data.error || ''));
+        }
+    } catch (err) { /* ignore */ }
+}
+
+// ─── 历史记录 ───
+async function loadHistory() {
+    try {
+        const res = await fetch('/api/one-shot/history?limit=20');
+        const data = await res.json();
+        if (!data.success || !data.items.length) {
+            document.getElementById('historyList').innerHTML = '<div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>';
+            return;
+        }
+        const statusClassMap = { SUCCESS: 'ok', FAILED: 'fail', RUNNING: 'running', PENDING: 'pending' };
+        document.getElementById('historyList').innerHTML = data.items.map(item => `
+            <div class="history-item" onclick="loadHistoryItem('${item.task_id}')">
+                <div class="h-info">
+                    <div class="h-title">${escapeHtml(item.user_intent || '(无意图)')}</div>
+                    <div class="h-meta">${formatTime(item.created_at)}${item.video_url ? ' · ✓有视频' : ''}</div>
+                </div>
+                <span class="h-status ${statusClassMap[item.status] || 'pending'}">${item.status}</span>
+            </div>
+        `).join('');
+    } catch (err) { /* ignore */ }
+}
+
+async function loadHistoryItem(taskId) {
+    try {
+        const res = await fetch('/api/one-shot/status?task_id=' + taskId);
+        const data = await res.json();
+        if (!data.success) return;
+
+        const params = data.params || {};
+        const meta = params.metadata || {};
+        const compiled = params.compiled_prompt || '';
+        currentProductImagePaths = params.product_image_paths || (params.product_image_path ? [params.product_image_path] : []);
+        renderProductThumbs();
+
+        document.getElementById('userIntent').value = params.user_intent || '';
+        document.getElementById('productInfo').value = params.product_info || '';
+        document.getElementById('userSupplement').value = meta.userSupplementPrompt || '';
+
+        // 把历史单条任务包装为单变体（兼容新 UI）
+        currentVariants = [{
+            variantId: 'A',
+            variantName: '历史任务',
+            variantReasoning: '',
+            metadata: meta,
+            compiledPrompt: compiled,
+        }];
+        currentVariantIdx = 0;
+        variantEditorValues = {};
+        variantTaskIds = { 0: taskId };
+        variantTaskStates = {
+            0: {
+                status: data.status,
+                progress: data.progress || 0,
+                stage: data.stage || '',
+                logs: data.logs || [],
+                videoUrl: data.video_url || null,
+            },
+        };
+
+        // 渲染变体 tab
+        const variantTabs = document.getElementById('variantTabs');
+        variantTabs.innerHTML = currentVariants.map((v, i) => {
+            const name = v.variantName || ('变体 ' + v.variantId);
+            return `<div class="tab ${i === 0 ? 'active' : ''}" data-variant="${i}" onclick="switchVariant(${i})">${v.variantId}. ${escapeHtml(name)}</div>`;
+        }).join('');
+
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('resultArea').style.display = 'block';
+        renderVariant(0);
+        document.getElementById('generateBtn').disabled = false;
+        switchTab('video');
+
+        if (data.status === 'RUNNING' || data.status === 'PENDING') {
+            startPolling();
+        }
+    } catch (err) {
+        alert('加载失败：' + err.message);
+    }
+}
+
+// ─── 工具函数 ───
+function clearInputs() {
+    if (!confirm('确认清空所有输入？')) return;
+    document.getElementById('userIntent').value = '';
+    document.getElementById('productInfo').value = '';
+    document.getElementById('userSupplement').value = '';
+    document.getElementById('productInput').value = '';
+    currentProductImagePaths = [];
+    renderProductThumbs();
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return d.getHours().toString().padStart(2, '0') + ':' +
+           d.getMinutes().toString().padStart(2, '0') + ':' +
+           d.getSeconds().toString().padStart(2, '0');
+}
+
+// ─── 启动 ───
+loadHistory();
+</script>
+</body>
+</html>

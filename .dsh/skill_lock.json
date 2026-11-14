@@ -1,6 +1,18 @@
 {
- "note": "技能目录指纹基线。只有人/Qoder 侧改完才重新 --bless（可点名档，逗号分隔）。",
+ "note": "技能目录指纹基线。只有人/Qoder 侧改完才重新 --bless。",
  "lanes": {
+  "account-1": {
+   "sha8": "4e3099de",
+   "form8": "4f53cda1",
+   "contract8": "b86c78f4",
+   "bytes": 5663
+  },
+  "account-5": {
+   "sha8": "b995e31b",
+   "form8": "4f53cda1",
+   "contract8": "b86c78f4",
+   "bytes": 7437
+  },
   "ai-film-router": {
    "sha8": "cf37b4ea",
    "form8": "4f53cda1",
@@ -80,28 +92,40 @@
    "bytes": 1567
   },
   "hypit-pipeline": {
-   "sha8": "fb3ece0b",
+   "sha8": "cf9990f5",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 12793
+   "bytes": 12764
+  },
+  "image-gen": {
+   "sha8": "749de472",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 7128
+  },
+  "jianying-editor": {
+   "sha8": "a4550b4a",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 10141
   },
   "motion-transfer": {
-   "sha8": "55a19cd4",
+   "sha8": "386d575f",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 13438
+   "bytes": 13564
   },
   "omni": {
-   "sha8": "00a2c8f1",
+   "sha8": "39f5bcfd",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 12760
+   "bytes": 12870
   },
   "one-shot-video": {
-   "sha8": "2f57c1ba",
+   "sha8": "f7c7c963",
    "form8": "2a050f9e",
    "contract8": "44136fa3",
-   "bytes": 15264
+   "bytes": 15412
   },
   "ponytail": {
    "sha8": "9f9c715b",
@@ -110,16 +134,16 @@
    "bytes": 4276
   },
   "product-video-pipeline": {
-   "sha8": "c921c146",
+   "sha8": "c0987ca0",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
    "bytes": 44735
   },
   "prompt-reverse": {
-   "sha8": "eabdbf4e",
+   "sha8": "7b13937a",
    "form8": "3019147f",
    "contract8": "44136fa3",
-   "bytes": 12806
+   "bytes": 12934
   },
   "seedance-3d-cartoon": {
    "sha8": "a1a839fc",
@@ -206,22 +230,28 @@
    "bytes": 10888
   },
   "super-clone": {
-   "sha8": "71cd64f2",
-   "form8": "4d460de4",
-   "contract8": "6e2148fc",
-   "bytes": 35915
+   "sha8": "38241530",
+   "form8": "53527727",
+   "contract8": "339843bc",
+   "bytes": 53332
+  },
+  "tvc-director": {
+   "sha8": "496a7829",
+   "form8": "4f53cda1",
+   "contract8": "44136fa3",
+   "bytes": 42296
   },
   "video-dewatermark": {
-   "sha8": "67146804",
+   "sha8": "2c6e3c48",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 8787
+   "bytes": 8808
   },
   "video-enhance": {
-   "sha8": "4451c226",
+   "sha8": "fac325bd",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 7095
+   "bytes": 7124
   },
   "video-subtitle-reader": {
    "sha8": "c8696f84",
@@ -230,17 +260,17 @@
    "bytes": 6325
   },
   "voice-clone": {
-   "sha8": "b997d5d9",
+   "sha8": "f7935ee5",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 8362
+   "bytes": 8495
   },
   "weeksir": {
-   "sha8": "d09a1a0b",
+   "sha8": "cde235fa",
    "form8": "4f53cda1",
    "contract8": "44136fa3",
-   "bytes": 2209
+   "bytes": 2358
   }
  },
- "blessed_by": "check-skill-write-lock --bless super-clone @2026-10-12 18:47"
+ "blessed_by": "check-skill-write-lock --bless"
 }

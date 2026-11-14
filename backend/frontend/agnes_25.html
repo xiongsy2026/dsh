@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agnes Video 2.5</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px; background: #16162a; border-bottom: 1px solid #2a2a5c; }
+        .topbar a { color: #888; text-decoration: none; font-size: .85em;
+            padding: 6px 12px; border: 1px solid #2a2a5c; border-radius: 8px; }
+        .topbar a:hover { color: #fff; border-color: #a855f7; }
+        .topbar-title { font-size: 1.1em; color: #fff; font-weight: 600; }
+        .topbar-tag { font-size: .7em; color: #c084fc; padding: 3px 8px;
+            background: rgba(168,85,247,.12); border: 1px solid rgba(168,85,247,.35); border-radius: 4px; }
+        .main { max-width: 1080px; margin: 0 auto; padding: 24px; display: grid;
+            grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 800px) { .main { grid-template-columns: 1fr; } }
+        .panel { background: #16162a; border: 1px solid #2a2a5c; border-radius: 12px; padding: 16px; }
+        .hint { font-size: 12px; color: #888; margin-bottom: 12px; line-height: 1.5; }
+        label { display: block; font-size: 12px; color: #aaa; margin: 10px 0 6px; }
+        textarea, input, select { width: 100%; background: #0f0f1a; color: #e0e0e0;
+            border: 1px solid #2a2a5c; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+        textarea { min-height: 120px; resize: vertical; }
+        .row { display: flex; gap: 10px; }
+        .row > * { flex: 1; }
+        button.run { width: 100%; margin-top: 16px; padding: 12px; border: none; border-radius: 10px;
+            background: #7c3aed; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+        button.run:disabled { opacity: .5; cursor: not-allowed; }
+        .logs { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #9ca3af;
+            white-space: pre-wrap; min-height: 120px; max-height: 280px; overflow: auto; }
+        video { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; }
+        .err { color: #f87171; font-size: 13px; margin-top: 8px; }
+        .section { font-size: 13px; color: #fff; margin-bottom: 8px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div style="display:flex;align-items:center;gap:12px;">
+            <a href="/">← 首页</a>
+            <span class="topbar-title">Agnes Video 2.5</span>
+            <span class="topbar-tag">参考视频 · 720P–2K · 4–12s</span>
+        </div>
+        <a href="/agnes-flash">Flash 工作台</a>
+    </div>
+    <div class="main">
+        <div class="panel">
+            <div class="hint">正式版支持 1 条参考视频（2–12 秒、公网 URL），最多 8 张参考图、3 段音频。提示词里用 &lt;Video 1&gt;、&lt;Picture 1&gt; 引用。参考视频与首尾帧不能同时填。</div>
+            <label>提示词</label>
+            <textarea id="prompt" placeholder="跟随 &lt;Video 1&gt; 的动作与运镜，把人物换成 &lt;Picture 1&gt;，产品换成 &lt;Picture 2&gt;"></textarea>
+            <div class="row">
+                <div>
+                    <label>时长（秒）</label>
+                    <select id="seconds">
+                        <option>4</option><option selected>5</option><option>6</option>
+                        <option>8</option><option>10</option><option>12</option>
+                    </select>
+                </div>
+                <div>
+                    <label>分辨率</label>
+                    <select id="size">
+                        <option value="720P" selected>720P</option>
+                        <option value="1080P">1080P</option>
+                        <option value="1K">1K</option>
+                        <option value="2K">2K</option>
+                    </select>
+                </div>
+                <div>
+                    <label>画幅</label>
+                    <select id="ratio">
+                        <option value="9:16">9:16 竖屏</option>
+                        <option value="16:9" selected>16:9 横屏</option>
+                        <option value="1:1">1:1</option>
+                    </select>
+                </div>
+            </div>
+            <label>参考视频 URL（最多 1 条，Agnes 需能公网访问）</label>
+            <input id="video" placeholder="https://...mp4">
+            <label>参考视频起始秒（可选）</label>
+            <input id="startSeconds" type="number" min="0" step="0.1" placeholder="0">
+            <label>参考图 URL（每行一个，最多 8）</label>
+            <textarea id="images" style="min-height:72px" placeholder="https://..."></textarea>
+            <label>参考音频 URL（每行一个，最多 3）</label>
+            <textarea id="audios" style="min-height:56px" placeholder="https://..."></textarea>
+            <label>首帧 URL（可选，与参考视频互斥）</label>
+            <input id="firstFrame" placeholder="https://...">
+            <label>尾帧 URL（可选）</label>
+            <input id="lastFrame" placeholder="https://...">
+            <button class="run" id="btn" onclick="start()">生成</button>
+        </div>
+        <div class="panel">
+            <div class="section">状态</div>
+            <div class="logs" id="logs">等待提交…</div>
+            <div class="err" id="err"></div>
+            <video id="player" controls style="display:none"></video>
+        </div>
+    </div>
+<script>
+let pollTimer = null;
+function lines(id) {
+    return document.getElementById(id).value.split('\n').map(s => s.trim()).filter(Boolean);
+}
+async function start() {
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) { alert('请填写提示词'); return; }
+    const btn = document.getElementById('btn');
+    btn.disabled = true;
+    document.getElementById('err').textContent = '';
+    document.getElementById('player').style.display = 'none';
+    document.getElementById('logs').textContent = '提交中…';
+    const startRaw = document.getElementById('startSeconds').value.trim();
+    const body = {
+        prompt,
+        seconds: document.getElementById('seconds').value,
+        size: document.getElementById('size').value,
+        aspect_ratio: document.getElementById('ratio').value,
+        image_urls: lines('images'),
+        audio_urls: lines('audios'),
+        video_url: document.getElementById('video').value.trim(),
+        first_frame: document.getElementById('firstFrame').value.trim(),
+        last_frame: document.getElementById('lastFrame').value.trim(),
+    };
+    if (startRaw !== '') body.start_seconds = Number(startRaw);
+    try {
+        const resp = await fetch('/api/agnes-25/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
+        poll(data.task_id);
+    } catch (e) {
+        document.getElementById('err').textContent = e.message;
+        btn.disabled = false;
+    }
+}
+async function poll(taskId) {
+    if (pollTimer) clearInterval(pollTimer);
+    const tick = async () => {
+        const resp = await fetch('/api/agnes-25/status/' + taskId);
+        const d = await resp.json();
+        document.getElementById('logs').textContent = (d.logs || []).join('\n') || d.status;
+        if (d.status === 'SUCCESS') {
+            clearInterval(pollTimer);
+            document.getElementById('btn').disabled = false;
+            const url = d.result && (d.result.url || (d.result.local_path ? '/outputs/agnes_25/' + taskId + '/result.mp4' : ''));
+            if (url) {
+                const v = document.getElementById('player');
+                v.src = url;
+                v.style.display = 'block';
+            }
+        } else if (d.status === 'FAILED') {
+            clearInterval(pollTimer);
+            document.getElementById('btn').disabled = false;
+            document.getElementById('err').textContent = d.error || '失败';
+        }
+    };
+    await tick();
+    pollTimer = setInterval(tick, 2000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agnes Image 2.5 Flash</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px; background: #16162a; border-bottom: 1px solid #2a2a5c; }
+        .topbar a { color: #888; text-decoration: none; font-size: .85em;
+            padding: 6px 12px; border: 1px solid #2a2a5c; border-radius: 8px; }
+        .topbar a:hover { color: #fff; border-color: #a855f7; }
+        .topbar-title { font-size: 1.1em; color: #fff; font-weight: 600; }
+        .topbar-tag { font-size: .7em; color: #c084fc; padding: 3px 8px;
+            background: rgba(168,85,247,.12); border: 1px solid rgba(168,85,247,.35); border-radius: 4px; }
+        .main { max-width: 960px; margin: 0 auto; padding: 24px; display: grid;
+            grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 800px) { .main { grid-template-columns: 1fr; } }
+        .panel { background: #16162a; border: 1px solid #2a2a5c; border-radius: 12px; padding: 16px; }
+        .hint { font-size: 12px; color: #888; margin-bottom: 12px; line-height: 1.5; }
+        label { display: block; font-size: 12px; color: #aaa; margin: 10px 0 6px; }
+        textarea, input, select { width: 100%; background: #0f0f1a; color: #e0e0e0;
+            border: 1px solid #2a2a5c; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+        textarea { min-height: 140px; resize: vertical; }
+        .row { display: flex; gap: 10px; }
+        .row > * { flex: 1; }
+        button.run { width: 100%; margin-top: 16px; padding: 12px; border: none; border-radius: 10px;
+            background: #7c3aed; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+        button.run:disabled { opacity: .5; cursor: not-allowed; }
+        .logs { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #9ca3af;
+            white-space: pre-wrap; min-height: 80px; max-height: 200px; overflow: auto; }
+        img.preview { width: 100%; border-radius: 8px; background: #000; margin-top: 10px; }
+        .err { color: #f87171; font-size: 13px; margin-top: 8px; }
+        .section { font-size: 13px; color: #fff; margin-bottom: 8px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div style="display:flex;align-items:center;gap:12px;">
+            <a href="/">← 首页</a>
+            <span class="topbar-title">Agnes Image 2.5 Flash</span>
+            <span class="topbar-tag">1K–4K · 文生/图生</span>
+        </div>
+        <a href="/agnes-flash">Video 工作台</a>
+    </div>
+    <div class="main">
+        <div class="panel">
+            <div class="hint">选定模型 agnes-image-2.5-flash。文生图直接填提示词；图生图 / 多图合成在下方贴公网图片 URL。</div>
+            <label>提示词</label>
+            <textarea id="prompt" placeholder="白色泵头瓶产品静物，柔和日光，干净背景，无文字无水印"></textarea>
+            <div class="row">
+                <div>
+                    <label>分辨率</label>
+                    <select id="size">
+                        <option value="1K" selected>1K</option>
+                        <option value="2K">2K</option>
+                        <option value="3K">3K</option>
+                        <option value="4K">4K</option>
+                    </select>
+                </div>
+                <div>
+                    <label>画幅</label>
+                    <select id="ratio">
+                        <option value="9:16" selected>9:16 竖屏</option>
+                        <option value="16:9">16:9 横屏</option>
+                        <option value="1:1">1:1</option>
+                        <option value="3:4">3:4</option>
+                        <option value="4:3">4:3</option>
+                    </select>
+                </div>
+            </div>
+            <label>参考图 URL（每行一个，可选）</label>
+            <textarea id="images" style="min-height:72px" placeholder="https://..."></textarea>
+            <button class="run" id="btn" onclick="start()">生成</button>
+        </div>
+        <div class="panel">
+            <div class="section">状态</div>
+            <div class="logs" id="logs">等待提交…</div>
+            <div class="err" id="err"></div>
+            <img class="preview" id="preview" style="display:none" alt="生成结果">
+        </div>
+    </div>
+<script>
+let pollTimer = null;
+function lines(id) {
+    return document.getElementById(id).value.split('\n').map(s => s.trim()).filter(Boolean);
+}
+async function start() {
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) { alert('请填写提示词'); return; }
+    const btn = document.getElementById('btn');
+    btn.disabled = true;
+    document.getElementById('err').textContent = '';
+    document.getElementById('preview').style.display = 'none';
+    document.getElementById('logs').textContent = '提交中…';
+    try {
+        const resp = await fetch('/api/agnes-image/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt,
+                size: document.getElementById('size').value,
+                ratio: document.getElementById('ratio').value,
+                image_urls: lines('images'),
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
+        poll(data.task_id);
+    } catch (e) {
+        document.getElementById('err').textContent = e.message;
+        btn.disabled = false;
+    }
+}
+async function poll(taskId) {
+    if (pollTimer) clearInterval(pollTimer);
+    const tick = async () => {
+        const resp = await fetch('/api/agnes-image/status/' + taskId);
+        const d = await resp.json();
+        document.getElementById('logs').textContent = (d.logs || []).join('\n') || d.status;
+        if (d.status === 'SUCCESS') {
+            clearInterval(pollTimer);
+            document.getElementById('btn').disabled = false;
+            const url = d.result && (d.result.url || (d.result.local_path ? '/outputs/agnes_image/' + taskId + '/result.png' : ''));
+            if (url) {
+                const img = document.getElementById('preview');
+                img.src = url;
+                img.style.display = 'block';
+            }
+        } else if (d.status === 'FAILED') {
+            clearInterval(pollTimer);
+            document.getElementById('btn').disabled = false;
+            document.getElementById('err').textContent = d.error || '失败';
+        }
+    };
+    await tick();
+    pollTimer = setInterval(tick, 1500);
+}
+</script>
+</body>
+</html>

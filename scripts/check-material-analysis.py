@@ -13,7 +13,10 @@ import sys
 import tempfile
 
 BS = chr(92)
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 
 TMP = tempfile.mkdtemp(prefix="material-")
 os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger.json")
@@ -21,8 +24,8 @@ os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger.json")
 from backend import gateway as gw                     # noqa: E402
 from backend import skill_contract as sc              # noqa: E402
 
-SVC = r"D:\video-skill\backend\services\super_clone_wan3.py"
-SK = r"C:\dsh\.dsh\skills\super-clone\SKILL.md"
+SVC = os.path.join(BACKEND, r"services\super_clone_wan3.py")
+SK = os.path.join(WS, r".dsh\skills\super-clone\SKILL.md")
 PASS, FAIL = [], []
 
 
@@ -91,24 +94,30 @@ _saved = os.environ.pop("WEEKSIR_MEDIA_ANALYSIS_LOG")
 prod_path = gw.media_analysis_log_path()
 os.environ["WEEKSIR_MEDIA_ANALYSIS_LOG"] = _saved
 check("M4 不设 env ⇒ 落生产台账路径（闸全程没写过它）",
-      prod_path.replace("/", BS), r"D:" + BS + "video-skill" + BS + ".gateway_media_analysis.json")
+      prod_path.replace("/", BS), os.path.join(BACKEND, ".gateway_media_analysis.json"))
 
 # ── M5 咽喉顺序：对账必须在写任何物证之前（判据抽成函数，才能做变异对照）────────
 src = io.open(SVC, encoding="utf-8", errors="replace").read()
 
 
 def throat_problems(text):
-    """咽喉形状判据：① 有对账调用 ② 对账后立刻拒 ③ 拒在写任何【物证】之前。
+    """咽喉形状判据：① 有对账调用 ② 对账后立刻拒 ③ 拒在写任何【半成品物证】之前
+    ④ 🔴 但那份【台账 material_analysis.json】必须在拒之前落盘。
 
+    🔴 ④ 是 2026-10-22 加的反向一条：拒因原话让人"去看 material_analysis.json 的 auto_ran"，
+       而它写在 raise 之后 ⇒ 真被拒时那文件物理上不存在，等于让人去查一个没写出来的东西
+       （现网 sc_9c246af70384 就是这么让我抓不到补跑失败原因的）。所以"写点"要分两种：
+       台账 = 必须在拒之前；prompt.txt / storyboard.json = 必须在拒之后。
     🔴 锚点必须带换行 + 四个空格：原来锚 `seg_dir.mkdir(parents=True` 会被 run_pipeline 里那段
        12 空格的同名行命中 ⇒ _block 一路吞到几千行外，变异改的是不相干的远处 = 假对照。
     🔴 锚点找不到 ⇒ 直接报问题，不许返回空表（空表 = 这条判据在空跑，比红更坏）。"""
     p = []
     i_cover = text.find("analysis_coverage_problems(")
     i_raise = text.find("素材没看过", i_cover) if i_cover > 0 else -1
-    _marks = [text.find(x) for x in ('\n    _ma.write_text(', '\n    _pt.write_text(', '\n    sb.write_text(')]
+    _marks = [text.find(x) for x in ('\n    _pt.write_text(', '\n    _ma.write_text(', '\n    sb.write_text(')]
     _hits = [i for i in _marks if i >= 0]
-    i_write = min(_hits) if _hits else -1
+    i_write = min([i for i in (_marks[0], _marks[2]) if i >= 0]) if (_marks[0] >= 0 or _marks[2] >= 0) else -1
+    i_ledger = _marks[1]
     if i_cover < 0:
         p.append("咽喉里没有台账对账")
     if i_cover >= 0 and i_raise < 0:
@@ -117,6 +126,10 @@ def throat_problems(text):
         p.append("找不到物证写点的锚点 ⇒ 这条顺序判据在空跑（锚点漂了要改锚点，不是让它绿）")
     elif i_raise >= 0 and i_write < i_raise:
         p.append("先写物证后对账 ⇒ 拒的时候盘上已经留了半成品（0 消耗承诺就假了）")
+    if i_ledger < 0:
+        p.append("找不到那份【诊断台账】的写点 ⇒ 拒的时候人没地方查 auto_ran")
+    elif i_raise >= 0 and i_ledger > i_raise:
+        p.append("台账写在拒之后 ⇒ 被拒那一次盘上没有 material_analysis.json，拒因指向一个不存在的文件")
     return p
 
 
@@ -124,23 +137,36 @@ check("M5 咽喉形状无问题（对账→拒→才写物证）", throat_proble
 # 变异要真的把"拒"整块搬走/删掉，而不是改个条件（改条件判据看不见 ⇒ 控制是假的）
 _b0 = src.find("    if _missing:")
 # 🔴 锚点用【结构】不用文案，且必须"换行 + 四个空格"（12 空格的同名行会把块吞到几千行外 = 假对照）：
-#    这段的结尾就是"开始写第一件物证"那一行，边界天然存在；以前锚报错文案，2026-10-12 文案一换就空跑。
-#    ⚠️ open_receipt 落的【全 ⬜ 骨架】不算物证 —— 它是台账本身，写在拒之前正是设计（看得见打到第几格）。
-_b1 = src.find("\n    _ma.write_text(", _b0) if _b0 > 0 else -1
-check("M5d 前提：拒的那一段和第一件物证写点都能定位（找不到=下面两个变异都是空跑）",
+#    这段的结尾就是"开始写第一件【半成品】物证"那一行（台账 _ma 不在内 —— 它按设计就写在拒之前）。
+_b1 = min([i for i in (src.find("\n    _pt.write_text(", _b0), src.find("\n    sb.write_text(", _b0)) if i > 0]
+          or [-1]) if _b0 > 0 else -1
+check("M5d 前提：拒的那一段和第一件【半成品物证】写点都能定位（找不到=下面两个变异都是空跑）",
       [_b0 > 0, _b1 > _b0], [True, True])
 _block = src[_b0:_b1]
 check("M5b 变异：整块删掉【拒】⇒ 报『对账结果没人判』",
       any("没人判" in x for x in throat_problems(src.replace(_block, "", 1))), True)
 _w = src.find("\n    _pt.write_text(")
+# 🔴 变异要把【拒】整块挪到"prompt.txt 已经写完"之后 —— 挪的位置必须落在两条语句之间，
+#    不能劈进语句里（以前用 find(chr(10), _k)+1 当"行尾"，而 _k 指向的那个字符本身就是换行符
+#    ⇒ 插进了 `_pt.write_text(` 的锚点中间，锚点被劈开 = 变异自己把判据的锚弄丢，测了个空）。
 _moved = src.replace(_block, "", 1)
-_k = _moved.find("\n    _pt.write_text(")
-_end_w = _moved.find(chr(10), _k) + 1
-_moved = _moved[:_end_w] + _block + _moved[_end_w:]
+_sb_anchor = "\n    sb.write_text("
+_k = _moved.find(_sb_anchor)
+_moved = _moved[:_k] + _block + _moved[_k:] if _k > 0 else _moved
 check("M5c 变异：把【拒】挪到写完 prompt.txt 之后 ⇒ 报『先写物证后对账』",
-      [_w > 0, any("先写物证" in x for x in throat_problems(_moved))], [True, True])
+      [_w > 0, _k > 0, any("先写物证" in x for x in throat_problems(_moved))], [True, True, True])
 check("M5c2 反向对照：变异确实改了原文（锚点漂了会把变异做成空跑）", _moved != src, True)
 check("M5e 变异对照没顺手把正解也判红（原文仍 0 问题）", throat_problems(src), [])
+# 🔴 新加的④（台账必须在拒之前）自己也要有反向对照，否则它只是一句注释。
+#    变异 = 把 material_analysis.json 那一整块写到 raise 之后 ⇒ 必须报"拒因指向一个不存在的文件"。
+_l0 = src.find("\n    _ma.write_text(")
+_l1 = src.find("encoding=\"utf-8\")", _l0)
+_l1 = src.find(chr(10), _l1) + 1 if _l1 > 0 else -1
+_r1 = src.find(chr(10), src.find("｜注意：会话=", _l0)) + 1 if _l0 > 0 else -1
+_ledger_block = src[_l0:_l1] if (_l0 > 0 and _l1 > _l0) else ""
+_moved5f = src[:_l0] + src[_l1:_r1] + _ledger_block + src[_r1:] if _ledger_block and _r1 > _l1 else src
+check("M5f 反向对照：把那份台账挪到【拒之后】写 ⇒ 必须报（钉的是新加的那条④，不是让它恒绿）",
+      [_moved5f != src, any("不存在的文件" in x for x in throat_problems(_moved5f))], [True, True])
 
 # ── M6 合同里这一步存在且形状合法 ────────────────────────────────────────────
 c = sc.contract_for("super-clone")
@@ -165,11 +191,15 @@ _CALLS = []
 
 
 def _stub_invoke(cap, purpose=None, account="local", params=None, fail=False, charged=7):
-    _CALLS.append({"cap": cap, "account": account, "params": dict(params or {})})
+    _CALLS.append({"cap": cap, "account": account, "purpose": purpose, "params": dict(params or {})})
     if not fail:
         gw.record_media_analysis((params or {}).get("path"), cap, purpose or "default",
                                  session="", credits={"charged": charged}, hold_id="h-pipeline")
+    # 🔴 信封必须带【非空正文】：真网关 analyze_media 的 ok 就是 bool(text)，而看图链的判据是
+    #    "有正文才算这条腿答了"（glm 那次就是 finish=length、正文 0 字却回 200）。
+    #    桩以前只回 ok 不回 result ⇒ 链会以为每条腿都挂了、把三条全跑一遍，测出来的"次数"是假的。
     return {"ok": not fail, "capability": cap, "purpose": purpose or "default",
+            "result": None if fail else {"text": "桩：看清了", "lane": {"model": "桩模型"}},
             "credits": {"estimated": charged, "charged": 0 if fail else charged},
             "error": "上游 5xx（桩）" if fail else None}
 
@@ -191,23 +221,38 @@ try:
     kind, msg = _run_evidence()
     check("M7a 分析这条腿跑不通 ⇒ 必须拒（台账没记上就是没看过，不放行）",
           [kind, "素材没看过" in msg], ["RuntimeError", True])
-    check("M7b 🔴 执行人确实是管线：空台账时【管线自己】调了 invoke(video.analyze)，两条素材各一次",
-          [len(_CALLS), sorted(c["params"].get("path") for c in _CALLS) == sorted([A, Bf]),
+    # 🔴 2026-10-22 夜起这一刀是【有序链】（用户拍：qfmodel 主 → opencode mimo → 小米直连 flash）。
+    #    所以"两条素材各一次"要改成"各一次【答上的那条】"：桩全挂 ⇒ 每条素材把链走完 = 2 × 链长，
+    #    而试的顺序必须看得见就是链的序（换腿不是随便换）。
+    _chain7 = [l["purpose"] for l in scw._analyze_lanes()]
+    _per = [c["purpose"] for c in _CALLS if c["params"].get("path") == A]
+    check("M7b 🔴 执行人确实是管线，且【按链的序】换腿：桩全挂时每条素材把链走一遍（2 × %d 条），"
+          "顺序 = config 那条链，一条都不许多" % len(_chain7),
+          [len(_CALLS), len(_chain7) * 2, sorted(c["params"].get("path") for c in _CALLS) == sorted([A, Bf] * len(_chain7)),
            all(c["cap"] == "video.analyze" for c in _CALLS),
            all(c["params"].get("question") for c in _CALLS),
-           all(int(c["params"].get("max_tokens") or 0) >= 600 for c in _CALLS)],
-          [2, True, True, True, True])
-    # 🔴 2026-10-12 起这条的形状变了，而且变得更好：拒的时候盘上【有】一张全 ⬜ 的打钩单
-    #    （open_receipt 开工就落的骨架），但没有一件半成品物证、也没有一个假钩。
-    #    验的是这两件事 —— 原来只问"目录在不在"，那会把有用的台账一起当成违规产物。
+           all(int(c["params"].get("max_tokens") or 0) >= 600 for c in _CALLS), _per],
+          [len(_chain7) * 2, len(_chain7) * 2, True, True, True, True, _chain7])
+    # 🔴 2026-10-22 起形状又变了一档，而且是对的：拒的时候盘上除了那张全 ⬜ 打钩单，
+    #    【还必须有 material_analysis.json】—— 拒因原话让人"去看 auto_ran 里的 error"，
+    #    它写在 raise 之后就物理上不存在（现网 sc_9c246af70384 就是这么让我抓不到补跑失败原因的）。
+    #    所以这一格验三件事：① 台账在 ② 半成品物证一件都没有（prompt.txt/storyboard.json 不许有）
+    #    ③ 打钩单上一个假钩都没有。
     _files7c = sorted(os.listdir(seg)) if os.path.isdir(seg) else []
     _rec7c = sc.load_receipt(seg)
-    check("M7c 拒的时候盘上只有一张全 ⬜ 的打钩单：没物证、没假钩（0 消耗承诺仍成立，且看得见卡在哪一格）",
+    _ma7c = {}
+    try:
+        _ma7c = json.loads(io.open(os.path.join(seg, "material_analysis.json"), encoding="utf-8").read())
+    except Exception:                                          # noqa: BLE001
+        _ma7c = {}
+    check("M7c 拒的时候盘上=打钩单 + 那份台账：看得见卡在哪一格、也看得见每条素材挂在哪条腿，"
+          "但半成品物证一件不许有、假钩一个不许有",
           [os.path.isfile(os.path.join(seg, ".skill_receipt.json")),
-           [f for f in _files7c if f != ".skill_receipt.json"],
+           [f for f in _files7c if f not in (".skill_receipt.json", "material_analysis.json")],
+           bool(_ma7c.get("auto_ran")), len(_ma7c.get("auto_ran") or []),
            sum(1 for s in (_rec7c.get("steps") or []) if s.get("ok")),
            len(_rec7c.get("steps") or [])],
-          [True, [], 0, len((sc.contract_for("super-clone") or {}).get("steps") or [])])
+          [True, [], True, 2, 0, len((sc.contract_for("super-clone") or {}).get("steps") or [])])
 
     gw.invoke = _stub_invoke
     _CALLS.clear()
@@ -267,7 +312,7 @@ gw.invoke = _REAL_INVOKE          # 桩不许留给后面的用例（M8 要跑�
 
 # ── M8 🔴 近路封了没（2026-10-12 现网：agent 走 `gateway.py analyze` 跑了三次分析，台账 0 条，
 #       因为它直连 call() 分发器，而记账/预扣/结算只在 invoke() 里 ⇒ 一条能力两个入口，便宜的那个不记账）──
-_gwsrc = io.open(r"D:\video-skill\backend\gateway.py", encoding="utf-8", errors="replace").read()
+_gwsrc = io.open(os.path.join(BACKEND, r"gateway.py"), encoding="utf-8", errors="replace").read()
 _seg2 = _gwsrc[_gwsrc.index('elif cmd == "analyze":'):_gwsrc.index('elif cmd == "call":')]
 check("M8a analyze 子命令必须转 invoke（同一条轨：预扣/结算/台账齐全），且不再出现 call(\"video.analyze\")",
       ['invoke("video.analyze"' in _seg2, 'call("video.analyze"' in _seg2], [True, False])
@@ -279,7 +324,7 @@ _ENV = dict(os.environ)
 _ENV["WEEKSIR_MEDIA_ANALYSIS_LOG"] = os.path.join(TMP, "ledger8.json")
 _ENV["GATEWAY_LEDGER"] = os.path.join(TMP, "ledger8.sqlite")
 _ENV["PYTHONIOENCODING"] = "utf-8"
-_r8 = subprocess.run([sys.executable, r"D:\video-skill\backend\gateway.py", "analyze",
+_r8 = subprocess.run([sys.executable, os.path.join(BACKEND, r"gateway.py"), "analyze",
                       os.path.join(TMP, "nope.png"), "这是什么"],
                      capture_output=True, text=True, encoding="utf-8", errors="replace",
                      timeout=180, env=_ENV)
@@ -294,7 +339,7 @@ check("M8d 判据只有一份：人话版 coverage_problems 必须坐在 analysi
 
 shutil.rmtree(TMP, ignore_errors=True)
 check("收尾：临时目录已清，生产台账未被本闸写过",
-      [not os.path.isdir(TMP), not os.path.isfile(r"D:\video-skill\.gateway_media_analysis.json") or True], [True, True])
+      [not os.path.isdir(TMP), not os.path.isfile(os.path.join(BACKEND, r".gateway_media_analysis.json")) or True], [True, True])
 
 print(_safe(chr(10) + "== 素材分析台账闸：%d 通过 / %d 失败 ==" % (len(PASS), len(FAIL))))
 for f in FAIL:

@@ -1,0 +1,2465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>提示词反推工作台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #0f0f1a; color: #e0e0e0; min-height: 100vh;
+        }
+        /* ====== 顶栏（爆款复刻风格） ====== */
+        .topbar {
+            background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%);
+            padding: 18px 32px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .topbar h1 {
+            font-size: 1.5em; color: #fff; letter-spacing: 2px;
+            background: linear-gradient(90deg, #fff, #e0e0ff);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .topbar .tag {
+            background: rgba(255,255,255,.2); color: #fff;
+            padding: 4px 14px; border-radius: 20px; font-size: .8em;
+        }
+        .topbar-right { display: flex; align-items: center; gap: 12px; }
+        .back-btn {
+            background: rgba(255,255,255,.15); color: #fff;
+            border: 1px solid rgba(255,255,255,.3);
+            padding: 8px 16px; border-radius: 8px; cursor: pointer;
+            font-size: .9em; text-decoration: none; display: inline-flex;
+            align-items: center; gap: 6px; transition: all .2s;
+        }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+
+        /* ====== 主区域：左侧输入，右侧上下工作区 ====== */
+        .main { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: calc(100vh - 64px); }
+        .input-panel { padding: 24px; overflow-y: auto; background: #16162a; border-right: 1px solid #2a2a44; }
+        .right-workspace { min-width: 0; min-height: calc(100vh - 64px); display: grid; grid-template-rows: minmax(190px, 28vh) minmax(0, 1fr); }
+        .batch-status-panel, .output-panel { min-width: 0; min-height: 0; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .batch-status-panel { border-bottom: 1px solid #2a2a44; }
+        .output-panel { overflow-y: auto; }
+        .legacy-workbench { display: none !important; }
+        .legacy-input-workbench { display: block; margin-top: 24px; padding-top: 20px; border-top: 1px solid #2a2a44; }
+        .batch-hint { color:#888; font-size:.82em; line-height:1.6; margin:8px 0 14px; }
+        .history-panel { margin:18px -4px 0; padding-top:16px; border-top:1px solid #2a2a44; }
+        .history-list { display:grid; gap:7px; max-height:220px; overflow-y:auto; }
+        .history-item { width:100%; text-align:left; background:#1e1e36; color:#ccc; border:1px solid #2a2a5c; border-radius:8px; padding:9px 10px; cursor:pointer; }
+        .history-item:hover { border-color:#6c3ce0; background:#22223e; }
+        .history-item strong { display:block; color:#fff; font-size:.82em; }
+        .history-item span { display:block; margin-top:3px; color:#888; font-size:.74em; }
+        .batch-links { min-height:260px; resize:vertical; line-height:1.7; }
+        .batch-summary { color:#aaa; font-size:.85em; margin:14px 0; }
+        .batch-item { background:#16162a; border:1px solid #2a2a44; border-radius:12px; padding:14px; margin-bottom:12px; }
+        .batch-item-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+        .batch-item-title { color:#fff; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .batch-item-stage { color:#60a5fa; font-size:.78em; white-space:nowrap; }
+        .batch-item.done .batch-item-stage { color:#4ade80; }
+        .batch-item.failed .batch-item-stage { color:#f87171; }
+        .batch-prompt-columns { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+        .batch-prompt-column { min-width:0; }
+        .batch-prompt-column-label { color:#a5a5c8; font-size:.76em; margin-bottom:5px; }
+        .batch-prompt-preview { color:#bbb; font-size:.78em; line-height:1.5; height:180px; overflow-y:auto; white-space:pre-wrap; background:#0d0d1a; padding:9px; border-radius:7px; box-sizing:border-box; }
+        .batch-prompt-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:7px; }
+        @media (max-width: 760px) { .batch-prompt-columns { grid-template-columns:1fr; } }
+        .batch-video-triple { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin-top:10px; }
+        @media (max-width: 900px) { .batch-video-triple { grid-template-columns:1fr; } }
+        .history-details { margin-top:10px; color:#bbb; font-size:.82em; }
+        .history-details summary { color:#a78bfa; cursor:pointer; }
+        .history-detail-label { color:#888; font-size:.76em; margin:10px 0 5px; }
+        .batch-item-actions { display:flex; gap:7px; margin-top:10px; flex-wrap:wrap; }
+        .batch-action { background:#2a2a5c; color:#ddd; border:0; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:.78em; }
+        .batch-action:hover { background:#4c3c91; }
+        .batch-video-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+        .batch-video-col { min-width:0; }
+        .batch-video-label { color:#888; font-size:.75em; margin-bottom:5px; }
+        .batch-video { width:100%; max-height:330px; aspect-ratio:9/16; object-fit:contain; border-radius:8px; background:#000; }
+        .batch-log { background:#0d0d1a; border-radius:10px; padding:12px; min-height:180px; color:#aaa; font: .78em/1.7 'Cascadia Code',monospace; white-space:pre-wrap; }
+        .modal-mask { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.7); z-index:1000; padding:20px; }
+        .modal-mask.show { display:flex; }
+        .modal-box { width:min(520px,100%); background:#16162a; border:1px solid #3a3a5c; border-radius:14px; padding:22px; }
+        .modal-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        .modal-box h2 { color:#fff; margin-bottom:14px; font-size:1.1em; }
+        .modal-close { border:0; background:transparent; color:#aaa; font-size:24px; line-height:1; padding:2px 6px; cursor:pointer; }
+        .modal-close:hover { color:#fff; }
+        .batch-image-picker {
+            display:flex; align-items:center; justify-content:center; min-height:92px;
+            padding:16px; margin:8px 0 10px; border:2px dashed #3a3a5c;
+            border-radius:10px; background:#1e1e36; color:#bbb; cursor:pointer;
+            text-align:center; transition:all .2s;
+        }
+        .batch-image-picker:hover { border-color:#6c3ce0; background:#22223e; color:#fff; }
+        .batch-image-picker input[type="file"] {
+            position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;
+        }
+        .case-image-previews {
+            display:grid; grid-template-columns:repeat(auto-fill, minmax(72px, 1fr));
+            gap:8px; margin:10px 0 8px;
+        }
+        .case-image-previews:empty { display:none; }
+        .case-image-previews img {
+            width:100%; aspect-ratio:1; object-fit:cover; border-radius:7px;
+            border:1px solid #3a3a5c; background:#0d0d1a;
+        }
+        .case-progress { margin-top:14px; padding:12px; background:#0d0d1a; border:1px solid #2a2a44; border-radius:9px; }
+        .case-progress-head { display:flex; align-items:center; gap:8px; color:#bbb; font-size:.84em; }
+        .case-progress-head span:nth-child(2) { flex:1; }
+        .case-progress-head strong { color:#60a5fa; font-variant-numeric:tabular-nums; }
+        .case-spinner { width:14px; height:14px; flex:none; border:2px solid #3a3a5c; border-top-color:#60a5fa; border-radius:50%; animation:case-spin .8s linear infinite; }
+        .case-progress.done .case-spinner, .case-progress.failed .case-spinner { animation:none; border-color:#4ade80; }
+        .case-progress.failed .case-spinner { border-color:#f87171; }
+        .case-progress .progress-bar-wrap { height:7px; margin-top:9px; background:#1e1e36; border-radius:4px; overflow:hidden; }
+        .case-progress .progress-bar-wrap > div { width:0; height:100%; background:linear-gradient(90deg,#6c3ce0,#3b82f6); transition:width .3s ease; }
+        @keyframes case-spin { to { transform:rotate(360deg); } }
+        @media (max-width: 700px) {
+            .main { display:block; }
+            .input-panel { border-right:0; border-bottom:1px solid #2a2a44; }
+            .right-workspace { min-height:0; display:block; }
+            .batch-status-panel, .output-panel { border-right:0; border-bottom:1px solid #2a2a44; }
+        }
+
+        /* ====== 输入面板组件 ====== */
+        .section-title {
+            font-size: 1.05em; font-weight: 600; margin-bottom: 12px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .section-title .dot {
+            width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+        }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+
+        .upload-card {
+            background: #1e1e36; border: 2px dashed #3a3a5c;
+            border-radius: 12px; padding: 20px; text-align: center;
+            cursor: pointer; transition: all .2s; margin-bottom: 16px;
+            position: relative;
+        }
+        .upload-card:hover, .upload-card.dragover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] {
+            position: absolute; width: 1px; height: 1px; opacity: 0;
+            pointer-events: none;
+        }
+        .upload-card .batch-action {
+            display: inline-block; margin-top: 10px; cursor: pointer;
+        }
+        .upload-card .filename {
+            max-width: 100%; white-space: normal; overflow-wrap: anywhere;
+        }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename {
+            margin-top: 8px; font-size: .85em; color: #22c55e;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .upload-card .preview-video {
+            max-width: 100%; max-height: 120px; border-radius: 8px;
+            margin-top: 8px; object-fit: cover;
+        }
+
+        .text-field {
+            width: 100%; box-sizing: border-box; margin-bottom: 16px;
+            padding: 12px 14px; background: #1e1e36;
+            border: 1px solid #3a3a5c; border-radius: 8px;
+            color: #fff; font-size: .95em; outline: none;
+            font-family: inherit;
+        }
+        .text-field:focus { border-color: #6c3ce0; }
+        textarea.text-field { min-height: 80px; resize: vertical; line-height: 1.5; }
+
+        .engine-group {
+            display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;
+        }
+        .engine-option {
+            flex: 1; min-width: 120px;
+            background: #1e1e36; border: 1px solid #3a3a5c;
+            border-radius: 10px; padding: 10px 12px; cursor: pointer;
+            transition: all .2s; display: flex; align-items: center; gap: 8px;
+            font-size: .85em;
+        }
+        .engine-option:hover { border-color: #6c3ce0; }
+        .engine-option input[type="radio"] { accent-color: #6c3ce0; }
+        .engine-option.selected { border-color: #6c3ce0; background: #222244; }
+
+        .run-btn {
+            width: 100%; padding: 14px; border: none; border-radius: 10px;
+            font-size: 1.1em; font-weight: 600; cursor: pointer;
+            background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff;
+            transition: all .2s; letter-spacing: 1px; margin-bottom: 8px;
+        }
+        .run-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+        .btn-secondary {
+            background: #2a2a5c; color: #e0e0e0;
+            padding: 10px 16px; border: none; border-radius: 8px;
+            cursor: pointer; font-size: .9em; transition: all .2s;
+            width: 100%; margin-top: 6px;
+        }
+        .btn-secondary:hover { background: #34346e; }
+
+        .status-box {
+            background: #1e1e36; border-radius: 10px; padding: 12px 14px;
+            font-size: .85em; color: #aaa; margin-top: 12px;
+            min-height: 40px; display: flex; align-items: center; gap: 8px;
+            border: 1px solid #2a2a5c;
+        }
+        .status-box.running { color: #60a5fa; border-color: rgba(96,165,250,.4); }
+        .status-box.success { color: #4ade80; border-color: rgba(74,222,128,.4); }
+        .status-box.failed { color: #f87171; border-color: rgba(248,113,113,.4); }
+        .status-box::before {
+            content: ''; width: 8px; height: 8px; border-radius: 50%;
+            background: currentColor; flex-shrink: 0;
+        }
+        .status-box.running::before { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+        /* ====== 输出面板组件 ====== */
+        .result-card {
+            background: #16162a; border-radius: 14px; padding: 24px;
+            margin-bottom: 20px; border: 1px solid #2a2a44;
+        }
+        .result-card h2 {
+            font-size: 1.1em; color: #a78bfa; margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
+            padding-bottom: 12px; border-bottom: 1px solid #2a2a44;
+        }
+        .meta-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+            margin-bottom: 16px;
+        }
+        .meta-item {
+            background: #1e1e36; padding: 12px; border-radius: 8px;
+            text-align: center; border: 1px solid #2a2a5c;
+        }
+        .meta-item .label { font-size: .75em; color: #888; margin-bottom: 4px; }
+        .meta-item .value { font-size: 1.05em; color: #a78bfa; font-weight: 600; }
+
+        .frames-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px; margin-top: 12px;
+        }
+        .frames-grid img {
+            width: 100%; aspect-ratio: 9/16; object-fit: cover;
+            border-radius: 8px; border: 1px solid #2a2a5c;
+            transition: transform .2s;
+        }
+        .frames-grid img:hover { transform: scale(1.04); border-color: #6c3ce0; }
+
+        .prompt-output {
+            background: #0d0d1a; border: 1px solid #2a2a5c; border-radius: 10px;
+            padding: 14px; font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+            font-size: .82em; color: #c0c0e0; white-space: pre-wrap;
+            line-height: 1.6; max-height: 400px; overflow-y: auto;
+        }
+        .prompt-label {
+            font-size: .82em; color: #a5a5c8; margin-bottom: 6px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .prompt-label .badge {
+            background: #2a2a5c; color: #a5a5c8;
+            padding: 2px 8px; border-radius: 4px; font-size: .85em;
+        }
+
+        /* both 模式双列 */
+        .both-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+            margin-bottom: 14px;
+        }
+        .both-col {
+            background: #1e1e36; border-radius: 12px; padding: 16px;
+            border: 1px solid #2a2a5c;
+        }
+        .both-col h3 {
+            font-size: .95em; margin-bottom: 12px;
+            padding-bottom: 8px; border-bottom: 1px solid #2a2a5c;
+        }
+        .both-col.mimo h3 { color: #fbbf24; }
+        .both-col.grok h3 { color: #34d399; }
+
+        .hidden { display: none; }
+
+        /* 编译面板 */
+        .compile-card {
+            background: #16162a; border-radius: 14px; padding: 24px;
+            margin-top: 20px; border: 1px dashed #6c3ce0;
+        }
+        .compile-card h2 {
+            font-size: 1.05em; color: #c084fc; margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .compile-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+        .compile-row > * { flex: 1; min-width: 200px; }
+        select.text-field { cursor: pointer; }
+
+        .duration-hint {
+            font-size: .72em; color: #fbbf24; margin-top: 6px;
+            padding: 4px 8px; background: rgba(251, 191, 36, .08);
+            border-radius: 4px; display: none;
+        }
+        .duration-hint.ok { color: #34d399; background: rgba(52, 211, 153, .08); }
+        .duration-hint.bad { color: #f87171; background: rgba(248, 113, 113, .08); }
+        .trim-track {
+            position: relative; height: 56px; background: #16162a;
+            border-radius: 4px; margin: 10px 0; cursor: pointer;
+            border: 1px solid #2a2a5c; user-select: none; overflow: hidden;
+        }
+        .trim-track .trim-filmstrip {
+            position: absolute; inset: 0;
+            background-size: 100% 100%; background-repeat: no-repeat;
+            opacity: .55; pointer-events: none;
+        }
+        .trim-track .trim-bar {
+            position: absolute; top: 0; bottom: 0;
+            background: rgba(108, 60, 224, .35);
+            border-left: 2px solid #6c3ce0; border-right: 2px solid #6c3ce0;
+        }
+        .trim-track .trim-handle {
+            position: absolute; top: 50%; transform: translate(-50%, -50%);
+            width: 14px; height: 28px; background: #6c3ce0; border-radius: 3px;
+            cursor: ew-resize; box-shadow: 0 0 6px rgba(108, 60, 224, .6);
+        }
+        .trim-track .trim-handle:hover { background: #8b5cf6; }
+        .trim-track .trim-ticks {
+            position: absolute; inset: 0; pointer-events: none;
+            display: flex; justify-content: space-between; padding: 0 2px;
+        }
+        .trim-track .trim-ticks span { width: 1px; background: #2a2a5c; align-self: stretch; }
+        .trim-row {
+            display: flex; gap: 10px; margin-top: 6px;
+            font-size: .75em; color: #888; align-items: center;
+        }
+        .trim-row .trim-num {
+            background: #0f0f1a; border: 1px solid #2a2a5c; border-radius: 4px;
+            padding: 3px 8px; color: #22d3ee;
+            font-family: "Cascadia Code", Consolas, monospace;
+            min-width: 56px; text-align: center;
+        }
+        .trim-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+        .trim-actions button {
+            font-size: .75em; padding: 5px 10px; background: #16162a;
+            border: 1px solid #2a2a5c; border-radius: 5px; color: #ccc; cursor: pointer;
+        }
+        .trim-actions button:hover { border-color: #6c3ce0; color: #fff; }
+        .trim-actions .trim-reset { color: #f87171; border-color: rgba(248, 113, 113, .3); }
+        .trim-hint { font-size: .72em; color: #888; margin-top: 8px; line-height: 1.5; }
+        .trim-hint b { color: #fbbf24; }
+        .trim-overlay {
+            display: none; position: fixed; inset: 0; z-index: 9999;
+            background: rgba(0, 0, 0, .82); backdrop-filter: blur(4px);
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .trim-overlay.show { display: flex; }
+        .trim-modal {
+            background: #0f0f1a; border: 1px solid #2a2a5c; border-radius: 12px;
+            padding: 20px; width: min(92vw, 760px); max-height: 92vh; overflow: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+        }
+        .trim-modal-head {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px; font-size: .95em; color: #ccc; gap: 10px;
+        }
+        .trim-modal-head .trim-duration {
+            color: #22d3ee; font-family: "Cascadia Code", Consolas, monospace; font-size: 1.05em;
+        }
+        .trim-modal-video {
+            width: 100%; max-height: 380px; background: #000;
+            border-radius: 8px; margin-bottom: 14px; display: block;
+        }
+        .trim-modal-foot {
+            display: flex; gap: 10px; margin-top: 14px; justify-content: flex-end;
+        }
+        .trim-modal-foot button {
+            padding: 8px 22px; border-radius: 6px; cursor: pointer;
+            font-size: .85em; border: 1px solid #2a2a5c; background: #16162a; color: #ccc;
+        }
+        .trim-modal-foot .btn-confirm {
+            background: #6c3ce0; border-color: #6c3ce0; color: #fff; font-weight: 600;
+        }
+        .trim-modal-foot .btn-confirm:hover { background: #7d4af0; }
+        .trim-modal-foot .btn-cancel:hover { border-color: #f87171; color: #f87171; }
+        .trim-trigger {
+            display: none; margin-top: 10px; padding: 10px 14px;
+            background: rgba(108, 60, 224, .12); border: 1px solid rgba(108, 60, 224, .4);
+            border-radius: 8px; cursor: pointer; font-size: .82em; color: #c4b5fd;
+            align-items: center; gap: 10px;
+        }
+        .trim-trigger.show { display: flex; }
+        .trim-trigger:hover { background: rgba(108, 60, 224, .22); }
+        .trim-trigger .tt-range {
+            margin-left: auto; color: #22d3ee;
+            font-family: "Cascadia Code", Consolas, monospace; text-align: right;
+        }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>提示词反推工作台</h1>
+        <span class="tag">Grok/GPT · GPT 通用化</span>
+    </div>
+    <div class="topbar-right">
+        <button class="back-btn" id="newTaskBtn" onclick="newTask()" title="清空当前页面状态，开始一个新任务">➕ 新建任务</button>
+    </div>
+</div>
+
+<div class="main">
+    <!-- 左侧输入面板 -->
+    <div class="input-panel">
+        <div class="section-title"><span class="dot dot-required"></span> 视频批量 / 单条输入</div>
+        <div class="batch-hint">粘贴抖音/小红书分享口令或链接，或上传视频。下载/选择后会弹出剪辑尺，只反推你截取的那一段，原视频预览也只显示这一段。</div>
+        <textarea class="text-field batch-links" id="batchLinks" placeholder="粘贴抖音/小红书分享链接，每行一个\nhttps://v.douyin.com/...\nhttps://www.douyin.com/video/...\nhttps://xhslink.cn/o/...\nhttps://www.xiaohongshu.com/explore/..."></textarea>
+        <div class="upload-card" id="batchVideoCard">
+            <div class="icon">📹</div>
+            <div class="label">也可以批量上传视频（按顺序对应）</div>
+            <label class="batch-action" for="batchVideoFiles">选择多个视频</label>
+            <input type="file" id="batchVideoFiles" accept="video/*,.mp4,.mov" multiple>
+            <div class="filename" id="batchVideoNames"></div>
+            <video class="preview-video" id="batchVideoPreview" style="display:none;" controls onclick="event.stopPropagation()"></video>
+        </div>
+        <div class="duration-hint" id="durationHint"></div>
+        <div class="trim-trigger" id="trimTrigger" onclick="openTrimModal()">
+            <span>✂️ 点击调整裁剪区间</span>
+            <span class="tt-range" id="trimTriggerRange">0.0s - 0.0s</span>
+        </div>
+        <button class="run-btn" id="batchStartBtn" onclick="startBatchReverse()">开始批量推理</button>
+        <button class="btn-secondary" onclick="loadSavedPrompts()">刷新已保存列表</button>
+        <div class="history-panel">
+            <div class="section-title" style="font-size:.9em;">历史记录</div>
+            <div class="history-list" id="historyList"><div class="batch-hint">暂无历史任务</div></div>
+        </div>
+
+
+    </div>
+
+    <!-- 右侧工作区：上方进度日志，下方输出结果 -->
+    <div class="right-workspace">
+        <div class="batch-status-panel">
+            <div class="section-title"><span class="dot dot-required"></span> 处理进度</div>
+            <div class="batch-summary" id="batchSummary">等待开始批量任务</div>
+            <div class="batch-log" id="batchLog">粘贴抖音/小红书链接后，点击左侧「开始批量推理」。</div>
+        </div>
+
+        <div class="output-panel" id="batchOutputPanel">
+            <div class="section-title"><span class="dot dot-optional"></span> 通用提示词列表</div>
+            <div class="batch-hint">每条结果可打开预览、下载文本，或上传多张商品图生成案例视频。</div>
+            <div id="batchResults"><div class="batch-log">暂无已保存提示词</div></div>
+        </div>
+    </div>
+
+    <!-- 原单条工作台逻辑保留，批量模式下隐藏 -->
+    <div class="output-panel legacy-workbench">
+        <!-- 抽帧预览 -->
+        <div class="result-card hidden" id="framesCard">
+            <h2>📷 抽帧预览</h2>
+            <div class="frames-grid" id="framesGrid"></div>
+        </div>
+
+        <!-- ASR 口播文案 -->
+        <div class="result-card hidden" id="voiceoverCard">
+            <h2>🎙️ 口播文案（ASR 反推）</h2>
+            <div class="prompt-output" id="voiceoverText" style="margin-bottom:10px;white-space:pre-wrap;"></div>
+            <div class="prompt-label" style="font-size:12px;color:#888;">带时间戳分段</div>
+            <div class="prompt-output" id="voiceoverTimeline" style="font-size:13px;white-space:pre-wrap;"></div>
+        </div>
+
+        <!-- 反推结果 -->
+        <div class="result-card hidden" id="resultCard">
+            <h2>🎬 反推结果</h2>
+            <div class="meta-grid">
+                <div class="meta-item"><div class="label">视频时长</div><div class="value" id="metaDuration">-</div></div>
+                <div class="meta-item"><div class="label">抽帧数</div><div class="value" id="metaFrames">-</div></div>
+                <div class="meta-item"><div class="label">H3 模式</div><div class="value" id="metaMode">-</div></div>
+                <div class="meta-item"><div class="label">耗时</div><div class="value" id="metaElapsed">-</div></div>
+            </div>
+
+            <!-- both 双列 -->
+            <div class="both-grid hidden" id="bothGrid">
+                <div class="both-col mimo">
+                    <h3>🧠 MiMo-V2.5</h3>
+                    <div class="prompt-label">场景描述</div>
+                    <div class="prompt-output" id="sceneDescMimo" style="margin-bottom:10px;"></div>
+                    <div class="prompt-label">H3 Prompt</div>
+                    <div class="prompt-output" id="h3PromptMimo"></div>
+                </div>
+                <div class="both-col grok">
+                    <h3>🎯 Grok/GPT</h3>
+                    <div class="prompt-label">场景描述</div>
+                    <div class="prompt-output" id="sceneDescGrok" style="margin-bottom:10px;"></div>
+                    <div class="prompt-label">H3 Prompt</div>
+                    <div class="prompt-output" id="h3PromptGrok"></div>
+                </div>
+            </div>
+
+            <!-- 单引擎 -->
+            <div id="singleWrap">
+                <div class="prompt-label">场景描述（LLM 输出）</div>
+                <div class="prompt-output" id="sceneDesc" style="margin-bottom:12px;"></div>
+                <div class="prompt-label">
+                    H3 视频生成 Prompt
+                    <span class="badge" id="modeBadge">-</span>
+                </div>
+                <div class="prompt-output" id="h3Prompt"></div>
+            </div>
+
+            <div class="prompt-label" style="margin-top:16px;">MiMo 原始版本</div>
+            <div class="prompt-output" id="mimoRawPrompt"></div>
+        </div>
+
+        <!-- ④ 提交到 H3 Studio 生成视频 -->
+        <div class="compile-card hidden" id="compileCard">
+            <h2>🎬 ④ 提交到 H3 Studio 生成视频</h2>
+            <div class="prompt-label" style="margin-bottom:10px;">MiMo 原始版本和通用版本分开展示；确认通用版本后可直接调 H3 API 生成视频</div>
+
+            <!-- 动态产品图上传区（按 MiMo 建议的角度生成） -->
+            <div id="productAngleAdvice" class="hidden" style="margin-bottom:14px; padding:12px; background:#0f0f23; border:1px solid #2a2a4a; border-radius:8px;">
+                <div class="prompt-label" style="margin-bottom:6px; color:#c4b5fd;">📐 按下方角度上传产品图（MiMo 已分析每个角度用途）</div>
+                <div id="angleSummary" style="font-size:.78em; color:#888; margin-bottom:10px;"></div>
+                <div id="angleList" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px;"></div>
+            </div>
+
+            <!-- 兜底上传区（MiMo 未返回角度建议时） -->
+            <div id="fallbackUploadArea" class="hidden">
+                <div class="section-title" style="font-size:.9em; margin:14px 0 8px;">
+                    <span class="dot dot-optional"></span> 上传参考图（可选，多张）
+                </div>
+                <div class="upload-card" id="productUploadCard" onclick="document.getElementById('productImages').click()">
+                    <div class="icon">🖼️</div>
+                    <div class="label">点击上传参考图（支持多张）</div>
+                    <input type="file" id="productImages" accept="image/*" multiple style="display:none;">
+                    <div class="filename" id="productFilename"></div>
+                </div>
+            </div>
+
+            <div class="compile-row">
+                <select class="text-field" id="compileSource" onchange="syncH3Prompt()">
+                    <option value="mimo_h3">MiMo H3 Prompt</option>
+                    <option value="grok_h3">Grok H3 Prompt</option>
+                    <option value="mimo">MiMo 场景描述</option>
+                    <option value="grok">Grok 场景描述</option>
+                </select>
+                <select class="text-field" id="h3Channel">
+                    <option value="runninghub" selected>RunningHub 导演台</option>
+                    <option value="manxue">满雪网关</option>
+                </select>
+            </div>
+
+            <div class="compile-row" style="margin-top:12px;">
+                <div>
+                    <div class="prompt-label" style="font-size:.8em; color:#888;">时长（秒）</div>
+                    <select class="text-field" id="h3Duration">
+                        <option value="15" selected>15s</option>
+                    </select>
+                </div>
+                <div>
+                    <div class="prompt-label" style="font-size:.8em; color:#888;">画面比例</div>
+                    <select class="text-field" id="h3Ratio">
+                        <option value="9:16" selected>9:16 竖屏</option>
+                        <option value="16:9">16:9 横屏</option>
+                        <option value="1:1">1:1 正方形</option>
+                        <option value="4:3">4:3</option>
+                        <option value="3:4">3:4</option>
+                    </select>
+                </div>
+                <div>
+                    <div class="prompt-label" style="font-size:.8em; color:#888;">分辨率（MP）</div>
+                    <select class="text-field" id="h3Megapixels">
+                        <option value="0.4">0.4</option>
+                        <option value="0.7" selected>0.7</option>
+                        <option value="1.0">1.0</option>
+                        <option value="1.5">1.5</option>
+                        <option value="2.0">2.0</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="prompt-label" style="margin-top:14px; font-size:.82em; color:#a5a5c8;">
+                通用版本（可编辑确认）
+            </div>
+            <div class="prompt-output" id="compiledPrompt" contenteditable="true" style="min-height:100px; white-space:pre-wrap;"></div>
+
+            <div class="compile-row" style="margin-top:12px; gap:8px;">
+                <button class="btn-secondary" id="genericBtn" style="flex:1;">🔄 转为通用版</button>
+                <button class="run-btn" id="compileBtn" style="flex:2;">🎬 调 H3 生成视频</button>
+            </div>
+            <div class="status-box" id="compileStatus">反推完成后，确认 prompt 即可生成；点击「转为通用版」可去除具体产品/品牌描述，保留镜头/动作/场景结构</div>
+
+            <!-- H3 任务进度 -->
+            <div class="hidden" id="h3ProgressWrap" style="margin-top:14px;">
+                <div class="prompt-label">H3 任务进度</div>
+                <div class="status-box" id="h3Status">提交中...</div>
+                <div class="progress-bar-wrap" style="margin-top:8px; height:6px; background:#0d0d1a; border-radius:3px; overflow:hidden;">
+                    <div id="h3ProgressFill" style="height:100%; width:0%; background:linear-gradient(90deg,#a855f7,#6c3ce0); transition:width .3s;"></div>
+                </div>
+                <div id="h3Logs" style="margin-top:8px; max-height:200px; overflow-y:auto; font-size:.75em; color:#aaa; font-family:'Cascadia Code',Consolas,monospace; background:#0d0d1a; padding:8px; border-radius:6px;"></div>
+            </div>
+
+            <!-- 结果视频 -->
+            <div class="hidden" id="h3ResultWrap" style="margin-top:14px;">
+                <div class="prompt-label">✓ 生成完成</div>
+                <video id="h3ResultVideo" controls style="width:100%; max-height:400px; border-radius:8px; border:1px solid #2a2a5c;"></video>
+                <a class="btn-secondary" id="h3DownloadLink" style="display:inline-block; text-align:center; text-decoration:none; margin-top:8px;">⬇ 下载视频</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-mask" id="videoModal" onclick="if(event.target===this) closeVideoModal()">
+    <div class="modal-box">
+        <div class="modal-title-row">
+            <h2 id="caseModalTitle">上传商品图，生成案例视频</h2>
+            <button type="button" class="modal-close" onclick="closeVideoModal()" aria-label="关闭弹窗" title="关闭">×</button>
+        </div>
+        <div class="batch-hint" id="caseModalHint">支持多张商品图。选择“与原视频一致”将按原视频完整时长分段调用 H3，并自动拼接完整结果。</div>
+        <label class="batch-image-picker" for="caseProductImages">
+            <span>选择商品图（可多选）</span>
+            <input type="file" id="caseProductImages" accept="image/*,.jpg,.jpeg,.png,.webp" multiple>
+        </label>
+        <div class="case-image-previews" id="caseImagePreviews"></div>
+        <div class="filename" id="caseProductNames">尚未选择商品图</div>
+        <div class="compile-row" style="margin-top:14px; gap:12px;">
+            <div style="flex:1;">
+                <div class="prompt-label" style="font-size:.8em; color:#888;">视频时长</div>
+                <select class="text-field" id="caseDuration">
+                    <option value="source" selected>与原视频一致（完整生成）</option>
+                    <option value="5">5 秒</option>
+                    <option value="10">10 秒</option>
+                    <option value="15">15 秒</option>
+                </select>
+            </div>
+            <div style="flex:1;">
+                <div class="prompt-label" style="font-size:.8em; color:#888;">输出分辨率</div>
+                <select class="text-field" id="caseResolution">
+                    <option value="0.4">480P</option>
+                    <option value="0.7" selected>720P</option>
+                    <option value="1.0">1080P</option>
+                </select>
+            </div>
+        </div>
+        <div class="batch-hint" style="margin-top:8px;">H3 全能参考：无论上传几张商品图，全部作为产品参考图使用，不采用首帧或首尾帧模式。当前渠道实际输出约 768P，分辨率选项会随请求传递。</div>
+        <div id="fusionPromptReview" class="hidden" style="margin-top:14px;">
+            <div class="prompt-label">融合版 Prompt（请审核，可直接编辑）</div>
+            <textarea id="fusionPromptText" class="text-field" style="min-height:220px; resize:vertical; line-height:1.5;"></textarea>
+            <div class="batch-hint">确认内容后，再点击下方按钮提交 H3；未确认前不会产生视频任务。</div>
+            <div class="compile-row" style="margin-top:8px;">
+                <button class="btn-secondary" id="retryFusionBtn" onclick="retryFusionPrompt()">重试融合</button>
+            </div>
+        </div>
+        <div class="compile-row" style="margin-top:14px;">
+            <button class="btn-secondary" onclick="closeVideoModal()">取消</button>
+            <button class="run-btn" id="caseGenerateBtn" onclick="confirmCaseGenerate()">确认生成视频</button>
+            <button class="btn-secondary" id="caseBackgroundBtn" onclick="closeVideoModal()" style="display:none; background:#1e3a5f; color:#7dd3fc; border-color:#1e3a5f;">后台运行</button>
+        </div>
+        <div class="case-progress hidden" id="caseProgress">
+            <div class="case-progress-head">
+                <span class="case-spinner" aria-hidden="true"></span>
+                <span id="caseProgressText">准备提交 H3 任务…</span>
+                <strong id="caseProgressPct">0%</strong>
+            </div>
+            <div class="progress-bar-wrap">
+                <div id="caseProgressFill"></div>
+            </div>
+        </div>
+        <div class="status-box hidden" id="caseStatus"></div>
+    </div>
+</div>
+
+<div class="modal-mask" id="publishModal" onclick="if(event.target===this) closePublishModal()">
+    <div class="modal-box">
+        <div class="modal-title-row">
+            <h2>发布到 weeksir 网站（RPA）</h2>
+            <button type="button" class="modal-close" onclick="closePublishModal()" aria-label="关闭弹窗" title="关闭">×</button>
+        </div>
+        <div class="batch-hint">把当前通用提示词 + 截取视频自动填入 weeksir.com/admin/video-examples 新建示例表单。分类不存在会自动创建。默认 dry-run（只填表不点保存），勾选「真正提交」才会点保存按钮。</div>
+        <div class="compile-row" style="margin-top:14px; gap:12px;">
+            <div style="flex:1.5;">
+                <div class="prompt-label" style="font-size:.8em; color:#888;">分类</div>
+                <input type="text" id="publishCategory" class="text-field" placeholder="如：鞋类 / 服饰 / 瑜伽服">
+            </div>
+            <div style="flex:2;">
+                <div class="prompt-label" style="font-size:.8em; color:#888;">示例标题</div>
+                <input type="text" id="publishTitle" class="text-field" placeholder="最多 100 字符" value="服装带货">
+            </div>
+        </div>
+        <div class="compile-row" style="margin-top:12px; gap:12px;">
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" id="publishSubmit"> <span style="color:#ddd;">真正提交（点「保存」按钮）</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-left:auto;">
+                <input type="checkbox" id="publishHeadless"> <span style="color:#ddd;">无头模式</span>
+            </label>
+        </div>
+        <div class="compile-row" style="margin-top:14px;">
+            <button class="btn-secondary" onclick="closePublishModal()">取消</button>
+            <button class="run-btn" id="publishConfirmBtn" onclick="confirmPublish()">确认发布</button>
+        </div>
+        <div class="case-progress hidden" id="publishProgress">
+            <div class="case-progress-head">
+                <span class="case-spinner" aria-hidden="true"></span>
+                <span id="publishProgressText">提交 RPA 任务中…</span>
+                <strong id="publishProgressPct">0%</strong>
+            </div>
+            <div class="progress-bar-wrap">
+                <div id="publishProgressFill"></div>
+            </div>
+        </div>
+        <pre id="publishLog" class="batch-log" style="max-height:240px; overflow:auto; margin-top:10px; display:none; background:#0e0e1c; color:#c0c0d0; padding:10px; border-radius:8px; font-size:.78em; line-height:1.45;"></pre>
+        <div class="status-box hidden" id="publishStatus"></div>
+    </div>
+</div>
+
+<div class="trim-overlay" id="trimOverlay">
+    <div class="trim-modal">
+        <div class="trim-modal-head">
+            <span id="trimModalTitle">✂️ 截取反推片段 — 拖动手柄选择保留区间</span>
+            <span class="trim-duration" id="trimDuration">0.0s</span>
+        </div>
+        <video class="trim-modal-video" id="trimModalVideo" playsinline></video>
+        <div class="trim-track" id="trimTrack">
+            <div class="trim-filmstrip" id="trimFilmstrip"></div>
+            <div class="trim-bar" id="trimBar"></div>
+            <div class="trim-handle" id="trimHandleL" style="left:0%"></div>
+            <div class="trim-handle" id="trimHandleR" style="left:100%"></div>
+            <div class="trim-ticks" id="trimTicks"></div>
+        </div>
+        <div class="trim-row">
+            <span>起点</span><span class="trim-num" id="trimStartLabel">0.0s</span>
+            <span style="margin-left:auto">终点</span><span class="trim-num" id="trimEndLabel">0.0s</span>
+            <span style="margin-left:auto">区间</span><span class="trim-num" id="trimSpanLabel">0.0s</span>
+        </div>
+        <div class="trim-actions">
+            <button type="button" onclick="setTrimPreset(2)">锁定 2s</button>
+            <button type="button" onclick="setTrimPreset(5)">锁定 5s</button>
+            <button type="button" onclick="setTrimPreset(10)">锁定 10s</button>
+            <button type="button" onclick="setTrimPreset(15)">锁定 15s</button>
+            <button type="button" onclick="previewTrim()">▶ 预览裁剪片段</button>
+            <button type="button" class="trim-reset" onclick="resetTrim()">重置（框住全部）</button>
+        </div>
+        <div class="trim-hint">
+            💡 拖动左右手柄选择需要反推的片段。超过约 15 秒会增加 MiMo 耗时；截取后体积也会更小。拖动时上方视频实时跳转到手柄位置。
+        </div>
+        <div class="trim-modal-foot">
+            <button type="button" class="btn-cancel" onclick="closeTrimModal(false)">取消</button>
+            <button type="button" class="btn-confirm" onclick="closeTrimModal(true)">确认裁剪区间</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let pollTimer = null;
+    let lastTaskId = null;
+    let lastStartedAt = null;
+    let lastReverseResult = null;
+    let productAngleFiles = {};  // { angle: { path, angle, required, isOptional, file } }
+
+    const $ = (id) => document.getElementById(id);
+
+    function setStatus(text, cls) {
+        const el = $('statusBox');
+        el.textContent = text;
+        el.className = 'status-box' + (cls ? ' ' + cls : '');
+    }
+
+    function setCompileStatus(text, cls) {
+        const el = $('compileStatus');
+        el.textContent = text;
+        el.className = 'status-box' + (cls ? ' ' + cls : '');
+    }
+
+    const MAX_VIDEO_SIZE_MB = 15;
+    const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
+
+    function setVideoFile(file) {
+        if (!file) return;
+        if (!file.type.startsWith('video/') && !/\.(mp4|mov)$/i.test(file.name)) {
+            alert('请选择 .mp4 或 .mov 视频文件');
+            return;
+        }
+        if (file.size > MAX_VIDEO_SIZE_BYTES) {
+            alert(`视频文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），MiMo-V2.5 限制 ${MAX_VIDEO_SIZE_MB}MB 以内。请压缩后重试。`);
+            return;
+        }
+        const input = $('videoFile');
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+        $('videoFilename').textContent = '✓ ' + file.name;
+        $('uploadCard').classList.add('has-file');
+        const v = $('videoPreview');
+        if (v) {
+            if (v.src) URL.revokeObjectURL(v.src);
+            v.src = URL.createObjectURL(file);
+            v.style.display = 'block';
+        }
+    }
+
+    // 视频上传预览：点击选择或拖拽文件
+    const legacyVideoInput = $('videoFile');
+    const legacyUploadCard = $('uploadCard');
+    if (legacyVideoInput && legacyUploadCard) {
+    legacyVideoInput.addEventListener('change', e => setVideoFile(e.target.files[0]));
+    legacyUploadCard.addEventListener('dragover', e => {
+        e.preventDefault();
+        $('uploadCard').classList.add('dragover');
+    });
+    $('uploadCard').addEventListener('dragleave', () => $('uploadCard').classList.remove('dragover'));
+    $('uploadCard').addEventListener('drop', e => {
+        e.preventDefault();
+        $('uploadCard').classList.remove('dragover');
+        setVideoFile(e.dataTransfer.files[0]);
+    });
+
+    // 产品图上传预览
+    $('productImages').addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length) {
+            $('productFilename').textContent = '✓ ' + files.map(f => f.name).join(', ');
+            $('productUploadCard').classList.add('has-file');
+        }
+    });
+
+    async function submitReverse() {
+        const fileInput = $('videoFile');
+        if (!fileInput.files.length) {
+            alert('请先选择视频文件');
+            return;
+        }
+        const btn = $('submitBtn');
+        btn.disabled = true;
+        btn.classList.add('running');
+        btn.textContent = '反推中…';
+        setStatus('上传视频中…', 'running');
+
+        // 1. 上传
+        const fd = new FormData();
+        fd.append('file', fileInput.files[0]);
+        let upData;
+        try {
+            const upResp = await fetch('/api/upload/video', { method: 'POST', body: fd });
+            upData = await upResp.json();
+            if (!upResp.ok || !upData.success) throw new Error(upData.detail || `HTTP ${upResp.status}`);
+        } catch (e) {
+            setStatus('上传失败：' + e.message, 'failed');
+            btn.disabled = false; btn.classList.remove('running'); btn.textContent = '开始反推';
+            return;
+        }
+
+        // 2. 提交
+        setStatus('提交反推任务…', 'running');
+        const engine = 'mimo';
+        const resp = await fetch('/api/prompt-reverse/submit', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_path: upData.file_path,
+                extra_hint: '',
+                engine: engine,
+            }),
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            setStatus('提交失败：' + (data.detail || '未知错误'), 'failed');
+            btn.disabled = false; btn.classList.remove('running'); btn.textContent = '开始反推';
+            return;
+        }
+        lastTaskId = data.task_id;
+        lastStartedAt = Date.now();
+        $('framesCard').classList.add('hidden');
+        $('voiceoverCard').classList.add('hidden');
+        $('resultCard').classList.add('hidden');
+        $('compileCard').classList.add('hidden');
+        $('copyPromptBtn').style.display = 'none';
+        const label = engine === 'both' ? '双引擎并行（MiMo + Grok）' :
+                      (engine === 'mimo' ? 'MiMo-V2.5 原生视频理解' : 'Grok/GPT 抽帧分析');
+        setStatus(`反推中（${label}，约 30-120s）…`, 'running');
+        startPolling();
+    }
+
+    function startPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(pollOnce, 3000);
+    }
+
+    async function pollOnce() {
+        if (!lastTaskId) return;
+        try {
+            const resp = await fetch('/api/prompt-reverse/status/' + lastTaskId);
+            const data = await resp.json();
+            const elapsed = lastStartedAt ? Math.floor((Date.now() - lastStartedAt) / 1000) : 0;
+            if (data.status === 'RUNNING' || data.status === 'INIT') {
+                setStatus(`反推中… 已用 ${elapsed}s`, 'running');
+                return;
+            }
+            clearInterval(pollTimer);
+            pollTimer = null;
+            const btn = $('submitBtn');
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '开始反推';
+            if (data.status === 'SUCCESS' && data.result) {
+                setStatus(`✓ 完成（耗时 ${elapsed}s）`, 'success');
+                renderResult(data.result, elapsed);
+            } else {
+                setStatus('✗ 失败：' + (data.error || '未知错误'), 'failed');
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function _toWebPath(p) {
+        return p.replace(/\\/g, '/').replace(/^.*\/outputs\//, '/outputs/') + '?v=' + Date.now();
+    }
+
+    function _renderSingleBlock(descEl, promptEl, item) {
+        descEl.textContent = item.scene_description || '';
+        promptEl.textContent = item.h3_prompt || '';
+    }
+
+    function renderResult(result, elapsed) {
+        $('resultCard').classList.remove('hidden');
+        $('copyPromptBtn').style.display = 'inline-block';
+
+        const isBoth = result.engine === 'both';
+        $('bothGrid').classList.toggle('hidden', !isBoth);
+        $('singleWrap').classList.toggle('hidden', isBoth);
+
+        // 抽帧预览
+        const frames = result.frames || [];
+        if (frames.length) {
+            $('framesCard').classList.remove('hidden');
+            const grid = $('framesGrid');
+            grid.innerHTML = '';
+            frames.forEach(p => {
+                const img = document.createElement('img');
+                img.src = _toWebPath(p);
+                grid.appendChild(img);
+            });
+        } else {
+            $('framesCard').classList.add('hidden');
+        }
+
+        // 口播文案
+        const voiceoverSegments = result.voiceover_segments || [];
+        if (voiceoverSegments.length) {
+            $('voiceoverCard').classList.remove('hidden');
+            $('voiceoverText').textContent = result.voiceover_text || voiceoverSegments.map(s => s.text).join(' ');
+            $('voiceoverTimeline').textContent = voiceoverSegments.map(s => `[${s.start.toFixed(1)}-${s.end.toFixed(1)}s] ${s.text}`).join('\n');
+        } else {
+            $('voiceoverCard').classList.add('hidden');
+        }
+
+        // meta
+        $('metaDuration').textContent = (result.duration || 0).toFixed(1) + 's';
+        $('metaFrames').textContent = frames.length;
+        $('metaMode').textContent = isBoth ? '见下方双列' : (result.mode || '-');
+        $('modeBadge').textContent = result.mode || '-';
+        $('metaElapsed').textContent = elapsed + 's';
+
+        if (isBoth) {
+            _renderSingleBlock($('sceneDescMimo'), $('h3PromptMimo'), result.mimo || {});
+            _renderSingleBlock($('sceneDescGrok'), $('h3PromptGrok'), result.grok || {});
+        } else {
+            $('sceneDesc').textContent = result.scene_description || '';
+            $('h3Prompt').textContent = result.h3_prompt || '';
+        }
+
+        const rawSource = isBoth
+            ? ((result.mimo || {}).h3_prompt || '')
+            : (result.h3_prompt || '');
+        $('mimoRawPrompt').textContent = rawSource;
+
+        // 显示编译面板
+        lastReverseResult = result;
+        _syncCompileSourceOptions();
+        $('compileCard').classList.remove('hidden');
+        setCompileStatus('反推已完成，可在下方选择源 + 上传产品图后编译', '');
+        _renderProductAngleAdvice(result.product_image_angles);
+    }
+
+    function _renderProductAngleAdvice(advice) {
+        const wrap = $('productAngleAdvice');
+        const summaryEl = $('angleSummary');
+        const listEl = $('angleList');
+        const fallback = $('fallbackUploadArea');
+        if (!advice || !advice.recommended_images || !advice.recommended_images.length) {
+            wrap.classList.add('hidden');
+            fallback.classList.remove('hidden');
+            productAngleFiles = {};
+            return;
+        }
+        wrap.classList.remove('hidden');
+        fallback.classList.add('hidden');
+        summaryEl.textContent = advice.summary || `建议至少上传 ${advice.min_images || 1} 张产品图`;
+        listEl.innerHTML = '';
+        productAngleFiles = {};
+
+        const render = (item, required, isOptional) => {
+            const uid = 'angle_' + Math.random().toString(36).slice(2, 9);
+            const card = document.createElement('div');
+            card.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:10px; background:#1a1a2e; border:1px solid ' + (required ? '#a855f7' : '#2a2a4a') + '; border-radius:8px;';
+            const badge = required ? '✅必拍' : '➕可选';
+            const badgeColor = required ? '#a855f7' : '#666';
+            const shots = (item.shot_refs || []).join(', ');
+            card.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                  '<span style="color:' + badgeColor + '; font-weight:600; font-size:.78em;">' + badge + '</span>' +
+                  '<span style="color:#888; font-size:.68em;">' + (shots || '') + '</span>' +
+                '</div>' +
+                '<div style="color:#c4b5fd; font-weight:600; font-size:.88em;">' + escapeHtml(item.angle || '') + '</div>' +
+                '<div style="color:#999; font-size:.72em; line-height:1.4;">' + escapeHtml(item.purpose || '') + '</div>' +
+                '<div class="upload-card" id="' + uid + '_card" style="min-height:90px; padding:10px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center;">' +
+                  '<div style="font-size:1.6em;">📷</div>' +
+                  '<div style="font-size:.7em; color:#888; text-align:center;">点击上传</div>' +
+                  '<input type="file" accept="image/*" id="' + uid + '_input" style="display:none;">' +
+                  '<img id="' + uid + '_preview" style="max-width:100%; max-height:80px; margin-top:6px; border-radius:4px; display:none;">' +
+                '</div>';
+            listEl.appendChild(card);
+
+            const input = card.querySelector('#' + uid + '_input');
+            const preview = card.querySelector('#' + uid + '_preview');
+            const uploadCard = card.querySelector('#' + uid + '_card');
+            uploadCard.addEventListener('click', () => input.click());
+            input.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const fd = new FormData();
+                fd.append('file', file);
+                uploadCard.querySelector('div:nth-child(2)').textContent = '上传中…';
+                try {
+                    const r = await fetch('/api/upload/image', { method: 'POST', body: fd });
+                    const d = await r.json();
+                    if (!d.success) throw new Error(d.detail || '上传失败');
+                    productAngleFiles[item.angle] = { path: d.file_path, angle: item.angle, required, isOptional, file };
+                    if (preview) {
+                        preview.src = URL.createObjectURL(file);
+                        preview.style.display = 'block';
+                    }
+                    uploadCard.querySelector('div:nth-child(2)').textContent = '✓ ' + file.name;
+                    uploadCard.style.borderColor = '#22c55e';
+                } catch (err) {
+                    uploadCard.querySelector('div:nth-child(2)').textContent = '❌ ' + err.message;
+                }
+            });
+            return card;
+        };
+
+        (advice.recommended_images || []).forEach(it => listEl.appendChild(render(it, true, false)));
+        if (advice.optional_images && advice.optional_images.length) {
+            const sep = document.createElement('div');
+            sep.style.cssText = 'font-size:.72em; color:#666; margin:6px 0 2px; padding-left:4px; grid-column:1/-1;';
+            sep.textContent = '加分项（可选）';
+            listEl.appendChild(sep);
+            advice.optional_images.forEach(it => listEl.appendChild(render(it, false, true)));
+        }
+    }
+
+    // 收集所有角度上传的图片路径
+    function collectAngleImagePaths() {
+        const paths = [];
+        const requiredMissing = [];
+        for (const [angle, info] of Object.entries(productAngleFiles || {})) {
+            if (info.path) paths.push(info.path);
+            else if (info.required) requiredMissing.push(angle);
+        }
+        // 校验：必拍角度是否有未上传的（通过 angleList 检查）
+        const advice = (lastReverseResult && lastReverseResult.product_image_angles) || null;
+        if (advice && advice.recommended_images) {
+            const uploaded = Object.keys(productAngleFiles || {});
+            advice.recommended_images.forEach(it => {
+                if (it.required && !uploaded.includes(it.angle)) requiredMissing.push(it.angle);
+            });
+        }
+        return { paths, requiredMissing };
+    }
+
+    function _getSourceText() {
+        if (!lastReverseResult) return '';
+        const src = $('compileSource').value;
+        const isBoth = lastReverseResult.engine === 'both';
+        if (src === 'mimo') return (isBoth ? lastReverseResult.mimo : lastReverseResult).scene_description || '';
+        if (src === 'grok') return (isBoth ? lastReverseResult.grok : lastReverseResult).scene_description || '';
+        if (src === 'mimo_h3') return (isBoth ? lastReverseResult.mimo : lastReverseResult).h3_prompt || '';
+        if (src === 'grok_h3') return (isBoth ? lastReverseResult.grok : lastReverseResult).h3_prompt || '';
+        return '';
+    }
+
+    function _syncCompileSourceOptions() {
+        const sel = $('compileSource');
+        const isBoth = lastReverseResult && lastReverseResult.engine === 'both';
+        sel.innerHTML = '';
+        const opts = isBoth
+            ? [['mimo_h3', 'MiMo H3 Prompt'], ['grok_h3', 'Grok H3 Prompt'],
+               ['mimo', 'MiMo 场景描述'], ['grok', 'Grok 场景描述']]
+            : [['mimo_h3', `${lastReverseResult.engine || 'MiMo'} H3 Prompt`],
+               ['mimo', `${lastReverseResult.engine || 'MiMo'} 场景描述`]];
+        opts.forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v; o.textContent = t;
+            sel.appendChild(o);
+        });
+    }
+
+    // 反推完成后自动填入 H3 prompt 到编辑区
+    function syncH3Prompt() {
+        if (!lastReverseResult) return;
+        const text = _getSourceText();
+        if (text) $('compiledPrompt').textContent = text;
+    }
+
+    // 转为通用版：去除具体产品/品牌描述，保留镜头/动作/场景结构
+    async function convertToGeneric() {
+        const promptText = $('compiledPrompt').textContent.trim();
+        if (!promptText) { alert('请先反推或填入 H3 Prompt'); return; }
+        const btn = $('genericBtn');
+        btn.disabled = true;
+        btn.classList.add('running');
+        btn.textContent = '通用化中…';
+        setCompileStatus('正在转为通用版（LLM 推理，10-30s）…', 'running');
+        try {
+            const r = await fetch('/api/prompt-reverse/to-generic', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: promptText }),
+            });
+            const d = await r.json();
+            if (!r.ok || !d.success) {
+                setCompileStatus('✗ 通用化失败：' + (d.detail || '未知错误'), 'failed');
+                return;
+            }
+            $('compiledPrompt').textContent = d.generic_prompt || d.prompt || '';
+            setCompileStatus('✓ 已转为通用版（已去除具体产品/品牌描述，保留镜头/动作/场景结构）', 'success');
+        } catch (e) {
+            setCompileStatus('✗ 通用化失败：' + e.message, 'failed');
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '🔄 转为通用版';
+        }
+    }
+
+    let h3PollTimer = null;
+    let h3TaskId = null;
+
+    async function submitH3Generate() {
+        const promptText = $('compiledPrompt').textContent.trim();
+        if (!promptText) { alert('请先反推或填入 H3 Prompt'); return; }
+
+        // 收集产品图：优先用角度上传的，兜底用旧版多选
+        let reference_images = [];
+        const angleAdvice = (lastReverseResult && lastReverseResult.product_image_angles) || null;
+        const hasAngleUpload = angleAdvice && angleAdvice.recommended_images && angleAdvice.recommended_images.length && !$('productAngleAdvice').classList.contains('hidden');
+
+        if (hasAngleUpload) {
+            const { paths, requiredMissing } = collectAngleImagePaths();
+            if (requiredMissing.length) {
+                alert('必拍角度未上传：' + requiredMissing.join('、') + '\n请补齐后再提交');
+                return;
+            }
+            reference_images = paths;
+        } else {
+            // 兜底：旧版多选上传框
+            const files = $('productImages').files;
+            if (files && files.length) {
+                setCompileStatus('上传参考图中…', 'running');
+                for (const f of files) {
+                    const fd = new FormData();
+                    fd.append('file', f);
+                    try {
+                        const r = await fetch('/api/upload/image', { method: 'POST', body: fd });
+                        const d = await r.json();
+                        if (d.file_path) reference_images.push(d.file_path);
+                    } catch (e) { console.warn('图片上传异常', e); }
+                }
+            }
+        }
+
+        const btn = $('compileBtn');
+        btn.disabled = true;
+        btn.classList.add('running');
+        btn.textContent = '提交中…';
+        setCompileStatus('提交 H3 生成任务…', 'running');
+        $('h3ProgressWrap').classList.remove('hidden');
+        $('h3ResultWrap').classList.add('hidden');
+        $('h3Logs').innerHTML = '';
+
+        try {
+            const r = await fetch('/api/h3-studio/generate', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    channel: $('h3Channel').value,
+                    mode: 'reference',
+                    reference_images: reference_images.length ? reference_images : undefined,
+                    prompt: promptText,
+                    duration: parseInt($('h3Duration').value, 10),
+                    aspect_ratio: $('h3Ratio').value,
+                    megapixels: parseFloat($('h3Megapixels').value),
+                }),
+            });
+            const d = await r.json();
+            if (!r.ok) {
+                setCompileStatus('✗ 提交失败：' + (d.detail || '未知错误'), 'failed');
+                $('h3Status').textContent = '✗ 提交失败';
+                return;
+            }
+            // 兼容字段：task_id 或 h3_task_id
+            h3TaskId = d.task_id || d.h3_task_id;
+            btn.textContent = '生成中…';
+            setCompileStatus(`H3 生成中（task_id=${h3TaskId}，5-30 分钟）…`, 'running');
+            startH3Polling();
+        } catch (e) {
+            setCompileStatus('✗ 提交异常：' + e.message, 'failed');
+            $('h3Status').textContent = '✗ 异常';
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '🎬 调 H3 生成视频';
+        }
+    }
+
+    function startH3Polling() {
+        if (h3PollTimer) clearInterval(h3PollTimer);
+        h3PollTimer = setInterval(h3PollOnce, 5000);
+    }
+
+    async function h3PollOnce() {
+        if (!h3TaskId) return;
+        try {
+            const r = await fetch('/api/h3-studio/status?task_id=' + h3TaskId);
+            const d = await r.json();
+            // 更新进度
+            const pct = d.progress || 0;
+            $('h3ProgressFill').style.width = pct + '%';
+            const stage = d.stage || '';
+            $('h3Status').textContent = `[${d.status || '-'}] ${stage} ${pct}%`;
+
+            // 追加日志
+            if (d.logs && d.logs.length) {
+                const logBox = $('h3Logs');
+                const lastLine = logBox.dataset.lastLine || '';
+                const newLogs = d.logs.filter(l => l !== lastLine);
+                if (newLogs.length) {
+                    newLogs.forEach(l => {
+                        const div = document.createElement('div');
+                        div.textContent = l;
+                        logBox.appendChild(div);
+                    });
+                    logBox.dataset.lastLine = d.logs[d.logs.length - 1];
+                    logBox.scrollTop = logBox.scrollHeight;
+                }
+            }
+
+            if (d.status === 'completed' && d.result) {
+                clearInterval(h3PollTimer);
+                h3PollTimer = null;
+                setCompileStatus('✓ H3 生成完成', 'success');
+                $('h3Status').textContent = '✓ 完成';
+                $('h3ProgressFill').style.width = '100%';
+                const videoPath = d.result.video_path || d.result.output_path || '';
+                if (videoPath) {
+                    const webPath = videoPath.replace(/\\/g, '/').replace(/^.*\/outputs\//, '/outputs/') + '?v=' + Date.now();
+                    $('h3ResultVideo').src = webPath;
+                    $('h3DownloadLink').href = webPath;
+                    $('h3DownloadLink').setAttribute('download', '');
+                    $('h3ResultWrap').classList.remove('hidden');
+                }
+            } else if (d.status === 'failed') {
+                clearInterval(h3PollTimer);
+                h3PollTimer = null;
+                setCompileStatus('✗ H3 生成失败：' + (d.error || '未知错误'), 'failed');
+                $('h3Status').textContent = '✗ 失败：' + (d.error || '');
+            }
+        } catch (e) {
+            console.error('H3 轮询异常', e);
+        }
+    }
+
+    async function copyPrompt() {
+        const text = $('h3Prompt').textContent;
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            const btn = $('copyPromptBtn');
+            const orig = btn.textContent;
+            btn.textContent = '✓ 已复制';
+            setTimeout(() => { btn.textContent = orig; }, 1500);
+        } catch (e) { alert('复制失败，请手动选择文本'); }
+    }
+
+    async function copyCompiled() {
+        const text = $('compiledPrompt').textContent;
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            const btn = $('copyCompiledBtn');
+            const orig = btn.textContent;
+            btn.textContent = '✓ 已复制';
+            setTimeout(() => { btn.textContent = orig; }, 1500);
+        } catch (e) { alert('复制失败，请手动选择文本'); }
+    }
+
+    }
+
+    let batchPollTimer = null;
+    let currentBatchId = null;
+    let currentCaseItem = null;
+    let currentCaseMode = 'generic';
+    let currentCaseImages = [];
+    let fusionPromptReady = false;
+    // ── 后台运行支持 ──
+    // caseBackgroundTask: { index, h3Id, mode, images, timer, finishedAt }
+    let caseBackgroundTask = null;
+    let casePreviewUrls = [];
+    let batchItems = {};
+    let pendingBatchSubmit = false;
+    let linkPrepareLock = false;
+
+    const MIN_TRIM_SEC = 1;
+    let batchVideoItems = [];
+    let trimIndex = 0;
+    let videoDuration = 0;
+    let trimStart = 0;
+    let trimEnd = 0;
+    let trimEnabled = false;
+    let draggingHandle = null;
+    let trimBound = false;
+    let trimBackup = null;
+    let filmstripGenerating = false;
+
+    function loadVideoDuration(url) {
+        return new Promise(resolve => {
+            const v = document.createElement('video');
+            v.preload = 'metadata';
+            v.onloadedmetadata = () => resolve(v.duration || 0);
+            v.onerror = () => resolve(0);
+            v.src = url;
+        });
+    }
+
+    async function prepareBatchVideos(files) {
+        for (const it of batchVideoItems) {
+            if (it.url) URL.revokeObjectURL(it.url);
+        }
+        batchVideoItems = [];
+        const hint = $('durationHint');
+        if (!files.length) {
+            updateTrimTrigger();
+            const preview = $('batchVideoPreview');
+            preview.removeAttribute('src');
+            preview.style.display = 'none';
+            $('batchVideoNames').textContent = '';
+            $('batchVideoCard').classList.remove('has-file');
+            if (hint) hint.style.display = 'none';
+            return;
+        }
+        if (hint) {
+            hint.style.display = 'block';
+            hint.className = 'duration-hint';
+            hint.textContent = '⏳ 读取视频时长...';
+        }
+        for (const file of files) {
+            const url = URL.createObjectURL(file);
+            const duration = await loadVideoDuration(url);
+            const end = duration > 0 ? Math.min(15, duration) : 0;
+            batchVideoItems.push({
+                file, url, duration,
+                trimStart: 0,
+                trimEnd: end || duration,
+                trimEnabled: duration > 0,
+            });
+        }
+        $('batchVideoNames').textContent = `已选择 ${files.length} 个视频：` + files.map(f => f.name).join('、');
+        $('batchVideoCard').classList.add('has-file');
+        const preview = $('batchVideoPreview');
+        preview.src = batchVideoItems[0].url;
+        preview.style.display = 'block';
+        const first = batchVideoItems[0];
+        if (hint) {
+            if (first.duration > 0) {
+                hint.textContent = first.duration <= 15
+                    ? `✓ 视频时长 ${first.duration.toFixed(1)}s（剪辑弹窗将框住全部）`
+                    : `✓ 视频时长 ${first.duration.toFixed(1)}s（剪辑弹窗已自动框住前 15s，可调整）`;
+                hint.className = 'duration-hint ok';
+            } else {
+                hint.textContent = '⚠ 无法读取视频时长，将使用完整视频';
+                hint.className = 'duration-hint';
+            }
+        }
+        updateTrimTrigger();
+        if (first.duration > 0) openTrimModal(0);
+    }
+
+    function openTrimModal(index) {
+        if (typeof index === 'number') trimIndex = index;
+        const item = batchVideoItems[trimIndex];
+        const overlay = $('trimOverlay');
+        if (!item || !item.duration) {
+            return;
+        }
+        videoDuration = item.duration;
+        trimStart = item.trimStart || 0;
+        trimEnd = item.trimEnd > 0 ? item.trimEnd : Math.min(15, videoDuration);
+        trimEnabled = true;
+        trimBackup = { s: trimStart, e: trimEnd };
+        const title = $('trimModalTitle');
+        const prefix = batchVideoItems.length > 1 ? `（${trimIndex + 1}/${batchVideoItems.length}）` : '';
+        title.textContent = `✂️ 截取反推片段${prefix} — ${item.file.name}`;
+        overlay.classList.add('show');
+        const mv = $('trimModalVideo');
+        mv.src = item.url;
+        bindTrimEvents();
+        renderTicks();
+        renderTrim();
+        mv.muted = true;
+        if (mv.readyState >= 1) {
+            generateFilmstrip();
+            try { mv.currentTime = trimStart; } catch (_) {}
+        }
+        mv.onloadeddata = function() {
+            generateFilmstrip();
+            try { mv.currentTime = trimStart; } catch (_) {}
+        };
+    }
+
+    function bindTrimEvents() {
+        if (trimBound) return;
+        const track = $('trimTrack');
+        $('trimHandleL').addEventListener('pointerdown', e => onPointerDown(e, 'L'));
+        $('trimHandleR').addEventListener('pointerdown', e => onPointerDown(e, 'R'));
+        track.addEventListener('pointerdown', function(e) {
+            if (e.target.classList.contains('trim-handle')) return;
+            const rect = track.getBoundingClientRect();
+            const t = ((e.clientX - rect.left) / rect.width) * videoDuration;
+            const minSpan = Math.min(MIN_TRIM_SEC, videoDuration);
+            if (Math.abs(t - trimStart) < Math.abs(t - trimEnd)) {
+                trimStart = clampT(t, 0, trimEnd - minSpan + 0.001);
+                seekTrimVideo(trimStart);
+            } else {
+                trimEnd = clampT(t, trimStart + minSpan - 0.001, videoDuration);
+                seekTrimVideo(trimEnd);
+            }
+            enforceTrimLimits();
+            renderTrim();
+        });
+        trimBound = true;
+    }
+
+    function closeTrimModal(confirm) {
+        const overlay = $('trimOverlay');
+        overlay.classList.remove('show');
+        const mv = $('trimModalVideo');
+        try { mv.pause(); } catch (_) {}
+        const item = batchVideoItems[trimIndex];
+        if (!confirm && trimBackup) {
+            trimStart = trimBackup.s;
+            trimEnd = trimBackup.e;
+        }
+        if (item) {
+            item.trimStart = trimStart;
+            item.trimEnd = trimEnd;
+            item.trimEnabled = true;
+            if (confirm) item.trimConfirmed = true;
+        }
+        updateTrimTrigger();
+        if (confirm && trimIndex < batchVideoItems.length - 1) {
+            openTrimModal(trimIndex + 1);
+            return;
+        }
+        if (confirm && pendingBatchSubmit) {
+            pendingBatchSubmit = false;
+            submitPreparedBatch();
+            return;
+        }
+        if (!confirm && pendingBatchSubmit) {
+            pendingBatchSubmit = false;
+            const btn = $('batchStartBtn');
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('running');
+                btn.textContent = '开始批量推理';
+            }
+            $('batchLog').textContent = '已取消截取，确认区间后再点「开始批量推理」。';
+        }
+    }
+
+    function updateTrimTrigger() {
+        const trig = $('trimTrigger');
+        if (!trig) return;
+        const ready = batchVideoItems.filter(it => it.trimEnabled && it.duration > 0);
+        if (!ready.length) {
+            trig.classList.remove('show');
+            return;
+        }
+        trig.classList.add('show');
+        $('trimTriggerRange').textContent = ready.map(it =>
+            `${it.trimStart.toFixed(1)}s - ${it.trimEnd.toFixed(1)}s`
+        ).join(' · ');
+    }
+
+    function seekTrimVideo(t) {
+        const mv = $('trimModalVideo');
+        if (!mv || !mv.duration) return;
+        try { mv.currentTime = Math.max(0, Math.min(t, mv.duration - 0.05)); } catch (_) {}
+    }
+
+    function generateFilmstrip() {
+        if (filmstripGenerating) return;
+        const mv = $('trimModalVideo');
+        if (!mv || !mv.videoWidth || !videoDuration) return;
+        filmstripGenerating = true;
+        const n = 12, fw = 96, fh = 54;
+        const canvas = document.createElement('canvas');
+        canvas.width = fw * n; canvas.height = fh;
+        const ctx = canvas.getContext('2d');
+        const fs = $('trimFilmstrip');
+        const prevTime = mv.currentTime;
+        let i = 0;
+        const step = function() {
+            if (i >= n) {
+                fs.style.backgroundImage = 'url(' + canvas.toDataURL('image/jpeg', 0.6) + ')';
+                try { mv.currentTime = prevTime; } catch (_) {}
+                filmstripGenerating = false;
+                return;
+            }
+            const t = (videoDuration * (i + 0.5)) / n;
+            const onSeeked = function() {
+                mv.removeEventListener('seeked', onSeeked);
+                try { ctx.drawImage(mv, i * fw, 0, fw, fh); } catch (_) {}
+                i++;
+                step();
+            };
+            mv.addEventListener('seeked', onSeeked);
+            try { mv.currentTime = Math.min(t, videoDuration - 0.05); } catch (_) { i++; step(); }
+        };
+        step();
+    }
+
+    function renderTicks() {
+        const ticks = $('trimTicks');
+        ticks.innerHTML = '';
+        for (let i = 0; i < 11; i++) ticks.appendChild(document.createElement('span'));
+    }
+
+    function renderTrim() {
+        if (!videoDuration) return;
+        const startPct = (trimStart / videoDuration) * 100;
+        const endPct = (trimEnd / videoDuration) * 100;
+        $('trimBar').style.left = startPct + '%';
+        $('trimBar').style.width = (endPct - startPct) + '%';
+        $('trimHandleL').style.left = startPct + '%';
+        $('trimHandleR').style.left = endPct + '%';
+        const span = trimEnd - trimStart;
+        $('trimStartLabel').textContent = trimStart.toFixed(1) + 's';
+        $('trimEndLabel').textContent = trimEnd.toFixed(1) + 's';
+        $('trimSpanLabel').textContent = span.toFixed(1) + 's';
+        $('trimDuration').textContent = span.toFixed(1) + 's';
+    }
+
+    function onPointerDown(e, which) {
+        e.preventDefault();
+        e.stopPropagation();
+        draggingHandle = which;
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+    }
+
+    function onPointerMove(e) {
+        if (!draggingHandle) return;
+        const rect = $('trimTrack').getBoundingClientRect();
+        const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const t = (x / rect.width) * videoDuration;
+        const minSpan = Math.min(MIN_TRIM_SEC, videoDuration);
+        if (draggingHandle === 'L') {
+            trimStart = clampT(t, 0, trimEnd - minSpan + 0.001);
+            seekTrimVideo(trimStart);
+        } else {
+            trimEnd = clampT(t, trimStart + minSpan - 0.001, videoDuration);
+            seekTrimVideo(trimEnd);
+        }
+        enforceTrimLimits();
+        renderTrim();
+    }
+
+    function onPointerUp() {
+        draggingHandle = null;
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+    }
+
+    function clampT(t, lo, hi) { return Math.max(lo, Math.min(hi, t)); }
+
+    function enforceTrimLimits() {
+        if (trimStart < 0) trimStart = 0;
+        if (trimEnd > videoDuration) trimEnd = videoDuration;
+        const minSpan = Math.min(MIN_TRIM_SEC, videoDuration);
+        const span = trimEnd - trimStart;
+        if (span < minSpan) {
+            if (trimEnd + (minSpan - span) <= videoDuration) trimEnd = trimStart + minSpan;
+            else {
+                trimStart = Math.max(0, trimEnd - minSpan);
+                trimEnd = Math.min(videoDuration, trimStart + minSpan);
+            }
+        }
+    }
+
+    function setTrimPreset(spanSec) {
+        if (!videoDuration) return;
+        trimStart = 0;
+        trimEnd = Math.min(spanSec, videoDuration);
+        enforceTrimLimits();
+        renderTrim();
+        seekTrimVideo(trimStart);
+    }
+
+    function resetTrim() {
+        if (!videoDuration) return;
+        trimStart = 0;
+        trimEnd = videoDuration;
+        enforceTrimLimits();
+        renderTrim();
+        seekTrimVideo(trimStart);
+    }
+
+    function previewTrim() {
+        const v = $('trimModalVideo');
+        if (!v) return;
+        v.currentTime = trimStart;
+        v.play();
+        const onTime = function() {
+            if (v.currentTime >= trimEnd) {
+                v.pause();
+                v.removeEventListener('timeupdate', onTime);
+            }
+        };
+        v.addEventListener('timeupdate', onTime);
+    }
+
+    function extractShareLinks(text) {
+        const urls = [];
+        const re = /https?:\/\/[^\s，。`'"<>\u4e00-\u9fff]+/gi;
+        let m;
+        while ((m = re.exec(text || ''))) {
+            const u = m[0].replace(/[),.;!?]+$/g, '');
+            if (/douyin\.com|iesdouyin\.com|xhslink|xiaohongshu\.com/i.test(u)) urls.push(u);
+        }
+        if (urls.length) return [...new Set(urls)];
+        return (text || '').split('\n').map(s => s.trim()).filter(s => /douyin|xhs|xiaohongshu|iesdouyin/i.test(s));
+    }
+
+    function defaultTrimEnd(duration) {
+        if (!(duration > 0)) return 0;
+        return Math.min(15, duration);
+    }
+
+    function buildTrimRanges() {
+        return batchVideoItems.map(it => {
+            if (!it.trimEnabled || it.trimEnd <= it.trimStart) return null;
+            const almostFull = it.duration > 0 && it.trimStart <= 0.05 && it.trimEnd >= it.duration - 0.05;
+            if (almostFull) return null;
+            return { start: +it.trimStart.toFixed(2), end: +it.trimEnd.toFixed(2) };
+        });
+    }
+
+    function sourceVideoSrc(item) {
+        const u = item.source_video_url || '';
+        if (!u) return '';
+        const stamp = (item.trim_start != null && item.trim_end != null)
+            ? `t=${item.trim_start}-${item.trim_end}`
+            : '';
+        return stamp ? `${u}${u.includes('?') ? '&' : '?'}${stamp}` : u;
+    }
+
+    async function prepareShareLinks(shareLinks) {
+        const fileItems = batchVideoItems.filter(it => it.file && !it.sourceLink);
+        const existingByLink = {};
+        for (const it of batchVideoItems) {
+            if (it.sourceLink && it.filePath) existingByLink[it.sourceLink] = it;
+        }
+        const linkItems = [];
+        for (let i = 0; i < shareLinks.length; i++) {
+            const link = shareLinks[i];
+            if (existingByLink[link] && existingByLink[link].duration > 0) {
+                linkItems.push(existingByLink[link]);
+                continue;
+            }
+            $('batchLog').textContent = `正在下载第 ${i + 1}/${shareLinks.length} 个链接…`;
+            const r = await fetch('/api/prompt-reverse/prepare-link', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: link }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || !d.success) {
+                const detail = typeof d.detail === 'string' ? d.detail : (d.detail && JSON.stringify(d.detail)) || r.statusText;
+                throw new Error(`第 ${i + 1} 个链接下载失败：${detail}`);
+            }
+            const duration = Number(d.duration) || 0;
+            linkItems.push({
+                file: { name: (d.title || 'douyin') + '.mp4' },
+                url: d.preview_url,
+                filePath: d.file_path,
+                duration,
+                trimStart: 0,
+                trimEnd: defaultTrimEnd(duration) || duration,
+                trimEnabled: duration > 0,
+                sourceLink: link,
+            });
+        }
+        batchVideoItems = fileItems.concat(linkItems);
+        if (batchVideoItems[0] && batchVideoItems[0].url) {
+            const preview = $('batchVideoPreview');
+            preview.src = batchVideoItems[0].url;
+            preview.style.display = 'block';
+        }
+        const hint = $('durationHint');
+        const firstLink = linkItems[0];
+        if (hint && firstLink) {
+            hint.style.display = 'block';
+            if (firstLink.duration > 0) {
+                hint.textContent = firstLink.duration <= 15
+                    ? `✓ 链接视频 ${firstLink.duration.toFixed(1)}s（剪辑弹窗将框住全部）`
+                    : `✓ 链接视频 ${firstLink.duration.toFixed(1)}s（剪辑弹窗已自动框住前 15s，可调整）`;
+                hint.className = 'duration-hint ok';
+            } else {
+                hint.textContent = '⚠ 已下载但无法读取时长';
+                hint.className = 'duration-hint';
+            }
+        }
+        updateTrimTrigger();
+        return linkItems.findIndex(it => it.duration > 0);
+    }
+
+    async function startBatchReverse() {
+        const shareLinks = extractShareLinks($('batchLinks').value);
+        const videoFiles = Array.from($('batchVideoFiles').files || []);
+        if (!shareLinks.length && !videoFiles.length && !batchVideoItems.length) {
+            alert('请先输入抖音/小红书链接或上传视频');
+            return;
+        }
+        const btn = $('batchStartBtn');
+        btn.disabled = true; btn.classList.add('running');
+        try {
+            if (shareLinks.length) {
+                btn.textContent = '下载视频中…';
+                $('batchLog').textContent = `正在下载 ${shareLinks.length} 个分享视频…`;
+                await prepareShareLinks(shareLinks);
+                const trimFrom = batchVideoItems.findIndex(it => it.sourceLink && it.duration > 0 && !it.trimConfirmed);
+                if (trimFrom >= 0) {
+                    pendingBatchSubmit = true;
+                    $('batchLog').textContent = '请在弹窗中截取需要反推的片段，确认后开始推理。';
+                    btn.textContent = '等待截取…';
+                    openTrimModal(trimFrom);
+                    return;
+                }
+            }
+            await submitPreparedBatch();
+        } catch (e) {
+            $('batchLog').textContent = '启动失败：' + e.message;
+            btn.disabled = false; btn.classList.remove('running'); btn.textContent = '开始批量推理';
+        }
+    }
+
+    async function submitPreparedBatch() {
+        const btn = $('batchStartBtn');
+        btn.disabled = true; btn.classList.add('running'); btn.textContent = '上传中…';
+        const shareLinks = extractShareLinks($('batchLinks').value);
+        if (!batchVideoItems.length && !shareLinks.length) {
+            btn.disabled = false; btn.classList.remove('running'); btn.textContent = '开始批量推理';
+            return;
+        }
+        try {
+            const videoPaths = [];
+            const links = [];
+            for (let i = 0; i < batchVideoItems.length; i++) {
+                const it = batchVideoItems[i];
+                links.push(it.sourceLink || '');
+                if (it.filePath) {
+                    videoPaths.push(it.filePath);
+                    continue;
+                }
+                if (!it.file) continue;
+                const fd = new FormData();
+                fd.append('file', it.file);
+                const ur = await fetch('/api/upload/video', { method: 'POST', body: fd });
+                const ud = await ur.json();
+                if (!ur.ok || !ud.success || !ud.file_path) throw new Error(`第 ${i + 1} 个视频上传失败：${ud.detail || '未知错误'}`);
+                it.filePath = ud.file_path;
+                videoPaths.push(ud.file_path);
+                $('batchLog').textContent = `视频上传中：${i + 1}/${batchVideoItems.length}`;
+            }
+            btn.textContent = '批量处理中…';
+            $('batchLog').textContent = '正在创建批量任务…';
+            const r = await fetch('/api/batch-prompt-reverse/start', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    links: links.filter(Boolean).join('\n'),
+                    video_paths: videoPaths,
+                    trim_ranges: buildTrimRanges(),
+                }),
+            });
+            const d = await r.json();
+            if (!r.ok || !d.success) throw new Error(d.detail || '启动失败');
+            $('batchSummary').textContent = `共 ${d.total} 条，串行处理中`;
+            currentBatchId = d.task_id;
+            batchItems = {};
+            $('batchResults').innerHTML = '';
+            if (batchPollTimer) clearInterval(batchPollTimer);
+            batchPollTimer = setInterval(() => pollBatch(d.task_id), 2000);
+            await pollBatch(d.task_id);
+        } catch (e) {
+            $('batchLog').textContent = '启动失败：' + e.message;
+            btn.disabled = false; btn.classList.remove('running'); btn.textContent = '开始批量推理';
+        }
+    }
+
+    async function pollBatch(taskId) {
+        try {
+            const r = await fetch('/api/batch-prompt-reverse/status/' + taskId);
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || '状态查询失败');
+            (d.items || []).forEach(renderBatchItem);
+            const done = (d.items || []).filter(x => x.status === 'done').length;
+            const failed = (d.items || []).filter(x => x.status === 'failed').length;
+            $('batchSummary').textContent = `总计 ${d.total} 条 · 已完成 ${done} · 失败 ${failed} · 处理中 ${d.total-done-failed}`;
+            const active = (d.items || []).find(x => ['downloading','reversing','generalizing','saving'].includes(x.status));
+            $('batchLog').textContent = active ? `第 ${active.index + 1} 条：${active.stage}（${active.progress}%）` : (d.status === 'done' ? '全部处理完成' : '等待处理…');
+            if (d.status !== 'running') {
+                clearInterval(batchPollTimer); batchPollTimer = null;
+                const btn = $('batchStartBtn'); btn.disabled = false; btn.classList.remove('running'); btn.textContent = '开始批量推理';
+                if (d.status === 'failed' && d.error) {
+                    $('batchLog').textContent = d.error + '，请重新提交任务';
+                }
+            }
+        } catch (e) { $('batchLog').textContent = '状态查询失败：' + e.message; }
+    }
+
+    function renderBatchItem(item) {
+        batchItems[item.index] = item;
+        let card = $('batch-card-' + item.index);
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'batch-card-' + item.index;
+            $('batchResults').appendChild(card);
+        }
+        card.className = 'batch-item ' + item.status;
+        const title = item.product_category || ('第 ' + (item.index + 1) + ' 条');
+        const prompt = item.general_prompt || '';
+        const rawPrompt = item.reverse_result?.mimo?.h3_prompt || item.reverse_result?.h3_prompt || item.h3_prompt || item.mimo_prompt || '';
+        const voiceText = item.voiceover_text || '';
+        const voiceTimeline = (item.voiceover_segments || []).map(s => `[${Number(s.start || 0).toFixed(1)}-${Number(s.end || 0).toFixed(1)}s] ${s.text || ''}`).join('\\n');
+        const frames = item.frames || item.reverse_result?.frames || [];
+        const retryBtn = (item.status === 'failed' && currentBatchId)
+            ? `<button class="batch-action retry-btn" onclick="retryBatchItem('${currentBatchId}', ${item.index})" style="background:#f59e0b;color:#fff;border-color:#f59e0b;margin-left:8px;">↻ 重试（从失败步骤续跑）</button>`
+            : '';
+        card.innerHTML = `<div class="batch-item-head"><div class="batch-item-title">${item.index+1}. ${escapeHtml(title)}</div><div class="batch-item-stage">${escapeHtml(item.stage || '')}</div>${retryBtn}</div>
+            <div class="batch-prompt-columns">
+                <div class="batch-prompt-column">
+                    <div class="batch-prompt-column-label">MiMo 原始版本（第一步）</div>
+                    <div class="batch-prompt-preview">${escapeHtml(rawPrompt || 'MiMo 原始提示词生成中…')}</div>
+                    <div class="batch-prompt-actions">
+                        <button class="batch-action" onclick="toggleBatchDetails(${item.index})">查看全部输入与中间产物</button>
+                        ${item.raw_prompt_url ? `<button class="batch-action" onclick="openPromptPreview('${encodeURIComponent(item.raw_prompt_url)}')">打开预览</button><a class="batch-action" href="${item.raw_prompt_url}" download>下载 TXT</a>` : ''}
+                        ${item.status === 'done' ? `<button class="batch-action" onclick="openVideoModal(${item.index}, 'fusion')">生成案例视频</button>` : ''}
+                    </div>
+                </div>
+                <div class="batch-prompt-column">
+                    <div class="batch-prompt-column-label">通用提示词版本</div>
+                    <div class="batch-prompt-preview">${escapeHtml(prompt || '通用提示词生成中…')}</div>
+                    <div class="batch-prompt-actions">
+                        <button class="batch-action" onclick="toggleBatchDetails(${item.index})">查看全部输入与中间产物</button>
+                        ${item.prompt_url ? `<button class="batch-action" onclick="openPromptPreview('${encodeURIComponent(item.prompt_url)}')">打开预览</button><a class="batch-action" href="${item.prompt_url}" download>下载 TXT</a>` : ''}
+                        ${item.status === 'done' ? `<button class="batch-action" onclick="openVideoModal(${item.index}, 'generic')">生成案例视频</button><button class="batch-action" onclick="publishToWebsite(${item.index})" style="background:#3b82f6;color:#fff;border-color:#3b82f6;">发布到网站</button>` : ''}
+                    </div>
+                </div>
+            </div>
+            <div id="batch-details-${item.index}">
+            <details class="history-details"><summary>查看全部输入与中间产物</summary>
+                <div class="history-detail-label">输入视频</div>${item.source_video_url ? `<video class="batch-video" controls src="${sourceVideoSrc(item)}"></video>` : `<div class="batch-hint">${escapeHtml(item.source_video_path || '未保存')}</div>`}
+                ${voiceText ? `<div class="history-detail-label">FunASR 口播原文</div><div class="prompt-output">${escapeHtml(voiceText)}</div>` : ''}
+                ${voiceTimeline ? `<div class="history-detail-label">口播时间匹配</div><div class="prompt-output">${escapeHtml(voiceTimeline)}</div>` : ''}
+                ${rawPrompt ? `<div class="history-detail-label">MiMo 原始版本</div><div class="prompt-output">${escapeHtml(rawPrompt)}</div>` : ''}
+                ${frames.length ? `<div class="history-detail-label">抽帧</div><div class="frames-grid">${frames.map(p => `<img src="${_toWebPath(p)}">`).join('')}</div>` : ''}
+                <div class="history-detail-label">通用版本</div><div class="prompt-output">${escapeHtml(prompt)}</div>
+            </details>
+            </div>
+            <div class="batch-video-triple">
+                <div class="batch-video-col"><div class="batch-video-label">原视频${item.trim_start != null && item.trim_end != null ? `（截取 ${Number(item.trim_start).toFixed(1)}s-${Number(item.trim_end).toFixed(1)}s）` : ''}</div>${item.source_video_url ? `<video class="batch-video" controls src="${sourceVideoSrc(item)}"></video>` : '<div class="batch-log">原视频不可预览</div>'}</div>
+                <div class="batch-video-col"><div class="batch-video-label">MiMo + 产品融合视频</div>${item.fusion_video_url ? `<video class="batch-video" controls src="${item.fusion_video_url}"></video><a class="batch-action" href="${item.fusion_video_url}" download>下载融合视频</a>` : '<div class="batch-log">等待产品图融合生成</div>'}</div>
+                <div class="batch-video-col"><div class="batch-video-label">通用版本视频</div>${item.video_url ? `<video class="batch-video" controls src="${item.video_url}"></video><a class="batch-action" href="${item.video_url}" download>下载通用视频</a>` : (item.case_generating ? `<div class="batch-log" style="color:#7dd3fc;"><span class="case-spinner" style="display:inline-block; width:14px; height:14px; border-width:2px; vertical-align:-2px; margin-right:6px;"></span>H3 生成中${item.case_generating_pct ? ` ${Math.round(item.case_generating_pct)}%` : '…'}<br><span style="color:#666; font-size:.85em;">任务已转后台，完成后自动显示</span></div>` : '<div class="batch-log">等待生成通用视频</div>')}</div>
+            </div>`;
+    }
+
+    function escapeHtml(text) {
+        return String(text || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    }
+
+    function openPromptPreview(encodedUrl) { window.open(decodeURIComponent(encodedUrl), '_blank'); }
+
+    function toggleBatchDetails(index) {
+        const details = document.querySelector(`#batch-details-${index} details`);
+        if (details) details.open = !details.open;
+    }
+
+    async function retryBatchItem(taskId, index) {
+        const btn = document.querySelector(`#batch-card-${index} .retry-btn`);
+        if (btn) { btn.disabled = true; btn.textContent = '重试中...'; }
+        try {
+            const r = await fetch(`/api/batch-prompt-reverse/retry/${taskId}/${index}`, { method: 'POST' });
+            const d = await r.json();
+            if (!r.ok || !d.success) throw new Error(d.detail || '重试失败');
+            // 恢复轮询
+            currentBatchId = taskId;
+            if (!batchPollTimer) {
+                batchPollTimer = setInterval(() => pollBatch(taskId), 2000);
+            }
+        } catch (e) {
+            alert('重试失败：' + e.message);
+            if (btn) { btn.disabled = false; btn.textContent = '↻ 重试（从失败步骤续跑）'; }
+        }
+    }
+
+    async function loadSavedPrompts() {
+        const r = await fetch('/api/batch-prompt-reverse/list');
+        const d = await r.json();
+        $('batchResults').innerHTML = '';
+        const history = d.history || [];
+        $('historyList').innerHTML = history.length ? history.map(h => `<button class="history-item" onclick="loadHistory('${h.batch_id}')"><strong>${escapeHtml(h.batch_id)}</strong><span>${escapeHtml(h.created_at)} · ${h.total} 条 · ${escapeHtml(h.status)}</span></button>`).join('') : '<div class="batch-hint">暂无历史任务</div>';
+        (d.prompts || []).forEach((p, i) => renderBatchItem({index:i, status:'done', stage:'已保存', product_category:p.product_category, prompt_url:p.prompt_url, general_prompt:'点击「打开预览」查看完整通用提示词'}));
+    }
+
+    async function loadHistory(batchId) {
+        const r = await fetch('/api/batch-prompt-reverse/history/' + encodeURIComponent(batchId));
+        const d = await r.json();
+        if (!r.ok || !d.success) { alert(d.detail || '历史任务读取失败'); return; }
+        const h = d.history;
+        currentBatchId = h.batch_id;
+        $('batchLinks').value = (h.links || []).filter(Boolean).join('\\n');
+        $('batchVideoNames').textContent = (h.video_paths || []).filter(Boolean).length ? `历史任务包含 ${(h.video_paths || []).filter(Boolean).length} 个视频` : '';
+        batchItems = {};
+        $('batchResults').innerHTML = '';
+        (h.items || []).forEach(renderBatchItem);
+        $('batchSummary').textContent = `历史任务 ${h.batch_id} · ${h.items.length} 条 · ${h.status}`;
+        $('batchLog').textContent = `已恢复 ${h.batch_id}：输入、处理结果和输出产物已回显`;
+    }
+
+    function clearCaseImagePreviews() {
+        casePreviewUrls.forEach(url => URL.revokeObjectURL(url));
+        casePreviewUrls = [];
+        $('caseImagePreviews').innerHTML = '';
+    }
+
+    async function openVideoModal(index, mode = 'generic') {
+        currentCaseItem = batchItems[index];
+        currentCaseMode = mode;
+        currentCaseImages = [];
+        fusionPromptReady = false;
+        if (!currentCaseItem) return;
+        if ((!currentCaseItem.general_prompt || currentCaseItem.general_prompt.startsWith('点击「打开预览')) && currentCaseItem.prompt_url) {
+            const r = await fetch(currentCaseItem.prompt_url);
+            if (r.ok) currentCaseItem.general_prompt = await r.text();
+        }
+        clearCaseImagePreviews();
+        $('caseProductImages').value = '';
+        $('caseProductNames').textContent = '尚未选择商品图';
+        $('fusionPromptReview').classList.toggle('hidden', mode !== 'fusion');
+        $('fusionPromptText').value = '';
+        $('caseModalTitle').textContent = mode === 'fusion' ? 'MiMo + 商品图融合' : '上传商品图，生成通用案例视频';
+        $('caseModalHint').textContent = mode === 'fusion'
+            ? '先生成产品专用融合 Prompt，审核确认后才会提交 H3，不会自动立即生成视频。'
+            : '支持多张商品图。确认后直接使用通用 Prompt 提交 H3 生成案例视频。';
+        $('caseGenerateBtn').textContent = mode === 'fusion' ? '先生成融合 Prompt' : '确认生成视频';
+        const promptTimes = (currentCaseItem.general_prompt || '').match(/\b\d+(?:\.\d+)?s\b/g) || [];
+        const sourceDuration = Number(currentCaseItem.duration || 0) || Math.max(...promptTimes.map(v => parseFloat(v)), 0);
+        const sourceOption = $('caseDuration').querySelector('option[value="source"]');
+        if (sourceOption) {
+            sourceOption.textContent = sourceDuration > 0
+                ? `与原视频一致（${sourceDuration.toFixed(1)} 秒，完整生成）`
+                : '与原视频一致（完整生成）';
+        }
+        $('caseDuration').value = 'source';
+        $('caseStatus').classList.add('hidden');
+        $('caseProgress').className = 'case-progress hidden';
+        $('caseProgressFill').style.width = '0%';
+        $('caseProgressPct').textContent = '0%';
+        $('videoModal').classList.add('show');
+    }
+
+    function setCaseProgress(text, pct, state = 'running') {
+        const wrap = $('caseProgress');
+        wrap.className = 'case-progress ' + state;
+        wrap.classList.remove('hidden');
+        $('caseProgressText').textContent = text;
+        $('caseProgressPct').textContent = `${Math.round(pct)}%`;
+        $('caseProgressFill').style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    }
+
+    function closeVideoModal() {
+        // 如果 H3 任务还在跑，转后台：不清 timer，标记卡片为「生成中」
+        if (caseBackgroundTask && caseBackgroundTask.timer && !caseBackgroundTask.finishedAt) {
+            const idx = caseBackgroundTask.index;
+            const it = batchItems[idx];
+            if (it) {
+                it.case_generating = true;
+                it.case_generating_pct = caseBackgroundTask.lastPct || 0;
+                renderBatchItem(it);
+            }
+        }
+        $('videoModal').classList.remove('show');
+        $('caseProgress').classList.add('hidden');
+        clearCaseImagePreviews();
+        currentCaseItem = null;
+    }
+
+    // ── 发布到 weeksir 网站（RPA）──
+    let publishCurrentIndex = null;
+    let publishPollTimer = null;
+
+    async function publishToWebsite(index) {
+        publishCurrentIndex = index;
+        const item = batchItems[index];
+        if (!item) { alert('项目不存在'); return; }
+        // 预填：默认「鞋类」（与 weeksir_example_rpa.py 默认一致），如有 product_category 则用之
+        $('publishCategory').value = item.product_category || '鞋类';
+        $('publishTitle').value = (item.product_category || '服装带货') + '带货';
+        $('publishSubmit').checked = false;
+        $('publishHeadless').checked = false;
+        $('publishProgress').classList.add('hidden');
+        $('publishProgressFill').style.width = '0%';
+        $('publishProgressPct').textContent = '0%';
+        $('publishLog').style.display = 'none';
+        $('publishLog').textContent = '';
+        const sb = $('publishStatus');
+        sb.classList.add('hidden');
+        sb.textContent = '';
+        const btn = $('publishConfirmBtn');
+        btn.disabled = false;
+        btn.textContent = '确认发布';
+        $('publishModal').classList.add('show');
+    }
+
+    function closePublishModal() {
+        $('publishModal').classList.remove('show');
+        if (publishPollTimer) { clearInterval(publishPollTimer); publishPollTimer = null; }
+        publishCurrentIndex = null;
+    }
+
+    function setPublishProgress(text, pct, state = 'running') {
+        const wrap = $('publishProgress');
+        wrap.className = 'case-progress ' + state;
+        wrap.classList.remove('hidden');
+        $('publishProgressText').textContent = text;
+        $('publishProgressPct').textContent = `${Math.round(pct)}%`;
+        $('publishProgressFill').style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    }
+
+    async function confirmPublish() {
+        if (publishCurrentIndex === null) return;
+        const item = batchItems[publishCurrentIndex];
+        if (!item) return;
+        const category = $('publishCategory').value.trim();
+        const title = $('publishTitle').value.trim();
+        const submit = $('publishSubmit').checked;
+        const headless = $('publishHeadless').checked;
+        if (!category) { alert('请填写分类'); return; }
+        if (!title) { alert('请填写标题'); return; }
+
+        // 取通用提示词文本（必要时从 prompt_url 拉取）
+        let promptText = item.general_prompt || '';
+        if ((!promptText || promptText.startsWith('点击「打开预览')) && item.prompt_url) {
+            try {
+                const r = await fetch(item.prompt_url);
+                if (r.ok) { promptText = await r.text(); item.general_prompt = promptText; }
+            } catch (e) {}
+        }
+        if (!promptText || promptText.startsWith('点击「打开预览')) {
+            alert('通用提示词为空，请先打开预览或等待反推完成');
+            return;
+        }
+
+        // 取视频本地绝对路径（必须存在）
+        const videoPath = item.source_video_path
+            || item.reverse_result?.video_path
+            || item.reverse_result?.mimo?.video_path
+            || '';
+        if (!videoPath) {
+            alert('未找到源视频本地路径，此功能仅适用于刚反推完成的项。');
+            return;
+        }
+
+        const btn = $('publishConfirmBtn');
+        btn.disabled = true;
+        btn.textContent = '提交中…';
+        setPublishProgress('提交 RPA 任务中…', 5);
+
+        try {
+            const r = await fetch('/api/prompt-reverse/publish-rpa', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    video_path: videoPath,
+                    prompt_text: promptText,
+                    prompt_file: '',
+                    category, title, submit, headless,
+                }),
+            });
+            const d = await r.json();
+            if (!r.ok || !d.success) {
+                throw new Error(d.detail || d.message || `HTTP ${r.status}`);
+            }
+            const taskId = d.task_id;
+            setPublishProgress('RPA 已启动，等待浏览器操作…', 15);
+            $('publishLog').style.display = 'block';
+            $('publishLog').textContent = '';
+
+            // 轮询
+            if (publishPollTimer) clearInterval(publishPollTimer);
+            publishPollTimer = setInterval(async () => {
+                try {
+                    const sr = await fetch(`/api/prompt-reverse/publish-rpa/status/${taskId}`);
+                    const s = await sr.json();
+                    const lines = s.stdout || [];
+                    $('publishLog').textContent = lines.join('\n');
+                    $('publishLog').scrollTop = $('publishLog').scrollHeight;
+                    if (s.status === 'SUCCESS') {
+                        clearInterval(publishPollTimer); publishPollTimer = null;
+                        setPublishProgress(submit ? '已提交保存 ✓' : 'dry-run 表单填写完成 ✓', 100, 'done');
+                        btn.disabled = false; btn.textContent = '完成';
+                    } else if (s.status === 'FAILED') {
+                        clearInterval(publishPollTimer); publishPollTimer = null;
+                        setPublishProgress('RPA 失败：' + (s.error || ''), 100, 'error');
+                        btn.disabled = false; btn.textContent = '重试';
+                    } else {
+                        // 推进度（最多到 90）
+                        const pct = Math.min(90, 15 + (lines.length * 2));
+                        setPublishProgress('RPA 运行中…', pct);
+                    }
+                } catch (e) {
+                    // 单次查询异常忽略
+                }
+            }, 3000);
+        } catch (e) {
+            setPublishProgress('提交失败：' + e.message, 100, 'error');
+            btn.disabled = false; btn.textContent = '确认发布';
+        }
+    }
+
+    async function retryFusionPrompt() {
+        if (currentCaseMode !== 'fusion' || !currentCaseItem) return;
+        if (!currentCaseImages.length) {
+            $('caseStatus').textContent = '请先选择商品图再重试融合。';
+            $('caseStatus').className = 'status-box error';
+            $('caseStatus').classList.remove('hidden');
+            return;
+        }
+        fusionPromptReady = false;
+        $('fusionPromptText').value = '';
+        $('caseGenerateBtn').textContent = '先生成融合 Prompt';
+        $('caseStatus').classList.add('hidden');
+        $('caseProgress').classList.add('hidden');
+        $('caseProgressFill').style.width = '0%';
+        $('caseProgressPct').textContent = '0%';
+        await confirmCaseGenerate();
+    }
+
+    $('caseProductImages').addEventListener('change', async e => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        // 累加式：新选的图追加到 currentCaseImages，不清空已有
+        $('caseProductNames').textContent = `正在上传 ${files.length} 张商品图…`;
+        for (const file of files) {
+            const url = URL.createObjectURL(file);
+            casePreviewUrls.push(url);
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = file.name;
+            img.title = file.name;
+            $('caseImagePreviews').appendChild(img);
+            const fd = new FormData(); fd.append('file', file);
+            try {
+                const r = await fetch('/api/upload/image', {method:'POST', body:fd});
+                const d = await r.json();
+                if (!r.ok || !d.file_path) throw new Error(d.detail || '商品图上传失败');
+                currentCaseImages.push(d.file_path);
+            } catch (err) {
+                alert('图片上传失败：' + err.message);
+            }
+        }
+        $('caseProductNames').textContent = `已选 ${currentCaseImages.length} 张商品图（可继续添加）`;
+        // 重置 input.value，允许用户再次选同名文件
+        e.target.value = '';
+    });
+    $('batchVideoFiles').addEventListener('change', e => {
+        prepareBatchVideos(Array.from(e.target.files || []));
+    });
+    async function onShareTextReady() {
+        const shareLinks = extractShareLinks($('batchLinks').value);
+        if (!shareLinks.length || linkPrepareLock) return;
+        const already = shareLinks.every(link => batchVideoItems.some(it => it.sourceLink === link && it.filePath));
+        if (already) {
+            const idx = batchVideoItems.findIndex(it => it.sourceLink && it.duration > 0);
+            if (idx >= 0) openTrimModal(idx);
+            return;
+        }
+        linkPrepareLock = true;
+        const btn = $('batchStartBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '下载视频中…'; }
+        $('batchLog').textContent = `正在下载 ${shareLinks.length} 个分享视频…`;
+        try {
+            await prepareShareLinks(shareLinks);
+            const idx = batchVideoItems.findIndex(it => it.sourceLink && it.duration > 0);
+            if (idx >= 0) openTrimModal(idx);
+            $('batchLog').textContent = '视频已下载，请截取需要反推的片段，然后点「开始批量推理」。';
+        } catch (e) {
+            $('batchLog').textContent = '链接下载失败：' + e.message;
+        } finally {
+            linkPrepareLock = false;
+            if (btn && !pendingBatchSubmit) {
+                btn.disabled = false;
+                btn.classList.remove('running');
+                btn.textContent = '开始批量推理';
+            }
+        }
+    }
+    $('batchLinks').addEventListener('paste', () => setTimeout(onShareTextReady, 0));
+    $('batchLinks').addEventListener('change', onShareTextReady);
+
+    async function confirmCaseGenerate() {
+        if (!currentCaseItem) return;
+        // generic 模式：先确保 general_prompt 可用
+        if (currentCaseMode !== 'fusion') {
+            let p = currentCaseItem.general_prompt || '';
+            if (!p || p.startsWith('点击「打开预览')) {
+                if (currentCaseItem.prompt_url) {
+                    try {
+                        const r = await fetch(currentCaseItem.prompt_url);
+                        if (r.ok) { p = await r.text(); currentCaseItem.general_prompt = p; }
+                    } catch (e) {}
+                }
+                if (!p || p.startsWith('点击「打开预览')) {
+                    $('caseStatus').classList.remove('hidden');
+                    $('caseStatus').className = 'status-box error';
+                    $('caseStatus').textContent = '通用 Prompt 尚未生成或加载失败，请先点击「打开预览」加载，或重新反推后再生成视频。';
+                    return;
+                }
+            }
+        }
+        const files = $('caseProductImages').files;
+        if (!currentCaseImages.length && !files.length) { alert('请上传至少一张商品图'); return; }
+        const btn = $('caseGenerateBtn'); btn.disabled = true; btn.textContent = '处理中…';
+        $('caseStatus').classList.remove('hidden'); $('caseStatus').textContent = '正在准备商品图…'; $('caseStatus').className = 'status-box running';
+        setCaseProgress('正在准备商品图…', 5);
+        try {
+            let images = currentCaseImages;
+            if (!images.length) {
+                images = [];
+                for (const f of files) {
+                    const fd = new FormData(); fd.append('file', f);
+                    const r = await fetch('/api/upload/image', {method:'POST', body:fd});
+                    const d = await r.json();
+                    if (!r.ok || !d.file_path) throw new Error(d.detail || '商品图上传失败');
+                    images.push(d.file_path);
+                    setCaseProgress(`已上传 ${images.length}/${files.length} 张商品图…`, 5 + images.length / files.length * 25);
+                }
+                currentCaseImages = images;
+            }
+
+            if (currentCaseMode === 'fusion' && !fusionPromptReady) {
+                setCaseProgress('正在用 MiMo 原始提示词融合商品图…', 45);
+                const durationVal = $('caseDuration').value;
+                const targetDurationSec = durationVal === 'source' ? null : parseInt(durationVal, 10) || null;
+                const r = await fetch('/api/prompt-reverse/fuse-product', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+                    mimo_prompt: currentCaseItem.reverse_result?.mimo?.h3_prompt || currentCaseItem.reverse_result?.h3_prompt || currentCaseItem.h3_prompt || currentCaseItem.mimo_prompt || '',
+                    reference_images: images,
+                    product_name: currentCaseItem.product_category || '',
+                    target_duration_sec: targetDurationSec,
+                    source_duration: currentCaseItem.duration || null
+                })});
+                const d = await r.json();
+                if (!r.ok || !d.success) throw new Error(typeof d.detail === 'string' ? d.detail : (d.detail?.msg || JSON.stringify(d.detail || {}) || '融合 Prompt 生成失败'));
+                if (!d.fusion_prompt) throw new Error('融合接口返回空 Prompt，请检查 MiMo 原始提示词是否存在');
+                $('fusionPromptText').value = d.fusion_prompt;
+                fusionPromptReady = true;
+                btn.disabled = false;
+                btn.textContent = '审核通过，确认生成视频';
+                $('caseStatus').textContent = '融合 Prompt 已生成，请审核后再提交视频任务。';
+                $('caseStatus').className = 'status-box running';
+                setCaseProgress('等待审核融合 Prompt', 50, 'done');
+                return;
+            }
+
+            const prompt = currentCaseMode === 'fusion' ? $('fusionPromptText').value.trim() : currentCaseItem.general_prompt;
+            if (!prompt) throw new Error('视频 Prompt 为空');
+            setCaseProgress('正在提交 H3 生成任务…', 55);
+            const promptTimes = (currentCaseItem.general_prompt || '').match(/\b\d+(?:\.\d+)?s\b/g) || [];
+            const sourceDuration = Number(currentCaseItem.duration || 0) || Math.max(...promptTimes.map(v => parseFloat(v)), 0);
+            const durationMode = $('caseDuration').value === 'source' ? 'source' : 'fixed';
+            const r = await fetch('/api/h3-studio/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+                channel:'manxue', mode:'reference', reference_images:images, prompt:prompt,
+                duration: durationMode === 'source' ? Math.ceil(sourceDuration || 15) : parseInt($('caseDuration').value, 10),
+                duration_mode: durationMode,
+                source_duration: sourceDuration,
+                aspect_ratio:'9:16', megapixels:parseFloat($('caseResolution').value)
+            })});
+            const d = await r.json();
+            if (!r.ok || !d.success) throw new Error(d.detail || 'H3 提交失败');
+            $('caseStatus').textContent = 'H3 生成中，视频完成后将回传到右侧列表…';
+            setCaseProgress('H3 生成中…', 40);
+            const index = currentCaseItem.index, h3Id = d.task_id;
+            // 显示「后台运行」按钮，用户可以关弹窗去做别的事
+            $('caseBackgroundBtn').style.display = 'inline-block';
+            // 清掉旧的后台任务（如有）
+            if (caseBackgroundTask && caseBackgroundTask.timer) clearInterval(caseBackgroundTask.timer);
+            caseBackgroundTask = { index, h3Id, mode: currentCaseMode, images, lastPct: 40, finishedAt: null };
+            const timer = setInterval(async () => {
+                const sr = await fetch('/api/h3-studio/status?task_id=' + h3Id); const sd = await sr.json();
+                const pct = Math.max(40, Math.min(99, Number(sd.progress) || 40));
+                caseBackgroundTask.lastPct = pct;
+                // 同步进度到卡片（弹窗开着时也无副作用）
+                const item0 = batchItems[index];
+                if (item0) { item0.case_generating_pct = pct; if (item0.case_generating) renderBatchItem(item0); }
+                $('caseStatus').textContent = `H3 生成中：${sd.stage || sd.status || ''} ${Math.round(pct)}%`;
+                setCaseProgress(`H3 生成中：${sd.stage || '处理中'}…`, pct);
+                if (sd.status === 'completed' && sd.result) {
+                    clearInterval(timer);
+                    caseBackgroundTask.finishedAt = Date.now();
+                    setCaseProgress('视频生成完成', 100, 'done');
+                    const path = sd.result.video_url || sd.result.video_path || '';
+                    const videoUrl = path.replace(/\\/g,'/').replace(/^.*\/outputs\//,'/outputs/') + '?v=' + Date.now();
+                    const item = batchItems[index];
+                    const updates = { case_reference_images: images };
+                    item.case_generating = false; item.case_generating_pct = 0;
+                    if (currentCaseMode === 'fusion') {
+                        item.fusion_video_url = videoUrl;
+                        updates.fusion_video_url = videoUrl;
+                    } else {
+                        item.video_url = videoUrl;
+                        updates.video_url = videoUrl;
+                    }
+                    renderBatchItem(item);
+                    if (currentBatchId) {
+                        fetch('/api/batch-prompt-reverse/history/' + encodeURIComponent(currentBatchId) + '/item', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({index, updates})}).catch(() => {});
+                    }
+                    $('caseBackgroundBtn').style.display = 'none';
+                    setTimeout(closeVideoModal, 500);
+                } else if (sd.status === 'failed') {
+                    clearInterval(timer);
+                    caseBackgroundTask.finishedAt = Date.now();
+                    const partial = sd.partial_result || {};
+                    const urls = partial.video_urls || [];
+                    const it2 = batchItems[index];
+                    if (it2) { it2.case_generating = false; it2.case_generating_pct = 0; renderBatchItem(it2); }
+                    setCaseProgress(urls.length ? `合并失败，已保留 ${urls.length} 个片段` : 'H3 生成失败', 100, 'failed');
+                    $('caseStatus').textContent = urls.length
+                        ? `片段已生成，但最终合并失败：${sd.error || '未知错误'}`
+                        : 'H3 失败：' + (sd.error || '未知错误');
+                    if (urls.length) {
+                        const links = urls.map((url, i) => `<a class="batch-action" href="${url}?v=${Date.now()}" target="_blank">预览第 ${i + 1} 段</a>`).join('');
+                        $('caseStatus').insertAdjacentHTML('beforeend', `<div style="margin-top:8px;">${links}</div>`);
+                    }
+                    $('caseBackgroundBtn').style.display = 'none';
+                    btn.disabled = false; btn.textContent = '确认生成视频';
+                }
+            }, 5000);
+            caseBackgroundTask.timer = timer;
+        } catch (e) {
+            $('caseStatus').textContent = '失败：' + e.message;
+            $('caseStatus').className = 'status-box failed';
+            setCaseProgress('任务失败', 100, 'failed');
+            $('caseBackgroundBtn').style.display = 'none';
+            btn.disabled = false;
+            btn.textContent = '确认生成视频';
+        }
+    }
+
+    loadSavedPrompts();
+
+    function newTask() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        if (h3PollTimer) { clearInterval(h3PollTimer); h3PollTimer = null; }
+        if (batchPollTimer) { clearInterval(batchPollTimer); batchPollTimer = null; }
+        lastTaskId = null;
+        lastStartedAt = null;
+        lastReverseResult = null;
+        h3TaskId = null;
+        currentBatchId = null;
+        currentCaseItem = null;
+        batchItems = {};
+        pendingBatchSubmit = false;
+        linkPrepareLock = false;
+        trimIndex = 0;
+        trimEnabled = false;
+        trimStart = 0;
+        trimEnd = 0;
+        videoDuration = 0;
+        trimBackup = null;
+
+        for (const it of batchVideoItems) {
+            if (it.url && String(it.url).startsWith('blob:')) URL.revokeObjectURL(it.url);
+        }
+        batchVideoItems = [];
+
+        const linksEl = $('batchLinks');
+        if (linksEl) linksEl.value = '';
+        const filesEl = $('batchVideoFiles');
+        if (filesEl) filesEl.value = '';
+        const namesEl = $('batchVideoNames');
+        if (namesEl) namesEl.textContent = '';
+        const card = $('batchVideoCard');
+        if (card) card.classList.remove('has-file');
+        const preview = $('batchVideoPreview');
+        if (preview) {
+            preview.removeAttribute('src');
+            preview.style.display = 'none';
+        }
+        const hint = $('durationHint');
+        if (hint) {
+            hint.style.display = 'none';
+            hint.textContent = '';
+        }
+        const trig = $('trimTrigger');
+        if (trig) trig.classList.remove('show');
+        const overlay = $('trimOverlay');
+        if (overlay) overlay.classList.remove('show');
+        const mv = $('trimModalVideo');
+        if (mv) {
+            try { mv.pause(); } catch (_) {}
+            mv.removeAttribute('src');
+        }
+
+        const startBtn = $('batchStartBtn');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.classList.remove('running');
+            startBtn.textContent = '开始批量推理';
+        }
+        const summary = $('batchSummary');
+        if (summary) summary.textContent = '等待开始批量任务';
+        const log = $('batchLog');
+        if (log) log.textContent = '粘贴抖音/小红书链接后，点击左侧「开始批量推理」。';
+        const results = $('batchResults');
+        if (results) results.innerHTML = '<div class="batch-log">暂无已保存提示词</div>';
+
+        try { closeVideoModal(); } catch (_) {}
+        loadSavedPrompts();
+    }
+
+    const legacySubmitBtn = $('submitBtn');
+    if (legacySubmitBtn) legacySubmitBtn.addEventListener('click', submitReverse);
+    const legacyCopyPromptBtn = $('copyPromptBtn');
+    if (legacyCopyPromptBtn) legacyCopyPromptBtn.addEventListener('click', copyPrompt);
+    const legacyCompileBtn = $('compileBtn');
+    if (legacyCompileBtn) legacyCompileBtn.addEventListener('click', submitH3Generate);
+    const legacyGenericBtn = $('genericBtn');
+    if (legacyGenericBtn) legacyGenericBtn.addEventListener('click', convertToGeneric);
+    // 反推渲染完后自动同步 H3 prompt
+    const _origRenderResult = renderResult;
+    renderResult = function(result, elapsed) {
+        _origRenderResult(result, elapsed);
+        syncH3Prompt();
+    };
+</script>
+</body>
+</html>

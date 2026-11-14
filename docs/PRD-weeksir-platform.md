@@ -4,7 +4,7 @@
 日期：2026-09-26  
 工作区：`C:\dsh`  
 运行时：DSH Desktop（Harness；对话默认 Agnes 3.0 Flash）  
-存量：`D:\video-skill`（8090 工作台 + Python 管线）+ 开源 GitHub skill 原料  
+存量：`backend`（8090 工作台 + Python 管线）+ 开源 GitHub skill 原料  
 
 切片：难单复刻见 [`PRD.md`](PRD.md)。本文是平台总纲。
 
@@ -173,7 +173,7 @@ IP 隔离（已拍板）：
 
 Skill 来源三路，都要**提取后打磨**，禁止原样堆进目录：
 
-1. `D:\video-skill` 现有工作流（超级复刻、裂变、详情图……）
+1. `backend` 现有工作流（超级复刻、裂变、详情图……）
 2. 本仓库已有定制合同（`super-clone`、`hypit`）
 3. 开源 GitHub（客服、采集、投放报表等）——改成 DSH 头、去掉外站语法、补批准点、改走网关能力名
 
@@ -363,7 +363,7 @@ skills/
 | 读写真源 | `tool-fs` | BRIEF / ANALYSIS / TIMELINE / 效果仓库 |
 | 征求同意 | `user-questions` + 批准 UI | 方案、切段表、投放草稿、客服升级 |
 | 长任务 | `tool-jobs` + `jobs-local` | Wan/Python 管线丢后台，对话不卡死 |
-| 调本机管线 | `tool-bash` / `tool-pwsh` | `D:\video-skill` 现有入口，不重写 |
+| 调本机管线 | `tool-bash` / `tool-pwsh` | `backend` 现有入口，不重写 |
 | 分席 | `tool-subagent` | 策划 / 生产 / 客服可开子 Agent，共用工作区 |
 | 待办 | `tool-todo` + `goal` | 闭环步骤可视化 |
 | 轨迹 | 桌面「轨迹」页 | 审计调了什么，不另做日志台 |
@@ -451,7 +451,7 @@ P0 验收（这才叫落地，而不是文档）：
 - 视频 skill 第一批上架（**三条都是共用工具**，片型合同以后再拆）：`super-clone`、`hypit`、`omni`
 - 商城最小：拷贝/删除目录 = 安装/卸载（skill-filesystem 热发现）
 - 对话模型：已接的 Agnes 3.0 Flash
-- 生产：**全部 skill 模式，只跑在 DSH 内置环境**（Agent Loop / 批准 / jobs / 工作区）。客户不进 8090。第一批 `super-clone` / `hypit` / `omni` 由 jobs 调用 `D:\video-skill` 现成 Python，不重写 Wan/Omni/Hypit 引擎，也不做成 cordis 插件。
+- 生产：**全部 skill 模式，只跑在 DSH 内置环境**（Agent Loop / 批准 / jobs / 工作区）。客户不进 8090。第一批 `super-clone` / `hypit` / `omni` 由 jobs 调用 `backend` 现成 Python，不重写 Wan/Omni/Hypit 引擎，也不做成 cordis 插件。
 - 批准：只用 DSH `user-questions`；批量只问一次方案
 
 ### P1 本地全流程（无 weeksir.com 账号）

@@ -21,12 +21,15 @@ import sys
 import tempfile
 
 BS = chr(92)
-sys.path.insert(0, r"D:\video-skill")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 from backend import gateway as gw            # noqa: E402
 
-GW_PY = r"D:\video-skill\backend\gateway.py"
-SVC_PY = r"D:\video-skill\backend\services\super_clone_wan3.py"
-APPR = r"D:\video-skill\.gateway_spend_approvals.json"
+GW_PY = os.path.join(BACKEND, r"gateway.py")
+SVC_PY = os.path.join(BACKEND, r"services\super_clone_wan3.py")
+APPR = os.path.join(BACKEND, r".gateway_spend_approvals.json")
 PROD = "C:" + BS + "dsh" + BS + "productions"
 PASS, FAIL = [], []
 
@@ -64,9 +67,35 @@ for name, want in real.items():
 check("K1 真产物：四个任务的段数都算对（键=%s）" % list(real), got, dict((k, v) for k, v in real.items()))
 check("K1b 真产物：坏目录必须 count=0（不许猜一个数）",
       gw.plan_segment_count(os.path.join(PROD, "no-such-task-xyz")).get("count"), 0)
-check("K1c 单价现读：段数×单价 才是条子上限（wan3-prime 60 分/段）",
-      gw.count_from_args("video.generate", "wan3-prime", os.path.join(PROD, "super-clone-28s"))[:2],
-      (4, 4 * int(gw.unit_price("video.generate", "wan3-prime"))))
+# ── K1c 单价现读 + 【计费口径分岔】（2026-10-30 wan3-prime 换芯后新增）─────────────
+# 按段的 lane：条子上限 = 段数 × 分/段（tianyue 那条 wan30-studio 还是这个口径）。
+check("K1c 按段计价的 lane：段数×单价 才是条子上限（wan30-studio 60 分/段）",
+      gw.count_from_args("video.generate", "wan30-studio", os.path.join(PROD, "super-clone-28s"))[:2],
+      (4, 4 * int(gw.unit_price("video.generate", "wan30-studio"))))
+# 🔴 按秒的 lane（现在 wan3-prime = yz30）：还按"段数 × 单价"算 ⇒ 一条 40s 三段片批 12 分、
+#    真要花 160 分 = 【批的比花的少】，第 2 段被自己的批准闸拦停（这不是手滑，是口径没主人）。
+#    所以这里钉两半：① 有计划 ⇒ 上限 = Σ秒 × 分/秒；② 没计划 ⇒ 拒建条子，绝不按段估一个数。
+_plan_dir = os.path.join(tmp if False else tempfile.gettempdir(), "count-from-persec")
+os.makedirs(os.path.join(_plan_dir, "outputs"), exist_ok=True)
+with open(os.path.join(_plan_dir, "outputs", "_submit_plan.json"), "w", encoding="utf-8") as _pf:
+    json.dump({"count": 3, "windows": [{"start": 0.0, "end": 15.0}, {"start": 15.0, "end": 30.0},
+                                        {"start": 30.0, "end": 40.0}]}, _pf)
+_n3, _c3, _w3 = gw.count_from_args("video.generate", "wan3-prime", _plan_dir)
+check("K1c2 按秒的 lane：上限 = Σ秒 × 分/秒（40 秒三段 × 4 分 = 160 分，不是 3×4=12 分）",
+      [_n3, _c3, "按【秒】" in _w3], [3, 160, True])
+try:
+    gw.count_from_args("video.generate", "wan3-prime", os.path.join(PROD, "super-clone-28s"))
+    _raised = None
+except ValueError as _e:
+    _raised = str(_e)
+check("K1c3 按秒的 lane 但这份任务没有提交计划 ⇒ 拒建条子（不许退回按段估，那正好算少）",
+      [bool(_raised), "按秒" in (_raised or "")], [True, True])
+check("K1c4 单位词只有一处定义：报价正文与 prices 都读 lane_price_unit_label（别处再拼一份『分/段』就是第二份真相）",
+      ["分/秒" in gw.lane_price_unit_label("video.generate", "wan3-prime"),
+       "分/段" in gw.lane_price_unit_label("video.generate", "wan30-studio"),
+       gw.lane_price_unit_label("video.generate", "wan3-prime") in
+       gw.build_quote_summary("video.generate", "wan3-prime", "local", 3, 160, "s")],
+      [True, True, True])
 
 # ── K2 合成档：优先级与干扰表 ───────────────────────────────────────────────
 tmp = tempfile.mkdtemp(prefix="count-from-")
@@ -158,10 +187,12 @@ check("K2l 真产物：有提交计划的那条任务，段数必须【等于计
       "（不写死数字——计划跟着真跑走）",
       [_rn.get("source"), _rn.get("count"), _want_here],
       [PLAN, _want_here, _want_here])
-check("K2l2 真产物：那份计划必须带窗口且算得出指纹（段数没有来历 = 和当年『按单段建』一样不可用）",
+check("K2l2 真产物：那份计划必须带窗口且算得出指纹（段数没有来历 = 和当年『按单段建』一样不可用）"
+      "—— 只钉【有没有写出窗口】这条规则，不钉 0-15s 那个数（同一任务今晚又跑了 16-30s，钉数字=假红）",
       [bool(gw.submit_plan_id(_real_new)) == bool(_want_here),
        "_submit_plan.json" in (_rn.get("detail") or ""),
-       ("0.00-15.00s" in (_rn.get("detail") or "")) if _want_here == 1 else True],
+       bool(__import__("re").search(r"\d+\.\d+-\d+\.\d+s", _rn.get("detail") or ""))
+       if _want_here else True],
       [True, True, True])
 
 import ast as _ast                                                   
@@ -214,10 +245,13 @@ before = pend_ids()
 cases = [
     ("坏目录", ["approve", "video.generate", "wan3-prime", "--count-from", os.path.join(PROD, "nope-xyz"),
                "--account", "probe-none", "--session", "probe-none"]),
-    ("--count 与盘上不符", ["approve", "video.generate", "wan3-prime", "--count-from",
+    # 🔴 后两支【故意用 wan30-studio（按段那条）】：wan3-prime 今天按【秒】计价，
+    #    而这些真产物目录里没有 `_submit_plan.json` ⇒ 按秒那条会在【更早】的地方就拒建（K1c3 钉的就是那一支），
+    #    于是这两支要测的"数量与盘上不符"根本没被执行到 —— 拒是拒了，但拒的不是它宣称的那个原因（假有效）。
+    ("--count 与盘上不符", ["approve", "video.generate", "wan30-studio", "--count-from",
                             os.path.join(PROD, "video20-face-swap"), "--count", "9",
                             "--account", "probe-none", "--session", "probe-none"]),
-    ("--credits 与单价不符", ["approve", "video.generate", "wan3-prime", "--count-from",
+    ("--credits 与单价不符", ["approve", "video.generate", "wan30-studio", "--count-from",
                               os.path.join(PROD, "video20-face-swap"), "--credits", "999",
                               "--account", "probe-none", "--session", "probe-none"]),
 ]
@@ -230,7 +264,7 @@ for label, args in cases:
     #    三条子串断言会"为错的理由通过"。显式要 utf-8，解不出来再回落 gbk。
     _env["PYTHONIOENCODING"] = "utf-8:replace"
     r = subprocess.run([sys.executable, GW_PY] + args, capture_output=True, stdin=subprocess.DEVNULL,
-                       timeout=180, cwd=r"D:\video-skill", env=_env)
+                       timeout=180, cwd=BACKEND, env=_env)
     _raw = (r.stdout or b"") + (r.stderr or b"")
     try:
         txt = _raw.decode("utf-8")
@@ -335,7 +369,7 @@ def _run_approve(purpose):
                         "--count", "1", "--credits", "60", "--account", "probe-none",
                         "--session", "probe-none", "--scope", "闸自测（不点批准，过期即失效）"],
                        capture_output=True, stdin=subprocess.DEVNULL, timeout=180,
-                       cwd=r"D:\video-skill", env=_env)
+                       cwd=BACKEND, env=_env)
     _raw = (r.stdout or b"") + (r.stderr or b"")
     try:
         return r.returncode, _raw.decode("utf-8")
@@ -350,8 +384,14 @@ check("K8 真跑 approve：报价那条输出里【就有】流程计划表（�
       [0, True, True, True])
 check("K9 反向对照：spend 没有对应合同时 ⇒ 明说「没有合同」并且【不印表】（不许装作给过表）",
       ["流程计划" in _tx2, "没有一条 skill 合同" in _tx2], [False, True])
-check("K9b 抑制开关确实生效（输出里是「弹窗没起来」的兜底话 ⇒ 人桌面上没多出批准窗）",
-      "弹窗没起来" in _tx1, True)
+check("K9b approve 的输出结构：【只一条链接、带 session、不递码、不再承诺弹窗】"
+      "（🔴 这条原来钉的是『明说窗没起来 + 给链接』—— 2026-10-22 用户定「审批不要弹窗，就是一个审批链接」之后"
+      "置顶窗整条摘了，那句话永远不会再出现，于是它从那天起一直红着【不是今天换芯弄的】。"
+      "今天把它改成钉当下的结构：一条地址、一次点击、stdout 里不许有 gateway.py code（那等于把"
+      "自核销的说明书递给能自己批的人，闸 G4 同一条纪律））",
+      [_tx1.count("127.0.0.1:8100/approval?session="), "approval?session=" in _tx1,
+       "gateway.py code" in _tx1, "弹窗" in _tx1],
+      [1, True, False, False])
 _pd = json.loads(io.open(_ap_tmp, encoding="utf-8", errors="replace").read()).get("pending") or []
 check("K9c 自测只落临时账本：两份 pending 都在沙盒文件里，且核销码没进 stdout（G4 同一条纪律）",
       [len(_pd), all(p.get("status") == "pending" for p in _pd),

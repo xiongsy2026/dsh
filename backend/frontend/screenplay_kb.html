@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>洋子剧本知识库 · 工作台</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+            background: #0a0a14;
+            color: #e5e7eb;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+            padding: 18px 32px;
+            border-bottom: 1px solid rgba(99, 102, 241, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header .title { font-size: 20px; font-weight: 600; color: #fff; }
+        header .back-link { color: #a5b4fc; text-decoration: none; font-size: 14px; }
+        header .back-link:hover { color: #fff; }
+        .layout {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 18px;
+            padding: 18px;
+            min-height: 0;
+        }
+        .panel {
+            background: #15152380;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(99, 102, 241, 0.25);
+            border-radius: 14px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .panel h2 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #a5b4fc;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+        .field { margin-bottom: 14px; }
+        .field label {
+            display: block;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 5px;
+        }
+        .field input,
+        .field select,
+        .field textarea {
+            width: 100%;
+            background: #0f0f1a;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            color: #e5e7eb;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+        }
+        .field textarea { resize: vertical; min-height: 60px; }
+        .field input:focus,
+        .field select:focus,
+        .field textarea:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+        }
+        .btn-row { display: flex; gap: 8px; margin-top: 6px; }
+        .btn-search {
+            flex: 1;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            border: none;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-secondary {
+            background: #1e293b;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: #a5b4fc;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .btn-secondary:hover:not(:disabled) { background: #334155; }
+        .btn-search:hover:not(:disabled) { filter: brightness(1.1); }
+        .btn-search:disabled, .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .info-box {
+            background: #0f0f1a;
+            border: 1px solid rgba(99, 102, 241, 0.15);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 12px;
+            line-height: 1.7;
+            margin-bottom: 18px;
+        }
+        .info-box .label { color: #6b7280; }
+        .info-box .value { color: #e5e7eb; }
+        .info-box .refresh-btn {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #818cf8;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .info-box .refresh-btn:hover { color: #a5b4fc; }
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: #0f0f1a;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 14px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6b7280;
+        }
+        .status-dot.ready { background: #10b981; }
+        .status-dot.busy { background: #f59e0b; animation: pulse 1.2s ease-in-out infinite; }
+        .status-dot.error { background: #ef4444; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .result-card {
+            background: #0f0f1a;
+            border: 1px solid rgba(99, 102, 241, 0.15);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s;
+            cursor: pointer;
+        }
+        .result-card:hover { border-color: rgba(99, 102, 241, 0.5); }
+        .result-card .score {
+            display: inline-block;
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-bottom: 6px;
+        }
+        .result-card .name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #f3f4f6;
+            margin-bottom: 4px;
+        }
+        .result-card .path {
+            font-size: 11px;
+            color: #6b7280;
+            word-break: break-all;
+            margin-bottom: 6px;
+        }
+        .result-card .snippet {
+            font-size: 12px;
+            color: #d1d5db;
+            line-height: 1.55;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border-radius: 6px;
+            border-left: 2px solid #6366f1;
+        }
+        .result-card .read-hint {
+            font-size: 11px;
+            color: #6366f1;
+            margin-top: 6px;
+        }
+        .empty-state {
+            text-align: center;
+            color: #6b7280;
+            padding: 60px 20px;
+            font-size: 13px;
+        }
+        .lane-header {
+            font-size: 13px;
+            color: #a5b4fc;
+            margin: 14px 0 8px 0;
+            font-weight: 600;
+        }
+
+        /* ── 文档查看弹窗 ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #0f0f1a;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 14px;
+            width: 90%;
+            max-width: 800px;
+            height: 85vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header .title { font-size: 14px; font-weight: 600; color: #f3f4f6; }
+        .modal-header .close-btn {
+            background: none;
+            border: none;
+            color: #6b7280;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        .modal-header .close-btn:hover { color: #e5e7eb; }
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        .modal-footer {
+            padding: 12px 20px;
+            border-top: 1px solid rgba(99, 102, 241, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-footer .page-info { font-size: 12px; color: #6b7280; }
+        .modal-footer .page-nav { display: flex; gap: 8px; }
+        .chunk-block {
+            font-size: 13px;
+            color: #d1d5db;
+            line-height: 1.7;
+            margin-bottom: 16px;
+            white-space: pre-wrap;
+        }
+        .chunk-block .chunk-meta {
+            font-size: 11px;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+
+        /* ── 候选卡弹窗 ── */
+        .card-modal .modal-body { white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: #d1d5db; }
+
+        /* ── 刷新进度 ── */
+        .refresh-status {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #818cf8;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="title">洋子剧本知识库 · 工作台</div>
+        <a class="back-link" href="/">← 返回首页</a>
+    </header>
+    <div class="layout">
+        <div class="panel">
+            <h2>知识库元数据</h2>
+            <div class="info-box" id="infoBox">
+                <div><span class="label">名称：</span><span class="value" id="infoName">加载中...</span></div>
+                <div><span class="label">文档数：</span><span class="value" id="infoDocs">-</span></div>
+                <div><span class="label">分块数：</span><span class="value" id="infoChunks">-</span></div>
+                <div><span class="label">生成时间：</span><span class="value" id="infoGenerated">-</span></div>
+                <div class="refresh-btn" id="btnRefreshIndex">↻ 刷新索引</div>
+                <div class="refresh-status" id="refreshStatus" style="display:none"></div>
+            </div>
+
+            <h2>检索画像</h2>
+            <div class="field">
+                <label>查询词（空格分词，多个词会 OR/AND 匹配）</label>
+                <textarea id="question" placeholder="剧本 开场 钩子 悬念"></textarea>
+            </div>
+            <div class="field">
+                <label>阶段</label>
+                <select id="stage">
+                    <option value="01-synopsis">01-概念</option>
+                    <option value="02-characters">02-角色</option>
+                    <option value="02-创作流" selected>02-创作流</option>
+                    <option value="03-worldbuilding">03-世界观</option>
+                    <option value="04-treatment">04-分场</option>
+                    <option value="05-screenplay">05-剧本</option>
+                    <option value="06-assets">06-资产</option>
+                    <option value="07-acting">07-表演</option>
+                    <option value="08-cinedance">08-镜头</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>匹配模式</label>
+                <select id="mode">
+                    <option value="any" selected>任意词命中（OR）</option>
+                    <option value="all">所有词命中（AND）</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>路径包含（可选）</label>
+                <input id="pathContains" placeholder="如：05-中日韩美高热类型片">
+            </div>
+            <div class="field">
+                <label>路径排除（逗号分隔，可选）</label>
+                <input id="pathExcludes" placeholder="如：影视研究期刊">
+            </div>
+            <div class="field">
+                <label>电影节标签（可选）</label>
+                <input id="festival" placeholder="如：FIRST">
+            </div>
+            <div class="field">
+                <label>返回数量</label>
+                <input id="topK" type="number" value="10" min="1" max="100">
+            </div>
+            <div class="field">
+                <label>定向精读文档名（逗号分隔，可选；需输入完整文件名，如：山海经（全本全注全译）.pdf）</label>
+                <input id="selectedDocuments" placeholder="完整文件名，逗号分隔">
+            </div>
+            <div class="field">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                    <input type="checkbox" id="deepRead" style="width:auto">
+                    <span>深度精读模式（提升候选数量到 1000）</span>
+                </label>
+            </div>
+            <div class="btn-row">
+                <button class="btn-search" id="btnSearch">检索</button>
+                <button class="btn-secondary" id="btnExportCard">导出候选卡</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="status-bar">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">就绪</span>
+            </div>
+            <div id="resultsArea">
+                <div class="empty-state">在左侧输入查询词后点击「检索」</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文档查看弹窗 -->
+    <div class="modal-overlay" id="docModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="title" id="docModalTitle">文档内容</div>
+                <button class="close-btn" onclick="closeDocModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="docModalBody">
+                <div class="empty-state">加载中...</div>
+            </div>
+            <div class="modal-footer">
+                <span class="page-info" id="docPageInfo">-</span>
+                <div class="page-nav">
+                    <button class="btn-secondary" id="docPrevBtn" onclick="docPrev()">上一页</button>
+                    <button class="btn-secondary" id="docNextBtn" onclick="docNext()">下一页</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 候选卡弹窗 -->
+    <div class="modal-overlay card-modal" id="cardModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="title">候选卡 / 证据卡</div>
+                <div style="display:flex;gap:8px">
+                    <button class="btn-secondary" id="btnCopyCard" onclick="copyCardContent()">复制</button>
+                    <button class="btn-secondary" id="btnDownloadCard" onclick="downloadCard()">下载</button>
+                    <button class="close-btn" onclick="closeCardModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" id="cardModalBody">加载中...</div>
+        </div>
+    </div>
+
+    <script>
+        let currentDocName = '';
+        let currentDocPage = 0;
+
+        // 加载知识库元数据
+        async function loadInfo() {
+            try {
+                const r = await fetch('/api/screenplay-kb/info');
+                const d = await r.json();
+                if (!d.success) {
+                    document.getElementById('infoName').textContent = '错误：' + d.error;
+                    return;
+                }
+                const info = d.data;
+                document.getElementById('infoName').textContent = info.name;
+                document.getElementById('infoDocs').textContent = info.indexed_documents.toLocaleString();
+                document.getElementById('infoChunks').textContent = info.indexed_chunks.toLocaleString();
+                document.getElementById('infoGenerated').textContent = info.generated_at;
+                document.getElementById('statusDot').className = 'status-dot ready';
+                document.getElementById('statusText').textContent = `就绪 · ${info.indexed_documents} 文档 / ${info.indexed_chunks} 分块`;
+            } catch (e) {
+                document.getElementById('infoName').textContent = '加载失败：' + e;
+                document.getElementById('statusDot').className = 'status-dot error';
+            }
+        }
+
+        function buildPayload() {
+            const question = document.getElementById('question').value.trim();
+            const payload = {
+                stage: document.getElementById('stage').value,
+                question: question,
+                mode: document.getElementById('mode').value,
+                top_k: parseInt(document.getElementById('topK').value) || 10,
+            };
+            const pc = document.getElementById('pathContains').value.trim();
+            if (pc) payload.path_contains = pc;
+            const pe = document.getElementById('pathExcludes').value.trim();
+            if (pe) payload.path_excludes = pe.split(',').map(s => s.trim()).filter(Boolean);
+            const fest = document.getElementById('festival').value.trim();
+            if (fest) payload.festival = fest;
+            const selDocs = document.getElementById('selectedDocuments').value.trim();
+            if (selDocs) payload.selected_documents = selDocs.split(',').map(s => s.trim()).filter(Boolean);
+            if (document.getElementById('deepRead').checked) payload.deep_read_selected = true;
+            return payload;
+        }
+
+        // 执行检索
+        async function doSearch() {
+            const btn = document.getElementById('btnSearch');
+            const dot = document.getElementById('statusDot');
+            const txt = document.getElementById('statusText');
+            const area = document.getElementById('resultsArea');
+
+            const payload = buildPayload();
+            if (!payload.question) {
+                alert('请输入查询词');
+                return;
+            }
+
+            btn.disabled = true;
+            dot.className = 'status-dot busy';
+            txt.textContent = '检索中...';
+            area.innerHTML = '<div class="empty-state">正在查询本地 SQLite + FTS5 索引...</div>';
+
+            try {
+                const r = await fetch('/api/screenplay-kb/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const d = await r.json();
+
+                if (!d.success) {
+                    dot.className = 'status-dot error';
+                    txt.textContent = '错误：' + d.error;
+                    area.innerHTML = `<div class="empty-state">检索失败：${d.error}</div>`;
+                    return;
+                }
+
+                const results = d.data.results;
+                const total = d.data.total_candidates;
+                dot.className = 'status-dot ready';
+                txt.textContent = `完成 · 命中 ${total} 条候选`;
+
+                if (total === 0) {
+                    area.innerHTML = '<div class="empty-state">没有命中任何分块，试试换关键词或调整过滤条件</div>';
+                    return;
+                }
+
+                let html = '';
+                for (const [lane, items] of Object.entries(results)) {
+                    html += `<div class="lane-header">通道 [${lane}]：${items.length} 条</div>`;
+                    for (const item of items) {
+                        const score = item.score !== undefined ? item.score.toFixed(4) : 'N/A';
+                        const name = item.name || '(未命名)';
+                        const path = item.path || '';
+                        const snippet = item.snippet || item.text || '';
+                        const encodedName = encodeURIComponent(name);
+                        html += `
+                            <div class="result-card" onclick="openDocument('${encodedName}')">
+                                <div class="score">BM25: ${score}</div>
+                                <div class="name">${escapeHtml(name)}</div>
+                                <div class="path">${escapeHtml(path)}</div>
+                                <div class="snippet">${escapeHtml(snippet)}</div>
+                                <div class="read-hint">点击查看全文 →</div>
+                            </div>
+                        `;
+                    }
+                }
+                area.innerHTML = html;
+            } catch (e) {
+                dot.className = 'status-dot error';
+                txt.textContent = '错误：' + e;
+                area.innerHTML = `<div class="empty-state">请求失败：${e}</div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 导出候选卡
+        async function exportCard() {
+            const btn = document.getElementById('btnExportCard');
+            const payload = buildPayload();
+            if (!payload.question) {
+                alert('请输入查询词');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '生成中...';
+
+            try {
+                const r = await fetch('/api/screenplay-kb/export-card', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const d = await r.json();
+
+                if (!d.success) {
+                    alert('导出失败：' + d.error);
+                    return;
+                }
+
+                document.getElementById('cardModalBody').textContent = d.data.card;
+                document.getElementById('cardModal').classList.add('active');
+            } catch (e) {
+                alert('请求失败：' + e);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '导出候选卡';
+            }
+        }
+
+        function closeCardModal() {
+            document.getElementById('cardModal').classList.remove('active');
+        }
+
+        function copyCardContent() {
+            const text = document.getElementById('cardModalBody').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('btnCopyCard');
+                btn.textContent = '已复制';
+                setTimeout(() => { btn.textContent = '复制'; }, 2000);
+            });
+        }
+
+        function downloadCard() {
+            const text = document.getElementById('cardModalBody').textContent;
+            const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'screenplay_kb_card.md';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        // 文档查看
+        async function openDocument(encodedName) {
+            const name = decodeURIComponent(encodedName);
+            currentDocName = name;
+            currentDocPage = 0;
+            document.getElementById('docModalTitle').textContent = name;
+            document.getElementById('docModalBody').innerHTML = '<div class="empty-state">加载中...</div>';
+            document.getElementById('docPageInfo').textContent = '-';
+            document.getElementById('docModal').classList.add('active');
+            await loadDocPage();
+        }
+
+        async function loadDocPage() {
+            try {
+                const r = await fetch(`/api/screenplay-kb/document?name=${encodeURIComponent(currentDocName)}&page=${currentDocPage}`);
+                const d = await r.json();
+
+                if (!d.success) {
+                    document.getElementById('docModalBody').innerHTML = `<div class="empty-state">${d.error}</div>`;
+                    return;
+                }
+
+                const data = d.data;
+                document.getElementById('docModalTitle').textContent = data.name;
+
+                if (data.total_chunks === 0) {
+                    document.getElementById('docModalBody').innerHTML = '<div class="empty-state">该文档没有可检索的文字内容（可能需要 OCR）</div>';
+                    document.getElementById('docPageInfo').textContent = `状态：${data.status}`;
+                    return;
+                }
+
+                let html = '';
+                if (data.source_exists !== undefined) {
+                    html += `<div style="font-size:11px;color:#6b7280;margin-bottom:12px">路径：${escapeHtml(data.path)} | 原文状态：${data.source_exists ? '可打开' : '未找到原文件'}</div>`;
+                }
+                for (const chunk of data.chunks) {
+                    html += `<div class="chunk-block">`;
+                    html += `<div class="chunk-meta">页码 ${chunk.page} · 分块 ${chunk.chunk_no}</div>`;
+                    html += escapeHtml(chunk.text);
+                    html += `</div>`;
+                }
+                document.getElementById('docModalBody').innerHTML = html;
+                document.getElementById('docPageInfo').textContent = `第 ${currentDocPage + 1} / ${data.total_pages} 页（共 ${data.total_chunks} 分块）`;
+
+                document.getElementById('docPrevBtn').disabled = currentDocPage === 0;
+                document.getElementById('docNextBtn').disabled = currentDocPage >= data.total_pages - 1;
+            } catch (e) {
+                document.getElementById('docModalBody').innerHTML = `<div class="empty-state">加载失败：${e}</div>`;
+            }
+        }
+
+        function docPrev() {
+            if (currentDocPage > 0) {
+                currentDocPage--;
+                loadDocPage();
+            }
+        }
+
+        function docNext() {
+            currentDocPage++;
+            loadDocPage();
+        }
+
+        function closeDocModal() {
+            document.getElementById('docModal').classList.remove('active');
+        }
+
+        // 刷新索引
+        let refreshPollTimer = null;
+
+        async function refreshIndex() {
+            const btn = document.getElementById('btnRefreshIndex');
+            const statusDiv = document.getElementById('refreshStatus');
+            btn.textContent = '↻ 索引中...';
+            btn.style.pointerEvents = 'none';
+            statusDiv.style.display = 'block';
+            statusDiv.textContent = '正在启动索引任务...';
+
+            try {
+                const r = await fetch('/api/screenplay-kb/refresh-index', { method: 'POST' });
+                const d = await r.json();
+                if (!d.success) {
+                    statusDiv.textContent = '启动失败：' + d.error;
+                    btn.textContent = '↻ 刷新索引';
+                    btn.style.pointerEvents = '';
+                    return;
+                }
+
+                const taskId = d.data.task_id;
+                statusDiv.textContent = '索引更新中（可能需要数分钟）...';
+
+                refreshPollTimer = setInterval(async () => {
+                    try {
+                        const sr = await fetch(`/api/screenplay-kb/refresh-status/${taskId}`);
+                        const sd = await sr.json();
+                        if (!sd.success) return;
+                        const task = sd.data;
+                        if (task.status === 'done') {
+                            clearInterval(refreshPollTimer);
+                            refreshPollTimer = null;
+                            const lines = (task.output || '').trim().split('\n').slice(-4).join(' | ');
+                            statusDiv.textContent = '索引完成：' + (lines || 'OK');
+                            btn.textContent = '↻ 刷新索引';
+                            btn.style.pointerEvents = '';
+                            loadInfo();
+                        } else if (task.status === 'failed') {
+                            clearInterval(refreshPollTimer);
+                            refreshPollTimer = null;
+                            statusDiv.textContent = '索引失败：' + (task.error || '').slice(0, 200);
+                            btn.textContent = '↻ 刷新索引';
+                            btn.style.pointerEvents = '';
+                        } else {
+                            statusDiv.textContent = '索引更新中...（' + new Date().toLocaleTimeString() + '）';
+                        }
+                    } catch (e) { /* keep polling */ }
+                }, 3000);
+            } catch (e) {
+                statusDiv.textContent = '请求失败：' + e;
+                btn.textContent = '↻ 刷新索引';
+                btn.style.pointerEvents = '';
+            }
+        }
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        document.getElementById('btnSearch').addEventListener('click', doSearch);
+        document.getElementById('btnExportCard').addEventListener('click', exportCard);
+        document.getElementById('btnRefreshIndex').addEventListener('click', refreshIndex);
+        document.getElementById('question').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) doSearch();
+        });
+
+        // 弹窗点击外部关闭
+        document.getElementById('docModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeDocModal();
+        });
+        document.getElementById('cardModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeCardModal();
+        });
+
+        loadInfo();
+    </script>
+</body>
+</html>

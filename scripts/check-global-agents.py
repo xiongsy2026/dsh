@@ -21,11 +21,11 @@ import sys
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 GLOBAL = pathlib.Path(r"C:\Users\Administrator\AppData\Roaming\dsh-desktop\harness\AGENTS.md")
-WS = pathlib.Path(r"C:\dsh\agents.md")
+WS = pathlib.Path(os.path.join(WS, r"agents.md"))
 KERNEL = pathlib.Path(
     r"C:\Users\Administrator\AppData\Local\Programs\DSH Desktop\resources\app\node_modules"
     r"\@deepseek-ai\dsh-agent-instructions\lib\index.js")
-BUNDLE = pathlib.Path(r"C:\dsh\weeksir-skills\AGENTS.global.md")
+BUNDLE = pathlib.Path(os.path.join(WS, r"weeksir-skills\AGENTS.global.md"))
 out = []
 
 

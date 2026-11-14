@@ -1,12 +1,14 @@
 # ADR：统一流水线服务（单端口多流水线网关）
 
-- 状态：已接受（Accepted）· 决策先行、实施分期
-- 日期：2026-10-01
+- 状态：🔴 **部分作废（2026-10-09 改判）** —— `:8000` 前端合并方案作废，改判依据见 `docs/ADR-input-form-single-port.md` §2/§5.1（引擎页面不再给客户看 ⇒ base-path 改造/a2wsgi/root_path 三件事一件都不必做；要收敛的是"交互面端口数"，收敛到 8100 一口）。
+  **仍有效**：本文的 **Gate 0 三条强制门禁**（只绑环回 / 执行型端点鉴权+只读 / 生成计费在服务端）与"收敛≠安全"那句 —— 一条都没被本改判削弱。
+- ~~状态：已接受（Accepted）· 决策先行、实施分期~~
+- 日期：2026-10-01（改判 2026-10-09）
 - 决策者：产品
 - 相关：[[video-ui]] [[super-clone-hypit-pipeline]] [[omni-delivery-contract]] [[dsh-stage-ui-architecture]] `docs/RELEASE.md`
 
 ## 背景 / 问题
-每条流水线各自一个 Web 端口：video-ui(omni)=8765、D:\video-skill(super-clone+hypit)=8090、model_admin=8100、hypit studio=5179。再加流水线就再+端口，导致：
+每条流水线各自一个 Web 端口：video-ui(omni)=8765、backend(super-clone+hypit)=8090、model_admin=8100、hypit studio=5179。再加流水线就再+端口，导致：
 - pipeline-view 右栏 iframe 要硬编码每个端口；
 - 每加一条线要处理一次 CORS；
 - 谁挂了/哪个端口是啥全靠人肉记；
@@ -35,19 +37,19 @@
 - 前端资源/接口一律走**相对路径**或运行时注入的 `<base>` 前缀（`<base>/api`、`<base>/static`、`<base>/files`）。
 - Flask 侧：设 `SCRIPT_NAME`（ProxyFix/`DispatcherMiddleware`）；FastAPI 侧：设 `root_path`。
 - 后端返回给前端的 URL（如 video-ui 的 `/files/...`、`/api/...`）要带前缀或用相对。
-> 现状 video-ui `app.js` 用 `/api /static /files` 绝对路径、D:\video-skill 前端同理——**这是迁移的主要工作量**，一次改对、以后新线沿用同一约定即一劳永逸。
+> 现状 video-ui `app.js` 用 `/api /static /files` 绝对路径、backend 前端同理——**这是迁移的主要工作量**，一次改对、以后新线沿用同一约定即一劳永逸。
 
 ## 迁移分阶段
 > ⚠️ 2026-10-01 静态核实推翻了原"试点 video-ui 先行"：**video-ui 才是最重的一个**（Flask 要 a2wsgi + 前端 37 处绝对路径），**hypit 最轻**（纯 FastAPI + 仅 11 处），故改为 **hypit 先行试点**。证据见下「可行性验证」。
 1. **立约定**（本 ADR）：网关 :8000 + 每线一前缀 + 前端 base-path 感知。
-2. **试点 hypit（改此）**：给 D:\video-skill 建最小网关 `gateway.py`(:8000)，`include_router(hypit_router, prefix="/hypit")` → 改 `frontend/hypit.html` 绝对路径为 base-path 感知（`resolveUrl()`）→ smoke test 页面/静态/api/CORS(应同源免)。已 TestClient 预验（见「可行性验证」），暂存件在 `C:\dsh\scratch\gateway-pilot\`（待 D: 腾空间落回，见 `APPLY.md`）。
+2. **试点 hypit（改此）**：给 backend 建最小网关 `gateway.py`(:8000)，`include_router(hypit_router, prefix="/hypit")` → 改 `frontend/hypit.html` 绝对路径为 base-path 感知（`resolveUrl()`）→ smoke test 页面/静态/api/CORS(应同源免)。已 TestClient 预验（见「可行性验证」），暂存件在 `C:\dsh\scratch\gateway-pilot\`（待 D: 腾空间落回，见 `APPLY.md`）。
 3. **plugin + skill 对齐**：pipeline-view 的 Hypit tab 指 `:8000/hypit/hypit`、门控 fetch `:8000/hypit/api/hypit/projects`；hypit-pipeline monitor-contract 端点前缀同步。
 4. **再迁 video-ui(omni)**：`a2wsgi` 挂 Flask + 改 app.js 35 处 + templates 2 处 → `:8000/omni`（这次才碰 a2wsgi 那个未验项）。
-5. **迁 clone + admin**：给 D:\video-skill 设 root_path → `:8000/clone`、`:8000/admin`（可选）。
+5. **迁 clone + admin**：给 backend 设 root_path → `:8000/clone`、`:8000/admin`（可选）。
 6. **下线旧端口**：8765/8090 停独立暴露，只经 :8000。新流水线按约定直接加一个 mount。
 
 ## 可行性验证（2026-10-01·静态核实·未跑起来）
-针对"能否拿 hypit 当第一试点"，查 `D:\video-skill` 得证：
+针对"能否拿 hypit 当第一试点"，查 `backend` 得证：
 - **`hypit_router` 对主 app 零反向依赖**：`backend/services/hypit_workspace.py` 只 `from config import settings`（:19），不 `import app`、不碰 `lifespan`/`OUTPUT_DIR`（grep 无命中）→ 可单独 import 进新网关、**不拖 app.py 那 11848 行 super-clone**。
 - `WORKSPACE` 文件相对路径（`hypit_workspace.py:31`），换挂载点无影响；密钥 `hypit_agent.py:44-45` import 期从 `settings` 读，网关同仓库直接可用，**不新增密钥面**。
 - **改动面 = `frontend/hypit.html` 仅 11 处 `/api/hypit/{env,productions,upload,file,projects,studio,agent}` 绝对路径**（无外链 JS/CSS）。⚠️ `<base href>` 对前导 `/` 的绝对路径无效 → 须真去掉前导斜杠改相对（或注 root_path），不能用 `<base>` 偷懒。
@@ -82,4 +84,4 @@
 - [ ] 网关进程纳入 launcher / 发版（见 `docs/RELEASE.md`）。
 
 ## 实施时机
-**决策更新（2026-10-01）**：不再"整体先不动"，改为 **hypit 试点先行**（成本最低、能顺带验证 mount/root_path/同源免CORS 三件事）。动手前提本 ADR 已把方案与风险写清；实施 = 新建 `D:\video-skill\gateway.py` + 改 `frontend/hypit.html` 11 处 + 重启 + pipeline-view/skill 对齐。**video-ui 的 a2wsgi 重改造仍排在其后单独做。**
+**决策更新（2026-10-01）**：不再"整体先不动"，改为 **hypit 试点先行**（成本最低、能顺带验证 mount/root_path/同源免CORS 三件事）。动手前提本 ADR 已把方案与风险写清；实施 = 新建 `backend/gateway.py` + 改 `frontend/hypit.html` 11 处 + 重启 + pipeline-view/skill 对齐。**video-ui 的 a2wsgi 重改造仍排在其后单独做。**

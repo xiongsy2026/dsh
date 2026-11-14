@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>爆款复刻 · 动作迁移</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #6c3ce0 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 440px; min-width: 360px; background: #16162a; border-right: 1px solid #2a2a44; padding: 24px; overflow-y: auto; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot-required { background: #ef4444; }
+        .dot-optional { background: #fbbf24; }
+        .upload-card { background: #1e1e36; border: 2px dashed #3a3a5c; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px; position: relative; }
+        .upload-card:hover { border-color: #6c3ce0; background: #22223e; }
+        .upload-card.has-file { border-color: #22c55e; border-style: solid; }
+        .upload-card input[type="file"] { display: none; }
+        .upload-card .icon { font-size: 2.2em; margin-bottom: 6px; }
+        .upload-card .label { font-size: .9em; color: #aaa; }
+        .upload-card .filename { margin-top: 8px; font-size: .82em; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .upload-card .preview-img { max-width: 100%; max-height: 180px; border-radius: 8px; margin-top: 8px; object-fit: contain; }
+        .upload-card .preview-video { max-width: 100%; max-height: 220px; border-radius: 8px; margin-top: 8px; object-fit: contain; background: #000; }
+        .topbar-right { display: flex; gap: 10px; }
+        .new-task-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; }
+        .new-task-btn:hover { background: rgba(255,255,255,.28); }
+        .product-preview-grid { display: none; margin-top: 8px; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+        .product-preview-item { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: #1e1e36; border: 1px solid #2a2a5c; }
+        .product-preview-item img { width: 100%; height: 100%; object-fit: cover; }
+        .product-preview-item .remove-btn { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,.7); color: #fff; border: none; cursor: pointer; font-size: .72em; display: flex; align-items: center; justify-content: center; }
+        .product-preview-item .reference-number { position: absolute; bottom: 2px; left: 2px; background: rgba(108,60,224,.85); color: #fff; font-size: .68em; padding: 1px 6px; border-radius: 4px; }
+        .text-field { width:100%; box-sizing:border-box; margin-bottom:16px; padding:12px 14px; background:#1e1e36; border:1px solid #3a3a5c; border-radius:8px; color:#fff; font-size:.95em; outline:none; }
+        .text-field:focus { border-color:#6c3ce0; }
+        .split-mode-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .split-mode-option { cursor: pointer; display: block; }
+        .split-mode-option input[type="radio"] { display: none; }
+        .split-mode-card { padding: 10px 12px; background: #1e1e36; border: 1px solid #3a3a5c; border-radius: 8px; transition: all .2s; }
+        .split-mode-option input[type="radio"]:checked + .split-mode-card { border-color: #6c3ce0; background: #25254a; box-shadow: 0 0 0 1px #6c3ce0; }
+        .split-mode-title { font-size: .92em; font-weight: 600; color: #e0e0f0; margin-bottom: 4px; }
+        .split-mode-desc { font-size: .78em; color: #8888aa; line-height: 1.4; }
+        .run-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer; background: linear-gradient(90deg, #6c3ce0, #3b82f6); color: #fff; transition: all .2s; letter-spacing: 1px; }
+        .run-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,60,224,.4); }
+        .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .run-btn.running { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+
+        .history-section { margin-top: 20px; }
+        .history-item { display:flex; align-items:center; gap:10px; padding:10px 12px; background:#1a1a30; border-radius:8px; margin-bottom:8px; cursor:pointer; transition:all .2s; border:1px solid transparent; }
+        .history-item:hover { border-color:#6c3ce0; }
+        .history-item.active { border-color:#3b82f6; background:#1a1a3a; }
+        .history-item .h-info { flex:1; min-width:0; }
+        .history-item .h-title { font-size:.82em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .history-item .h-meta { font-size:.7em; color:#666; margin-top:2px; }
+        .history-item .h-status { font-size:.7em; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+        .h-status.idle, .h-status.running, .h-status.awaiting_review { background:#1e3a5f; color:#60a5fa; }
+        .h-status.success { background:#065f46; color:#6ee7b7; }
+        .h-status.failed { background:#7f1d1d; color:#fca5a5; }
+        .h-status.unknown { background:#3a3a5c; color:#aaa; }
+        .history-item .h-thumb { width:40px; height:40px; border-radius:6px; object-fit:cover; background:#2a2a44; flex-shrink:0; }
+        .history-item .h-shots { font-size:.68em; color:#a78bfa; background:rgba(108,60,224,.15); padding:1px 6px; border-radius:8px; }
+        .history-item .h-resume { font-size:.7em; padding:3px 10px; border-radius:10px; background:#1e3a5f; color:#60a5fa; cursor:pointer; border:none; white-space:nowrap; }
+        .history-item .h-resume:hover { background:#2a4a6f; }
+
+        /* 历史详情回显面板（中间产物） */
+        .history-detail-panel { background:#16162a; border-radius:14px; padding:24px; margin-bottom:20px; }
+        .hd-header { display:flex; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+        .hd-title { font-size:1.1em; font-weight:600; }
+        .hd-section { margin-bottom:20px; }
+        .hd-section-title { font-size:.88em; font-weight:600; color:#a78bfa; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+        .hd-section-title .hd-count { font-size:.74em; color:#888; font-weight:400; }
+        .hd-input-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap:12px; }
+        .hd-input-card { background:#1e1e36; border:1px solid #2a2a5c; border-radius:10px; overflow:hidden; }
+        .hd-input-card img, .hd-input-card video { width:100%; height:140px; object-fit:cover; display:block; background:#0f0f1a; }
+        .hd-input-card .hd-label { padding:6px 10px; font-size:.72em; color:#888; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .hd-kf-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap:12px; }
+        .hd-kf-item { background:#1e1e36; border:1px solid #2a2a5c; border-radius:10px; overflow:hidden; }
+        .hd-kf-pair { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#2a2a5c; }
+        .hd-kf-pair .hd-kf-box { background:#0f0f1a; padding:6px; text-align:center; }
+        .hd-kf-pair img { max-width:100%; max-height:160px; object-fit:contain; border-radius:4px; }
+        .hd-kf-pair .hd-kf-lbl { font-size:.68em; color:#666; margin-bottom:3px; }
+        .hd-kf-shot { padding:6px 10px; font-size:.74em; color:#fbbf24; background:#16162a; border-bottom:1px solid #2a2a5c; }
+        .hd-final-video { width:100%; max-height:400px; border-radius:10px; background:#000; }
+        .hd-empty { color:#555; font-size:.82em; padding:14px; text-align:center; background:#1a1a30; border-radius:8px; }
+        .hd-close { margin-left:auto; padding:4px 14px; border:1px solid #3a3a5c; background:#1e1e36; color:#aaa; border-radius:8px; cursor:pointer; font-size:.82em; }
+        .hd-close:hover { border-color:#f87171; color:#f87171; }
+
+        .output-panel { flex: 1; padding: 24px; overflow-y: auto; background: #0f0f1a; }
+        .status-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+        .status-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .status-badge { padding: 4px 16px; border-radius: 20px; font-size: .85em; font-weight: 600; }
+        .badge-idle { background: #2a2a44; color: #888; }
+        .badge-running { background: #1e3a5f; color: #60a5fa; animation: pulse 1.5s infinite; }
+        .badge-awaiting { background: #78350f; color: #fbbf24; animation: pulse 1.8s infinite; }
+        .badge-completed { background: #14532d; color: #4ade80; }
+        .badge-failed { background: #451a1a; color: #f87171; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+        .status-step { font-size: .9em; color: #aaa; }
+        .status-error { margin-top: 10px; padding: 10px 14px; background: #451a1a; border-radius: 8px; color: #fca5a5; font-size: .85em; }
+        .retry-btn { margin-top: 10px; padding: 8px 18px; border-radius: 8px; background: #1e3a5f; color: #60a5fa; border: 1px solid #2a4a6f; cursor: pointer; font-size: .9em; font-weight: 600; transition: background .2s; }
+        .retry-btn:hover { background: #2a4a6f; }
+        .retry-btn:disabled { opacity: .6; cursor: not-allowed; }
+        .retry-hint { margin-top: 6px; font-size: .75em; color: #888; }
+
+        .steps-bar { display: flex; gap: 4px; margin-bottom: 12px; }
+        .step-item { flex: 1; height: 6px; border-radius: 3px; background: #2a2a44; transition: background .3s; }
+        .step-item.active { background: #3b82f6; }
+        .step-item.done { background: #22c55e; }
+        .step-labels { display: flex; gap: 4px; margin-bottom: 16px; font-size: .72em; color: #666; }
+        .step-labels span { flex: 1; text-align: center; }
+
+        .log-box { background: #0d0d1a; border-radius: 10px; padding: 14px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: .78em; color: #8b8bab; max-height: 220px; overflow-y: auto; line-height: 1.7; }
+        .log-box .log-line { white-space: pre-wrap; word-break: break-all; }
+        .log-line.warn { color: #fbbf24; }
+        .log-line.err { color: #f87171; }
+        .log-line.ok { color: #4ade80; }
+
+        .review-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; border: 1px solid #78350f; }
+        .review-title { font-size: 1.1em; font-weight: 600; margin-bottom: 6px; color: #fbbf24; }
+        .review-desc { color: #aaa; font-size: .85em; margin-bottom: 16px; }
+        .review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+        .kf-card { background: #1e1e36; border: 1px solid #2a2a5c; border-radius: 12px; overflow: hidden; transition: all .2s; }
+        .kf-card:hover { border-color: #6c3ce0; }
+        .kf-card.no-product { border-color: #14532d; }
+        .kf-card.blocked { border-color: #7f1d1d; }
+        .kf-card-header { padding: 10px 14px; display: flex; align-items: center; gap: 8px; background: #16162a; border-bottom: 1px solid #2a2a5c; }
+        .kf-shot { font-weight: 700; color: #fff; }
+        .kf-time { font-size: .74em; color: #fbbf24; background: rgba(251,191,36,.1); padding: 2px 8px; border-radius: 8px; font-family: ui-monospace,monospace; }
+        .kf-tag { font-size: .72em; padding: 2px 8px; border-radius: 10px; margin-left: auto; }
+        .kf-tag.product { background: rgba(108,60,224,.2); color: #a78bfa; }
+        .kf-tag.no-product { background: rgba(20,83,45,.3); color: #6ee7b7; }
+        .kf-tag.blocked { background: rgba(127,29,29,.3); color: #fca5a5; }
+        .kf-images { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #2a2a5c; }
+        .kf-img-box { background: #0f0f1a; padding: 8px; text-align: center; }
+        .kf-img-box img { max-width: 100%; max-height: 200px; object-fit: contain; border-radius: 6px; display: block; margin: 0 auto; }
+        .kf-img-label { font-size: .72em; color: #888; margin-bottom: 4px; }
+        .kf-actions { padding: 12px 14px; display: flex; gap: 8px; }
+        .kf-btn { flex: 1; padding: 8px 12px; border: 1px solid #3a3a5c; background: #1e1e36; color: #e0e0e0; border-radius: 8px; cursor: pointer; font-size: .82em; transition: all .2s; }
+        .kf-btn:hover:not(:disabled) { border-color: #6c3ce0; background: #22223e; }
+        .kf-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .kf-btn.redo { border-color: #f59e0b; color: #fbbf24; }
+        .kf-btn.redo:hover:not(:disabled) { background: rgba(245,158,11,.1); }
+        .kf-btn.redo.running { background: rgba(245,158,11,.15); }
+
+        .approve-bar { display: flex; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px dashed #3a3a5c; }
+        .approve-btn { padding: 12px 24px; background: linear-gradient(90deg, #10b981, #059669); color: #fff; border: none; border-radius: 10px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all .2s; }
+        .approve-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(16,185,129,.4); }
+        .approve-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        .final-panel { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; border: 1px solid #14532d; }
+        .final-title { font-size: 1.1em; font-weight: 600; margin-bottom: 14px; color: #4ade80; }
+        .final-video { width: 100%; max-height: 520px; border-radius: 10px; background: #000; }
+        .final-link { display: inline-block; margin-top: 10px; color: #60a5fa; text-decoration: none; font-size: .85em; }
+        .final-link:hover { text-decoration: underline; }
+
+        .empty-state { text-align: center; padding: 60px 20px; color: #555; }
+        .empty-state .icon { font-size: 3em; margin-bottom: 12px; }
+
+        /* 单 shot 重做时的产品图替换弹层 */
+        .redo-modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .redo-modal-mask.show { display: flex; }
+        .redo-modal { background: #16162a; border-radius: 16px; max-width: 480px; width: 100%; border: 1px solid #2a2a5c; padding: 24px; }
+        .redo-modal h3 { color: #fff; margin-bottom: 14px; }
+        .redo-modal .modal-desc { color: #aaa; font-size: .85em; margin-bottom: 16px; line-height: 1.6; }
+        .redo-modal .modal-actions { display: flex; gap: 12px; margin-top: 20px; }
+        .redo-modal .modal-actions button { flex: 1; padding: 10px; border-radius: 8px; border: none; cursor: pointer; font-size: .95em; font-weight: 600; }
+        .btn-primary { background: #6c3ce0; color: #fff; }
+        .btn-secondary { background: #2a2a44; color: #e0e0e0; border: 1px solid #3a3a5c !important; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div style="display:flex;align-items:center;gap:14px;">
+            <a class="back-btn" href="/">← 首页</a>
+            <h1>爆款复刻 · 动作迁移</h1>
+            <span class="tag">分阶段审核</span>
+        </div>
+        <div class="topbar-right">
+            <button class="new-task-btn" id="new-task-btn" title="清空当前状态，开始新任务">➕ 新建任务</button>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- 左侧输入面板 -->
+        <div class="input-panel">
+            <div class="section-title"><span class="dot dot-required"></span>参考视频（必选）</div>
+            <div class="upload-card" id="video-card" onclick="document.getElementById('video-input').click()">
+                <div class="icon">🎬</div>
+                <div class="label">点击上传参考视频</div>
+                <input type="file" id="video-input" accept="video/*">
+                <div class="filename" id="video-name"></div>
+                <video class="preview-video" id="video-preview" style="display:none;" controls muted onclick="event.stopPropagation()"></video>
+            </div>
+
+            <div class="section-title"><span class="dot dot-required"></span>产品名称（必填）</div>
+            <input class="text-field" id="product-name-input" placeholder="例如：蓝色背心袋" autocomplete="off">
+
+            <div class="section-title"><span class="dot dot-required"></span>新产品图（必选，最多5张）</div>
+            <div class="upload-card" id="product-card" onclick="document.getElementById('product-input').click()">
+                <div class="icon">📦</div>
+                <div class="label">点击上传新产品图（可多选）</div>
+                <input type="file" id="product-input" accept="image/*" multiple>
+                <div class="filename" id="product-name"></div>
+            </div>
+            <div class="product-preview-grid" id="product-preview-grid"></div>
+
+            <div class="section-title"><span class="dot dot-optional"></span>分镜切分模式</div>
+            <div class="split-mode-group" id="split-mode-group">
+                <label class="split-mode-option" data-mode="scene_cut">
+                    <input type="radio" name="split-mode" value="scene_cut" checked>
+                    <div class="split-mode-card">
+                        <div class="split-mode-title">🎬 镜头转场切分</div>
+                        <div class="split-mode-desc">按镜头切换/景别变化切分，允许复合动作，时长2-6s。适用：固定机位连续动作</div>
+                    </div>
+                </label>
+                <label class="split-mode-option" data-mode="action_grained">
+                    <input type="radio" name="split-mode" value="action_grained">
+                    <div class="split-mode-card">
+                        <div class="split-mode-title">✂️ 细颗粒度动作切分</div>
+                        <div class="split-mode-desc">按产品形态变化/动作转折切分，每个shot单一原子动作，时长0.8-3s。适用：产品形态变化（折叠→展开等）</div>
+                    </div>
+                </label>
+                <label class="split-mode-option" data-mode="no_subject">
+                    <input type="radio" name="split-mode" value="no_subject">
+                    <div class="split-mode-card">
+                        <div class="split-mode-title">🖐️ 无人物模式（主体检测+光流）</div>
+                        <div class="split-mode-desc">无人物出镜场景：先用 LLM Vision 检测主体（手/地毯等）出现段，再用光流谷值精切动作子段（0.3-2s/段）。主体未出现段保留原视频，避免迁移穿模</div>
+                    </div>
+                </label>
+            </div>
+
+            <div class="section-title"><span class="dot dot-optional"></span>动作迁移模式</div>
+            <div class="split-mode-group" id="motion-mode-group">
+                <label class="split-mode-option" data-mode="multi">
+                    <input type="radio" name="motion-mode" value="multi" checked>
+                    <div class="split-mode-card">
+                        <div class="split-mode-title">🖼️ 多图迁移（V9，推荐）</div>
+                        <div class="split-mode-desc">主图+人脸+场景+全身 多参考图，锁定人物/衣服/背景一致性，避免产品穿模。慢但稳</div>
+                    </div>
+                </label>
+                <label class="split-mode-option" data-mode="single">
+                    <input type="radio" name="motion-mode" value="single">
+                    <div class="split-mode-card">
+                        <div class="split-mode-title">⚡ 单图迁移（AI App）</div>
+                        <div class="split-mode-desc">仅用主图，速度快，但易穿模（如单脚穿鞋变双脚）。适用：简单动作快速验证</div>
+                    </div>
+                </label>
+                <label class="split-mode-option" data-mode="hand">
+                    <input type="radio" name="motion-mode" value="hand">
+                    <div class="split-mode-card">
+                        <div class="split-mode-title">🖐️ 手部动作迁移（Wan21 SCAIL2）</div>
+                        <div class="split-mode-desc">仅切换 Step4 动作迁移工作流为 SCAIL2（rhtv 国际站），不干涉分镜规则。分镜切分按上方选择执行（镜头转场/动作细分/无人物均可）。image=替换后关键帧，video=原视频子段</div>
+                    </div>
+                </label>
+            </div>
+
+            <button class="run-btn" id="start-btn">🚀 启动复刻</button>
+
+            <div class="history-section">
+                <div class="section-title" style="margin-top:24px;"><span class="dot dot-optional"></span>历史任务</div>
+                <div id="history-list">
+                    <div style="color:#555; font-size:.82em; text-align:center; padding:20px;">暂无历史</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧输出面板 -->
+        <div class="output-panel">
+            <!-- 历史详情回显面板（点击历史任务时展示中间产物） -->
+            <div class="history-detail-panel" id="history-detail-panel" style="display:none;"></div>
+
+            <div class="status-panel" id="status-panel" style="display:none;">
+                <div class="status-header">
+                    <span class="status-badge badge-idle" id="status-badge">空闲</span>
+                    <span class="status-step" id="status-step"></span>
+                </div>
+                <div class="steps-bar" id="steps-bar">
+                    <div class="step-item" data-step="1"></div>
+                    <div class="step-item" data-step="2"></div>
+                    <div class="step-item" data-step="3"></div>
+                    <div class="step-item" data-step="4"></div>
+                    <div class="step-item" data-step="5"></div>
+                </div>
+                <div class="step-labels">
+                    <span>分镜解析</span><span>切片抽帧</span><span>产品替换</span><span>动作迁移</span><span>视频拼接</span>
+                </div>
+                <div class="status-error" id="status-error" style="display:none;"></div>
+                <div id="retry-panel" style="display:none;">
+                    <button class="retry-btn" id="retry-btn">从失败步骤重试</button>
+                    <div class="retry-hint">已完成的步骤将自动跳过，仅重跑失败的那一步</div>
+                </div>
+                <div class="log-box" id="log-box" style="margin-top:12px;"></div>
+            </div>
+
+            <!-- 待审区 -->
+            <div class="review-panel" id="review-panel" style="display:none;">
+                <div class="review-title">⚠️ 关键帧替换待审核</div>
+                <div class="review-desc">以下是 Step3 替换后的关键帧，对比原帧。可对单个分镜重做替换（支持换产品图），确认无误后点击「通过审核」进入动作迁移阶段。</div>
+                <div class="batch-bar" id="batch-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;background:#1a1a2e;border:1px solid #2a2a5c;border-radius:8px;flex-wrap:wrap;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:.85em;color:#bbb;cursor:pointer;">
+                        <input type="checkbox" id="batch-select-all" style="cursor:pointer;">
+                        全选
+                    </label>
+                    <span id="batch-count" style="font-size:.82em;color:#888;">已选 0 个</span>
+                    <button class="batch-redo-btn" id="batch-redo-btn" disabled style="padding:6px 14px;background:#f59e0b;color:#000;border:none;border-radius:6px;cursor:pointer;font-size:.85em;font-weight:600;">🔄 批量重做选中</button>
+                    <span style="font-size:.78em;color:#666;flex:1;">提示：勾选多个分镜后一键批量重做，后台并行执行 LLM 分析+精准替换（并发≤2）</span>
+                </div>
+                <div class="product-ref-section" id="product-ref-section" style="margin-bottom:16px;display:none;">
+                    <div style="font-size:.85em;color:#888;margin-bottom:6px;">📦 产品图（用于替换）</div>
+                    <div id="product-ref-grid" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+                </div>
+                <div class="review-grid" id="review-grid"></div>
+                <div class="approve-bar">
+                    <button class="approve-btn" id="approve-btn">✓ 通过审核，执行动作迁移</button>
+                </div>
+            </div>
+
+            <!-- Step4 动作迁移进度面板 -->
+            <div class="motion-progress-panel" id="motion-progress-panel" style="display:none;">
+                <div class="review-title">🏃 动作迁移进行中（RunningHub）</div>
+                <div class="review-desc" id="motion-progress-desc">逐 shot 提交 RunningHub 动作迁移，已完成的片段会显示缩略图。</div>
+                <div class="motion-grid" id="motion-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:12px;"></div>
+            </div>
+
+            <!-- 动作迁移片段审核面板（after_step4） -->
+            <div class="review-panel" id="motion-review-panel" style="display:none;">
+                <div class="review-title">🎬 动作迁移片段待审核</div>
+                <div class="review-desc">以下是 Step4 动作迁移后的各分镜片段。对不满意的片段可单独重做（后台运行，可立即关闭弹窗），全部确认后点击「通过审核，合并视频」。</div>
+                <div class="motion-grid" id="motion-review-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:12px;"></div>
+                <div class="approve-bar">
+                    <button class="approve-btn" id="approve-motion-btn">✓ 通过审核，合并视频</button>
+                </div>
+            </div>
+
+            <!-- 最终结果 -->
+            <div class="final-panel" id="final-panel" style="display:none;">
+                <div class="final-title">✅ 复刻完成</div>
+                <video class="final-video" id="final-video" controls></video>
+                <a class="final-link" id="final-link" target="_blank" download>↓ 下载最终视频</a>
+            </div>
+
+            <!-- 空状态 -->
+            <div class="empty-state" id="empty-state">
+                <div class="icon">🎞️</div>
+                <div>上传爆款视频与新产品图，启动复刻</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重做弹层（单 shot / 批量共用） -->
+    <div class="redo-modal-mask" id="redo-modal">
+        <div class="redo-modal">
+            <h3 id="redo-modal-title">重做 Shot <span id="redo-shot-num"></span> 关键帧替换</h3>
+            <div class="modal-desc" id="redo-modal-desc">可选择性上传新的产品图覆盖默认产品图，重新调用 image2 替换该分镜关键帧。</div>
+            <div class="upload-card" id="redo-product-card" style="margin-bottom:12px;" onclick="document.getElementById('redo-product-input').click()">
+                <div class="icon">🖼️</div>
+                <div class="label" id="redo-product-label">使用默认产品图（点击替换）</div>
+                <input type="file" id="redo-product-input" accept="image/*">
+                <img class="preview-img" id="redo-product-preview" style="display:none;" onclick="event.stopPropagation()">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" id="redo-cancel">取消</button>
+                <button class="btn-primary" id="redo-confirm">开始重做</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ─────────────────────────────────────────────────────
+// 状态
+// ─────────────────────────────────────────────────────
+const state = {
+    videoPath: "",          // 后端绝对路径
+    productPaths: [],       // 后端绝对路径数组（多选）
+    productName: "",
+    taskId: "",
+    status: "idle",
+    logCount: 0,
+    pollTimer: null,
+    redoShotNum: null,        // 单 shot 模式
+    redoShotNums: null,      // 批量模式：[1,2,5,...]
+    redoProductPath: null,
+};
+
+// ─────────────────────────────────────────────────────
+// 工具
+// ─────────────────────────────────────────────────────
+function $(id) { return document.getElementById(id); }
+
+function fileUrl(absPath) {
+    if (!absPath) return "";
+    return `/api/result/file?path=${encodeURIComponent(absPath)}`;
+}
+
+function fmtTime(ts) {
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    const pad = n => String(n).padStart(2, "0");
+    return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function statusLabel(s) {
+    return ({
+        idle: "空闲",
+        running: "运行中",
+        awaiting_review: "待审核",
+        success: "完成",
+        failed: "失败",
+    })[s] || s;
+}
+
+function statusBadgeClass(s) {
+    return ({
+        idle: "badge-idle",
+        running: "badge-running",
+        awaiting_review: "badge-awaiting",
+        success: "badge-completed",
+        failed: "badge-failed",
+    })[s] || "badge-idle";
+}
+
+// ─────────────────────────────────────────────────────
+// 上传：视频
+// ─────────────────────────────────────────────────────
+$("video-input").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    $("video-name").textContent = "上传中...";
+    try {
+        const r = await fetch("/api/upload/video", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.detail || "上传失败");
+        state.videoPath = d.file_path;
+        $("video-name").textContent = "✓ " + d.filename;
+        $("video-preview").src = `/uploads/${d.filename}`;
+        $("video-preview").style.display = "block";
+        $("video-card").classList.add("has-file");
+    } catch (err) {
+        $("video-name").textContent = "上传失败: " + err.message;
+    }
+});
+
+// ─────────────────────────────────────────────────────
+// 上传：产品图（多选，最多5张）
+// ─────────────────────────────────────────────────────
+function renderProductPreviewGrid() {
+    const grid = $("product-preview-grid");
+    grid.innerHTML = "";
+    state.productPaths.forEach((p, idx) => {
+        const item = document.createElement("div");
+        item.className = "product-preview-item";
+        item.innerHTML = `
+            <img src="${fileUrl(p)}">
+            <span class="reference-number">${idx + 1}</span>
+            <button class="remove-btn" data-idx="${idx}">✕</button>
+        `;
+        grid.appendChild(item);
+    });
+    grid.style.display = state.productPaths.length > 0 ? "grid" : "none";
+    $("product-name").textContent = state.productPaths.length > 0
+        ? `✓ 已上传 ${state.productPaths.length}/5 张`
+        : "";
+    $("product-card").classList.toggle("has-file", state.productPaths.length > 0);
+}
+
+$("product-input").addEventListener("change", async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    const remaining = 5 - state.productPaths.length;
+    const toUpload = files.slice(0, remaining);
+    if (files.length > remaining) {
+        alert(`最多5张，已上传${state.productPaths.length}张，本次仅添加前${remaining}张`);
+    }
+    $("product-name").textContent = "上传中...";
+    for (const file of toUpload) {
+        const fd = new FormData();
+        fd.append("file", file);
+        try {
+            const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+            const d = await r.json();
+            if (!d.success) throw new Error(d.detail || "上传失败");
+            state.productPaths.push(d.file_path);
+        } catch (err) {
+            console.error("上传失败", file.name, err);
+        }
+    }
+    e.target.value = "";  // 清空，便于再次选择
+    renderProductPreviewGrid();
+});
+
+// 产品图移除
+$("product-preview-grid").addEventListener("click", (e) => {
+    if (e.target.classList.contains("remove-btn")) {
+        const idx = parseInt(e.target.dataset.idx);
+        state.productPaths.splice(idx, 1);
+        renderProductPreviewGrid();
+    }
+});
+
+// ─────────────────────────────────────────────────────
+// 启动
+// ─────────────────────────────────────────────────────
+$("start-btn").addEventListener("click", async () => {
+    if (!state.videoPath) { alert("请先上传参考视频"); return; }
+    if (state.productPaths.length === 0) { alert("请先上传新产品图"); return; }
+    state.productName = $("product-name-input").value.trim();
+    if (!state.productName) { alert("请填写产品名称"); return; }
+
+    const btn = $("start-btn");
+    btn.disabled = true;
+    btn.classList.add("running");
+    btn.textContent = "启动中...";
+
+    try {
+        const r = await fetch("/api/replica-motion/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                video_path: state.videoPath,
+                product_image_paths: state.productPaths,
+                product_name: state.productName,
+                concurrency: 4,
+                split_mode: document.querySelector('input[name="split-mode"]:checked')?.value || "scene_cut",
+                motion_mode: document.querySelector('input[name="motion-mode"]:checked')?.value || "multi",
+            }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.success) throw new Error(d.detail || "启动失败");
+
+        state.taskId = d.task_id;
+        state.logCount = 0;
+        $("empty-state").style.display = "none";
+        $("status-panel").style.display = "block";
+        $("review-panel").style.display = "none";
+        $("final-panel").style.display = "none";
+        $("retry-panel").style.display = "none";
+        $("status-error").style.display = "none";
+        $("log-box").innerHTML = "";
+        // 隐藏历史区域 + 清空历史列表（旧失败记录已由后端清理，让新任务独占展示）
+        const histSection = document.querySelector(".history-section");
+        if (histSection) histSection.style.display = "none";
+        $("history-list").innerHTML = "";
+        $("history-detail-panel").style.display = "none";
+        btn.textContent = "任务运行中";
+        startPolling();
+    } catch (err) {
+        alert("启动失败: " + err.message);
+        btn.disabled = false;
+        btn.classList.remove("running");
+        btn.textContent = "启动复刻";
+    }
+});
+
+// ─────────────────────────────────────────────────────
+// 从失败步骤重试（断点续传，已完成的步骤自动跳过）
+// ─────────────────────────────────────────────────────
+$("retry-btn").addEventListener("click", async () => {
+    if (!state.taskId) return;
+    if (!confirm("确认从失败步骤重试？（已完成的步骤会自动跳过）")) return;
+    const btn = $("retry-btn");
+    btn.disabled = true;
+    btn.textContent = "重试中...";
+    try {
+        const r = await fetch(`/api/replica-motion/resume/${state.taskId}`, {method:"POST"});
+        const d = await r.json();
+        if (d.success) {
+            $("retry-panel").style.display = "none";
+            $("status-error").style.display = "none";
+            state.logCount = 0;
+            $("log-box").innerHTML = "";
+            startPolling();
+        } else {
+            alert(d.detail || "重试失败");
+            btn.disabled = false;
+            btn.textContent = "从失败步骤重试";
+        }
+    } catch (err) {
+        alert("重试请求失败: " + err.message);
+        btn.disabled = false;
+        btn.textContent = "从失败步骤重试";
+    }
+});
+
+// ─────────────────────────────────────────────────────
+// 轮询
+// ─────────────────────────────────────────────────────
+function startPolling() {
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    pollOnce();
+    state.pollTimer = setInterval(pollOnce, 2500);
+}
+
+async function pollOnce() {
+    if (!state.taskId) return;
+    try {
+        const [stRes, lgRes] = await Promise.all([
+            fetch(`/api/replica-motion/status/${state.taskId}`).then(r => r.json()),
+            fetch(`/api/replica-motion/logs/${state.taskId}`).then(r => r.json()),
+        ]);
+        renderStatus(stRes);
+        renderLogs(lgRes.logs || []);
+        if (stRes.status === "success" || stRes.status === "failed") {
+            clearInterval(state.pollTimer);
+            state.pollTimer = null;
+            const btn = $("start-btn");
+            btn.disabled = false;
+            btn.classList.remove("running");
+            btn.textContent = "启动复刻";
+            // 任务结束后恢复历史区域显示并刷新（旧失败记录已由后端清理）
+            const histSection = document.querySelector(".history-section");
+            if (histSection) histSection.style.display = "";
+            loadHistory();
+        }
+    } catch (e) { /* 忽略瞬时错误 */ }
+}
+
+// ─────────────────────────────────────────────────────
+// 渲染：状态
+// ─────────────────────────────────────────────────────
+function renderStatus(st) {
+    state.status = st.status;
+    const badge = $("status-badge");
+    badge.textContent = statusLabel(st.status);
+    badge.className = "status-badge " + statusBadgeClass(st.status);
+    $("status-step").textContent = st.step_name || "";
+
+    // 步骤条
+    const phase = st.phase || "";
+    const stepMap = { phase_1: 3, after_step3: 3, phase_2a: 4, after_step4: 4, phase_2b: 5, phase_2: 5, done: 5 };
+    const curStep = stepMap[phase] || (st.status === "success" ? 5 : 0);
+    document.querySelectorAll(".step-item").forEach((el, i) => {
+        const n = i + 1;
+        el.classList.remove("active", "done");
+        if (n < curStep) el.classList.add("done");
+        else if (n === curStep && st.status === "running") el.classList.add("active");
+        else if (n <= curStep && st.status === "success") el.classList.add("done");
+    });
+
+    // 错误
+    const errBox = $("status-error");
+    if (st.error) {
+        errBox.style.display = "block";
+        errBox.textContent = "❌ " + st.error;
+    } else {
+        errBox.style.display = "none";
+    }
+
+    // 失败时显示"从失败步骤重试"按钮
+    const retryPanel = $("retry-panel");
+    const retryBtn = $("retry-btn");
+    if (st.status === "failed" && state.taskId) {
+        retryPanel.style.display = "block";
+        retryBtn.disabled = false;
+        retryBtn.textContent = "从失败步骤重试";
+    } else {
+        retryPanel.style.display = "none";
+    }
+
+    // 关键帧审核区（after_step3，或在审核态后单 shot 重做进行中也保留显示）
+    const isStep3Reviewing = (st.status === "awaiting_review" && st.phase === "after_step3" && st.review);
+    const isStep3Redoing = (st.status === "running" && st.phase === "after_step3" && st.review);
+    if (isStep3Reviewing || isStep3Redoing) {
+        // hand 模式标记：禁用 redo 按钮（替换=产品图 copy，无重做意义）
+        window.__hand_mode = !!st.hand_mode;
+        renderReview(st.review);
+        $("review-panel").style.display = "block";
+    } else {
+        $("review-panel").style.display = "none";
+        window.__hand_mode = false;
+    }
+
+    // 动作迁移片段审核区（after_step4，或在审核态后单 shot 重做进行中也保留显示）
+    const motionReviewPanel = $("motion-review-panel");
+    const isStep4Reviewing = (st.status === "awaiting_review" && st.phase === "after_step4");
+    const isStep4Redoing = (st.status === "running" && st.phase === "after_step4" && (st.step4_progress || []).length);
+    if (isStep4Reviewing || isStep4Redoing) {
+        renderMotionReview(st.step4_progress || []);
+        motionReviewPanel.style.display = "block";
+    } else {
+        motionReviewPanel.style.display = "none";
+    }
+
+    // Step4 动作迁移进度面板（迁移中 phase_2a/phase_2b）
+    const motionPanel = $("motion-progress-panel");
+    if (st.phase === "phase_2a" || st.phase === "phase_2b" || st.phase === "phase_2" ||
+        (st.phase === "done" && st.step4_progress && st.step4_progress.length > 0)) {
+        renderMotionProgress(st.step4_progress || [], st.status);
+        motionPanel.style.display = "block";
+    } else {
+        motionPanel.style.display = "none";
+    }
+
+    // 最终视频
+    if (st.status === "success" && st.final_video) {
+        $("final-panel").style.display = "block";
+        const v = $("final-video");
+        const url = fileUrl(st.final_video);
+        if (v.src !== location.origin + url) {
+            v.src = url;
+        }
+        $("final-link").href = url;
+    } else {
+        $("final-panel").style.display = "none";
+    }
+}
+
+// ─────────────────────────────────────────────────────
+// 渲染：日志（增量）
+// ─────────────────────────────────────────────────────
+function renderLogs(logs) {
+    if (!logs || logs.length <= state.logCount) return;
+    const box = $("log-box");
+    for (let i = state.logCount; i < logs.length; i++) {
+        const line = logs[i] || "";
+        const div = document.createElement("div");
+        div.className = "log-line";
+        const lower = line.toLowerCase();
+        if (lower.includes("[fail") || lower.includes("error") || lower.includes("exception")) div.classList.add("err");
+        else if (lower.includes("[warn") || lower.includes("warn")) div.classList.add("warn");
+        else if (lower.includes("[phase") || lower.includes("完成") || lower.includes("success")) div.classList.add("ok");
+        div.textContent = line;
+        box.appendChild(div);
+    }
+    state.logCount = logs.length;
+    box.scrollTop = box.scrollHeight;
+}
+
+// ─────────────────────────────────────────────────────
+// 渲染：审核区
+// ─────────────────────────────────────────────────────
+function renderReview(review) {
+    const grid = $("review-grid");
+    grid.innerHTML = "";
+
+    // 渲染产品图（中间产物回显）
+    const prodGrid = $("product-ref-grid");
+    const prodSection = $("product-ref-section");
+    const prodUrls = review.product_image_urls || [];
+    if (prodUrls.length > 0) {
+        prodGrid.innerHTML = prodUrls.map(u =>
+            `<img src="${u}" style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #333;">`
+        ).join("");
+        prodSection.style.display = "block";
+    } else {
+        prodSection.style.display = "none";
+    }
+    const items = review.items || [];
+    items.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "kf-card";
+        if (item.is_no_product) card.classList.add("no-product");
+
+        const isBlocked = item.replaced && item.original &&
+            item.replaced === item.original; // 替换失败时回退到原帧
+        if (isBlocked && !item.is_no_product) card.classList.add("blocked");
+
+        const tagHtml = item.is_no_product
+            ? '<span class="kf-tag no-product">无产品</span>'
+            : (isBlocked ? '<span class="kf-tag blocked">替换失败·用原帧</span>'
+                          : '<span class="kf-tag product">有产品</span>');
+
+        // 分镜时间段标注（从几秒到几秒）
+        const tr = item.time_range || {};
+        const timeHtml = (tr.start || tr.end)
+            ? `<span class="kf-time">${tr.start || "?"} → ${tr.end || "?"}</span>`
+            : "";
+
+        const replacedUrl = fileUrl(item.replaced);
+        const origUrl = fileUrl(item.original);
+        const replacedHtml = item.replaced
+            ? `<img src="${replacedUrl}" loading="lazy">`
+            : '<div style="color:#555;font-size:.78em;padding:20px;">未生成</div>';
+        const origHtml = item.original
+            ? `<img src="${origUrl}" loading="lazy">`
+            : '<div style="color:#555;font-size:.78em;padding:20px;">无</div>';
+
+        // 可重做条件：非无产品 + 非 hand 模式
+        const canRedo = !item.is_no_product && !window.__hand_mode;
+        const checkboxHtml = canRedo
+            ? `<label class="kf-batch-check" style="display:flex;align-items:center;gap:4px;font-size:.78em;color:#bbb;cursor:pointer;margin-left:auto;" onclick="event.stopPropagation()">
+                  <input type="checkbox" class="batch-check-input" data-shot="${item.shot}" style="cursor:pointer;">
+                </label>`
+            : "";
+
+        card.innerHTML = `
+            <div class="kf-card-header">
+                <span class="kf-shot">Shot ${String(item.shot).padStart(2,"0")}</span>
+                ${timeHtml}
+                ${tagHtml}
+                ${checkboxHtml}
+            </div>
+            <div class="kf-images">
+                <div class="kf-img-box">
+                    <div class="kf-img-label">原帧</div>
+                    ${origHtml}
+                </div>
+                <div class="kf-img-box">
+                    <div class="kf-img-label">替换后</div>
+                    ${replacedHtml}
+                </div>
+            </div>
+            <div class="kf-actions">
+                ${item.is_no_product
+                    ? '<button class="kf-btn" disabled>无产品·跳过</button>'
+                    : (window.__hand_mode
+                        ? '<button class="kf-btn" disabled>产品图·不可重做</button>'
+                        : `<button class="kf-btn redo" data-shot="${item.shot}">🔄 重做替换</button>`)}
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+
+    // 绑定重做按钮
+    grid.querySelectorAll(".kf-btn.redo").forEach(btn => {
+        btn.addEventListener("click", () => openRedoModal(parseInt(btn.dataset.shot)));
+    });
+
+    // 绑定批量复选框：更新选中计数和批量按钮状态
+    grid.querySelectorAll(".batch-check-input").forEach(cb => {
+        cb.addEventListener("change", updateBatchCount);
+    });
+    updateBatchCount();
+}
+
+// 更新批量选中状态：计数 + 全选框联动 + 批量按钮可用性
+function updateBatchCount() {
+    const checks = document.querySelectorAll(".batch-check-input");
+    const checked = document.querySelectorAll(".batch-check-input:checked");
+    const count = checked.length;
+    $("batch-count").textContent = `已选 ${count} 个`;
+    $("batch-redo-btn").disabled = count === 0;
+    // 全选框联动（半选/全选/未选）
+    const allBox = $("batch-select-all");
+    allBox.indeterminate = count > 0 && count < checks.length;
+    allBox.checked = checks.length > 0 && count === checks.length;
+}
+
+// 全选/取消全选
+$("batch-select-all").addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll(".batch-check-input").forEach(cb => { cb.checked = checked; });
+    updateBatchCount();
+});
+
+// 批量重做按钮：收集选中 shot，打开批量 modal
+$("batch-redo-btn").addEventListener("click", () => {
+    const selected = Array.from(document.querySelectorAll(".batch-check-input:checked"))
+        .map(cb => parseInt(cb.dataset.shot));
+    if (selected.length === 0) return;
+    openBatchRedoModal(selected);
+});
+
+// ─────────────────────────────────────────────────────
+// 渲染：Step4 动作迁移进度
+// ─────────────────────────────────────────────────────
+function renderMotionProgress(progress, taskStatus) {
+    const grid = $("motion-grid");
+    const desc = $("motion-progress-desc");
+    if (!progress || progress.length === 0) {
+        grid.innerHTML = '<div style="color:#555;font-size:.82em;padding:12px;">等待分镜解析完成...</div>';
+        return;
+    }
+    const done = progress.filter(p => p.status === "done").length;
+    const total = progress.length;
+    desc.textContent = taskStatus === "running"
+        ? `逐 shot 提交 RunningHub 动作迁移（${done}/${total} 已完成）...`
+        : `动作迁移已完成（${done}/${total}）`;
+    grid.innerHTML = progress.map(p => {
+        const stTxt = p.is_no_product ? "原段保留" : (p.status === "done" ? "✅ 完成" : "⏳ 迁移中");
+        const stColor = p.status === "done" ? "#4a9" : (p.is_no_product ? "#888" : "#fa3");
+        const thumb = p.video_url
+            ? `<video src="${p.video_url}" muted loop style="width:100%;height:100px;object-fit:cover;border-radius:6px;background:#000;" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0;"></video>`
+            : `<div style="width:100%;height:100px;background:#1a1a1a;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#555;font-size:1.5em;">⏳</div>`;
+        return `<div style="border:1px solid #333;border-radius:8px;padding:8px;background:#161616;">
+            ${thumb}
+            <div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:.82em;">Shot ${String(p.shot).padStart(2,"0")}</span>
+                <span style="font-size:.75em;color:${stColor};">${stTxt}</span>
+            </div>
+        </div>`;
+    }).join("");
+}
+
+// 动作迁移片段审核渲染（after_step4）
+function renderMotionReview(progress) {
+    const grid = $("motion-review-grid");
+    if (!progress || progress.length === 0) {
+        grid.innerHTML = '<div style="color:#555;font-size:.82em;padding:12px;">暂无动作迁移片段数据，请稍候...</div>';
+        return;
+    }
+    grid.innerHTML = progress.map(p => {
+        const stTxt = p.is_no_product ? "原段保留" : (p.status === "done" ? "✅ 完成" : "⏳ 处理中");
+        const stColor = p.status === "done" ? "#4a9" : (p.is_no_product ? "#888" : "#fa3");
+        const thumb = p.video_url
+            ? `<video src="${p.video_url}" muted loop controls style="width:100%;height:120px;object-fit:cover;border-radius:6px;background:#000;" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0;"></video>`
+            : `<div style="width:100%;height:120px;background:#1a1a1a;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#555;font-size:1.5em;">⏳</div>`;
+        const redoBtn = p.is_no_product
+            ? `<span style="font-size:.75em;color:#666;">原段保留，无需重做</span>`
+            : `<button class="redo-mini-btn" onclick="redoMotionShot(${p.shot})" style="width:100%;padding:4px 8px;background:#2a2a2a;color:#fa3;border:1px solid #553;border-radius:4px;cursor:pointer;font-size:.78em;">↻ 重做此片段</button>`;
+        return `<div style="border:1px solid #333;border-radius:8px;padding:8px;background:#161616;">
+            ${thumb}
+            <div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:.82em;">Shot ${String(p.shot).padStart(2,"0")}</span>
+                <span style="font-size:.75em;color:${stColor};">${stTxt}</span>
+            </div>
+            <div style="margin-top:6px;">${redoBtn}</div>
+        </div>`;
+    }).join("");
+}
+
+async function redoMotionShot(shotNum) {
+    if (!state.taskId) return;
+    if (!confirm(`确认重做 Shot ${String(shotNum).padStart(2,"0")} 的动作迁移？\n任务将在后台运行，期间页面会显示进度，可继续操作其它片段。`)) return;
+    try {
+        const r = await fetch(`/api/replica-motion/redo-motion/${state.taskId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shot_num: shotNum }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.success) {
+            throw new Error(d.detail || "重做请求失败");
+        }
+        // 后台运行，无需阻塞；轮询会自动刷新状态
+    } catch (e) {
+        alert("重做失败: " + e.message);
+    }
+}
+
+// ─────────────────────────────────────────────────────
+// 重做弹层
+// ─────────────────────────────────────────────────────
+function openRedoModal(shotNum) {
+    state.redoShotNum = shotNum;
+    state.redoShotNums = null;
+    state.redoProductPath = null;
+    $("redo-modal-title").innerHTML = `重做 Shot <span id="redo-shot-num">${String(shotNum).padStart(2, "0")}</span> 关键帧替换`;
+    $("redo-modal-desc").textContent = "可选择性上传新的产品图覆盖默认产品图，重新调用 image2 替换该分镜关键帧。";
+    $("redo-product-label").textContent = "使用默认产品图（点击替换）";
+    $("redo-product-preview").style.display = "none";
+    $("redo-product-preview").src = "";
+    $("redo-product-input").value = "";
+    $("redo-modal").classList.add("show");
+}
+
+// 批量重做弹层：多 shot 共用一个产品图，后台并行跑
+function openBatchRedoModal(shotNums) {
+    state.redoShotNum = null;
+    state.redoShotNums = shotNums.slice();
+    state.redoProductPath = null;
+    const labels = shotNums.map(n => String(n).padStart(2, "0")).join(", ");
+    $("redo-modal-title").textContent = `🔄 批量重做 ${shotNums.length} 个分镜`;
+    $("redo-modal-desc").innerHTML = `将批量重做 Shot ${labels}，后台并行执行（并发≤2）。<br>可上传一张共用产品图，或使用默认产品图。`;
+    $("redo-product-label").textContent = "使用默认产品图（点击替换，所有选中分镜共用）";
+    $("redo-product-preview").style.display = "none";
+    $("redo-product-preview").src = "";
+    $("redo-product-input").value = "";
+    $("redo-modal").classList.add("show");
+}
+
+$("redo-cancel").addEventListener("click", () => {
+    $("redo-modal").classList.remove("show");
+    state.redoShotNum = null;
+    state.redoShotNums = null;
+});
+
+$("redo-product-input").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    $("redo-product-label").textContent = "上传中...";
+    try {
+        const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.detail || "上传失败");
+        state.redoProductPath = d.file_path;
+        $("redo-product-label").textContent = "已上传新产品图";
+        $("redo-product-preview").src = d.path;
+        $("redo-product-preview").style.display = "block";
+    } catch (err) {
+        $("redo-product-label").textContent = "上传失败: " + err.message;
+    }
+});
+
+$("redo-confirm").addEventListener("click", async () => {
+    // 批量模式 vs 单 shot 模式
+    const isBatch = state.redoShotNums && state.redoShotNums.length > 0;
+    if (!isBatch && state.redoShotNum == null) return;
+
+    const btn = $("redo-confirm");
+    btn.disabled = true;
+    btn.textContent = isBatch ? "批量提交中..." : "重做中...";
+    try {
+        // 批量：shot_nums；单 shot：shot_num
+        const body = isBatch
+            ? { shot_nums: state.redoShotNums.slice() }
+            : { shot_num: state.redoShotNum };
+        if (state.redoProductPath) body.product_image_paths = [state.redoProductPath];
+        const r = await fetch(`/api/replica-motion/redo/${state.taskId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.success) throw new Error(d.detail || "重做失败");
+        // 立即关闭弹窗：重做任务在后台并行运行，轮询会自动刷新状态
+        // 批量场景：清掉所有选中状态，避免重复提交
+        if (isBatch) {
+            document.querySelectorAll(".batch-check-input").forEach(cb => { cb.checked = false; });
+            updateBatchCount();
+        }
+    } catch (err) {
+        // 重做请求失败也关闭弹窗，错误通过轮询/提示显示，不阻塞界面
+        console.warn("重做请求失败:", err.message);
+        alert("重做请求失败: " + err.message + "\n弹窗已关闭，可在列表中重试。");
+    } finally {
+        // 无论成功失败都关闭弹窗，重做任务已提交后台或需用户从列表重试
+        $("redo-modal").classList.remove("show");
+        state.redoShotNum = null;
+        state.redoShotNums = null;
+        btn.disabled = false;
+        btn.textContent = "开始重做";
+    }
+});
+
+// ─────────────────────────────────────────────────────
+// 通过审核 → Phase2
+// ─────────────────────────────────────────────────────
+$("approve-btn").addEventListener("click", async () => {
+    if (!state.taskId) return;
+    if (!confirm("确认通过审核？将进入动作迁移阶段（Step4+5），耗时较长。")) return;
+    const btn = $("approve-btn");
+    btn.disabled = true;
+    btn.textContent = "提交中...";
+    try {
+        const r = await fetch(`/api/replica-motion/approve/${state.taskId}`, { method: "POST" });
+        const d = await r.json();
+        if (!r.ok || !d.success) throw new Error(d.detail || "提交失败");
+        $("review-panel").style.display = "none";
+        // 继续轮询
+        startPolling();
+    } catch (err) {
+        alert("提交失败: " + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "✓ 通过审核，执行动作迁移";
+    }
+});
+
+// ─────────────────────────────────────────────────────
+// 通过动作迁移片段审核 → Phase2b（Step5 拼接）
+// ─────────────────────────────────────────────────────
+$("approve-motion-btn").addEventListener("click", async () => {
+    if (!state.taskId) return;
+    if (!confirm("确认通过动作迁移片段审核？将进入 Step5 拼接最终视频。")) return;
+    const btn = $("approve-motion-btn");
+    btn.disabled = true;
+    btn.textContent = "提交中...";
+    try {
+        const r = await fetch(`/api/replica-motion/approve-motion/${state.taskId}`, { method: "POST" });
+        const d = await r.json();
+        if (!r.ok || !d.success) throw new Error(d.detail || "提交失败");
+        $("motion-review-panel").style.display = "none";
+        startPolling();
+    } catch (err) {
+        alert("提交失败: " + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "✓ 通过审核，合并视频";
+    }
+});
+
+// ─────────────────────────────────────────────────────
+// 历史记录
+// ─────────────────────────────────────────────────────
+async function loadHistory() {
+    try {
+        const r = await fetch("/api/replica-motion/history");
+        const d = await r.json();
+        const list = $("history-list");
+        if (!d.success || !d.items || d.items.length === 0) {
+            list.innerHTML = '<div style="color:#555; font-size:.82em; text-align:center; padding:20px;">暂无历史</div>';
+            return;
+        }
+        list.innerHTML = "";
+        // 过滤：不在历史列表显示 failed 任务（当前任务除外）
+        // failed 任务仍可通过 autoResume 自动恢复到状态面板
+        const visibleItems = d.items.filter(it =>
+            it.status !== "failed" || it.task_id === state.taskId
+        );
+        if (visibleItems.length === 0) {
+            list.innerHTML = '<div style="color:#555; font-size:.82em; text-align:center; padding:20px;">暂无历史</div>';
+            return;
+        }
+        visibleItems.forEach(it => {
+            const inter = it.intermediate || {};
+            const input = inter.input || {};
+            // 缩略图：优先用替换后关键帧，其次产品图，最后原视频
+            const repKfs = (inter.step3 && inter.step3.output && inter.step3.output.replaced_keyframes_urls) || [];
+            const prodImgs = input.product_image_urls || [];
+            const thumb = repKfs[0] || prodImgs[0] || "";
+            const title = it.product_name || it.video_name || it.task_id;
+            const shotsCount = it.shots_count || 0;
+            const canResume = (it.status === "failed" || it.status === "unknown");
+
+            const div = document.createElement("div");
+            div.className = "history-item";
+            if (it.task_id === state.taskId) div.classList.add("active");
+            div.innerHTML = `
+                ${thumb ? `<img class="h-thumb" src="${thumb}" onerror="this.style.display='none'">` : '<div class="h-thumb"></div>'}
+                <div class="h-info">
+                    <div class="h-title">${escapeHtml(title)}</div>
+                    <div class="h-meta">${it.created_at_str || fmtTime(it.created_at)} · ${it.task_id.slice(0,8)}</div>
+                </div>
+                ${shotsCount ? `<span class="h-shots">${shotsCount}镜</span>` : ''}
+                <span class="h-status ${it.status}">${statusLabel(it.status)}</span>
+                ${canResume ? `<button class="h-resume" data-tid="${it.task_id}">续传</button>` : ''}
+            `;
+            // 点击历史项 → 加载详情回显中间产物
+            div.addEventListener("click", (e) => {
+                if (e.target.classList.contains("h-resume")) return; // 续传按钮单独处理
+                state.taskId = it.task_id;
+                loadHistory();
+                loadTaskDetail(it.task_id);
+            });
+            // 续传按钮
+            const resumeBtn = div.querySelector(".h-resume");
+            if (resumeBtn) {
+                resumeBtn.addEventListener("click", async (e) => {
+                    e.stopPropagation();
+                    if (!confirm("确认断点续传该任务？（已完成的步骤会自动跳过）")) return;
+                    resumeBtn.disabled = true;
+                    resumeBtn.textContent = "续传中...";
+                    try {
+                        const rr = await fetch(`/api/replica-motion/resume/${it.task_id}`, {method:"POST"});
+                        const dd = await rr.json();
+                        if (dd.success) {
+                            state.taskId = it.task_id;
+                            state.logCount = 0;
+                            $("history-detail-panel").style.display = "none";
+                            $("empty-state").style.display = "none";
+                            $("status-panel").style.display = "block";
+                            $("log-box").innerHTML = "";
+                            loadHistory();
+                            startPolling();
+                        } else {
+                            alert(dd.detail || "续传失败");
+                            resumeBtn.disabled = false;
+                            resumeBtn.textContent = "续传";
+                        }
+                    } catch (err) {
+                        alert("续传请求失败: " + err.message);
+                        resumeBtn.disabled = false;
+                        resumeBtn.textContent = "续传";
+                    }
+                });
+            }
+            list.appendChild(div);
+        });
+    } catch (e) { /* 忽略 */ }
+}
+
+// 加载任务详情并渲染中间产物回显面板
+async function loadTaskDetail(taskId) {
+    const panel = $("history-detail-panel");
+    panel.style.display = "block";
+    panel.innerHTML = '<div style="color:#888; text-align:center; padding:30px;">加载中...</div>';
+    // 隐藏其他面板
+    $("status-panel").style.display = "none";
+    $("review-panel").style.display = "none";
+    $("final-panel").style.display = "none";
+    $("empty-state").style.display = "none";
+    try {
+        const r = await fetch(`/api/replica-motion/task/${taskId}`);
+        if (!r.ok) {
+            const txt = await r.text().catch(() => "");
+            panel.innerHTML = '<div class="hd-empty">加载失败: HTTP ' + r.status + ' ' + escapeHtml(txt.slice(0,200)) + '</div>';
+            return;
+        }
+        const d = await r.json();
+        if (!d.success) { panel.innerHTML = '<div class="hd-empty">加载失败: ' + escapeHtml(d.detail || d.error || "未知错误") + '</div>'; return; }
+        try {
+            renderHistoryDetail(d);
+        } catch (re) {
+            panel.innerHTML = '<div class="hd-empty">渲染失败: ' + escapeHtml(re.message) + ' @ ' + escapeHtml(re.stack || "") + '</div>';
+            console.error("renderHistoryDetail error:", re);
+        }
+    } catch (e) {
+        panel.innerHTML = '<div class="hd-empty">加载失败: ' + escapeHtml(e.message) + '</div>';
+        console.error("loadTaskDetail error:", e);
+    }
+}
+
+// 渲染历史详情回显面板（输入 + 分镜 + 关键帧对比 + 最终视频 + 日志）
+function renderHistoryDetail(d) {
+    const panel = $("history-detail-panel");
+    const inter = d.intermediate || {};
+    const input = inter.input || {};
+    const step1 = inter.step1 || {}, step2 = inter.step2 || {}, step3 = inter.step3 || {};
+    const step4 = inter.step4 || {}, step5 = inter.step5 || {}, refs = inter.refs || {};
+    const s1out = step1.output || {}, s2out = step2.output || {}, s3out = step3.output || {};
+    const s4out = step4.output || {}, s5out = step5.output || {};
+    const kfUrls = s2out.keyframes_urls || [];
+    const repKfs = s3out.replaced_keyframes_urls || [];
+    const origKfs = s3out.original_keyframes_urls || [];
+    const finalUrl = d.final_video_url || (s5out.output && s5out.output.final_video_url) || "";
+    const prodImgs = input.product_image_urls || [];
+
+    // 关键帧对比配对（原帧 vs 替换后）
+    let kfPairsHtml = "";
+    const maxPairs = Math.max(origKfs.length, repKfs.length);
+    for (let i = 0; i < maxPairs; i++) {
+        const orig = origKfs[i] || "";
+        const rep = repKfs[i] || "";
+        const shotNum = i + 1;
+        kfPairsHtml += `
+            <div class="hd-kf-item">
+                <div class="hd-kf-shot">Shot ${shotNum}</div>
+                <div class="hd-kf-pair">
+                    <div class="hd-kf-box">
+                        <div class="hd-kf-lbl">原帧</div>
+                        ${orig ? `<img src="${orig}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><div style="display:none;color:#555;font-size:.7em;padding:20px">缺失</div>` : '<div style="color:#555;font-size:.7em;padding:20px">无</div>'}
+                    </div>
+                    <div class="hd-kf-box">
+                        <div class="hd-kf-lbl">替换后</div>
+                        ${rep ? `<img src="${rep}" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><div style="display:none;color:#555;font-size:.7em;padding:20px">缺失</div>` : '<div style="color:#555;font-size:.7em;padding:20px">无</div>'}
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    // 日志（最多显示最近 50 条）
+    const logs = (d.logs || []).slice(-50);
+    const logsHtml = logs.map(l => {
+        const cls = l.level === "error" ? "err" : "";
+        const ts = l.ts ? new Date(l.ts * 1000).toLocaleTimeString() + " " : "";
+        return `<div class="log-line ${cls}">${escapeHtml(ts + l.msg)}</div>`;
+    }).join("");
+
+    panel.innerHTML = `
+        <div class="hd-header">
+            <span class="status-badge ${badgeClass(d.status)}">${statusLabel(d.status)}</span>
+            <span class="hd-title">任务 ${d.task_id.slice(0,8)} · ${escapeHtml(input.product_name || d.stage || "")}</span>
+            ${d.error ? `<span style="color:#f87171; font-size:.82em;">${escapeHtml(d.error.slice(0,100))}</span>` : ''}
+            <button class="hd-close" onclick="$('history-detail-panel').style.display='none';$('empty-state').style.display='block';">✕ 关闭</button>
+        </div>
+
+        <!-- 输入 -->
+        <div class="hd-section">
+            <div class="hd-section-title">📥 输入</div>
+            <div class="hd-input-grid">
+                ${input.video_url ? `<div class="hd-input-card"><video src="${input.video_url}" controls muted></video><div class="hd-label">原视频: ${escapeHtml(input.video_name||'')}</div></div>` : ''}
+                ${prodImgs.map((u,i) => `<div class="hd-input-card"><img src="${u}" onerror="this.style.display='none'"><div class="hd-label">产品图${i+1}</div></div>`).join('')}
+            </div>
+        </div>
+
+        <!-- Step1 分镜解析 -->
+        ${s1out.storyboard_url ? `
+        <div class="hd-section">
+            <div class="hd-section-title">🎬 Step1 分镜解析 <span class="hd-count">${s1out.shots_count||0} 个分镜</span></div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <a href="${s1out.storyboard_url}" target="_blank" style="font-size:.78em; color:#60a5fa;">📋 storyboard.json</a>
+                ${s1out.timeline_url ? `<a href="${s1out.timeline_url}" target="_blank" style="font-size:.78em; color:#60a5fa;">⏱ timeline.json</a>` : ''}
+            </div>
+        </div>` : ''}
+
+        <!-- Step2+3 关键帧对比 -->
+        ${kfPairsHtml ? `
+        <div class="hd-section">
+            <div class="hd-section-title">🖼️ Step2+3 关键帧（原帧 → 替换后）<span class="hd-count">${maxPairs} 个</span></div>
+            <div class="hd-kf-grid">${kfPairsHtml}</div>
+        </div>` : ''}
+
+        <!-- 参考图 -->
+        ${refs.face_ref_url ? `
+        <div class="hd-section">
+            <div class="hd-section-title">🔗 跨 shot 一致性基准图</div>
+            <div class="hd-input-grid">
+                <div class="hd-input-card"><img src="${refs.face_ref_url}"><div class="hd-label">面部基准</div></div>
+                <div class="hd-input-card"><img src="${refs.scene_ref_url}"><div class="hd-label">场景基准</div></div>
+                <div class="hd-input-card"><img src="${refs.model_full_ref_url}"><div class="hd-label">模特全身基准</div></div>
+            </div>
+        </div>` : ''}
+
+        <!-- Step4 动作迁移片段 -->
+        ${(s4out.shot_videos_urls||[]).length ? `
+        <div class="hd-section">
+            <div class="hd-section-title">🏃 Step4 动作迁移片段 <span class="hd-count">${s4out.shot_videos_urls.length} 个</span></div>
+            <div class="hd-input-grid">
+                ${s4out.shot_videos_urls.map((u,i) => `<div class="hd-input-card"><video src="${u}" controls muted></video><div class="hd-label">Shot ${i+1}</div></div>`).join('')}
+            </div>
+        </div>` : ''}
+
+        <!-- Step5 最终视频 -->
+        ${finalUrl ? `
+        <div class="hd-section">
+            <div class="hd-section-title">✅ Step5 最终视频</div>
+            <video class="hd-final-video" src="${finalUrl}" controls></video>
+            <div style="margin-top:8px;"><a href="${finalUrl}" target="_blank" download style="font-size:.82em; color:#60a5fa;">↓ 下载最终视频</a></div>
+        </div>` : ''}
+
+        <!-- 日志 -->
+        ${logsHtml ? `
+        <div class="hd-section">
+            <div class="hd-section-title">📋 日志 <span class="hd-count">最近 ${logs.length} 条</span></div>
+            <div class="log-box">${logsHtml}</div>
+        </div>` : ''}
+    `;
+}
+
+function badgeClass(status) {
+    const m = {idle:"badge-idle", running:"badge-running", awaiting_review:"badge-awaiting",
+               success:"badge-completed", failed:"badge-failed", unknown:"badge-idle"};
+    return m[status] || "badge-idle";
+}
+
+function escapeHtml(s) {
+    if (!s) return "";
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+// ─────────────────────────────────────────────────────
+// 新建任务
+// ─────────────────────────────────────────────────────
+$("new-task-btn").addEventListener("click", () => {
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    state.videoPath = "";
+    state.productPaths = [];
+    state.productName = "";
+    state.taskId = "";
+    state.status = "idle";
+    state.logCount = 0;
+    state.redoShotNum = null;
+    state.redoShotNums = null;
+    state.redoProductPath = null;
+    $("video-name").textContent = "";
+    $("video-preview").src = "";
+    $("video-preview").style.display = "none";
+    $("video-card").classList.remove("has-file");
+    $("video-input").value = "";
+    $("product-name").textContent = "";
+    $("product-card").classList.remove("has-file");
+    $("product-input").value = "";
+    renderProductPreviewGrid();
+    $("product-name-input").value = "";
+    const btn = $("start-btn");
+    btn.disabled = false;
+    btn.classList.remove("running");
+    btn.textContent = "🚀 启动复刻";
+    $("status-panel").style.display = "none";
+    $("review-panel").style.display = "none";
+    $("final-panel").style.display = "none";
+    $("history-detail-panel").style.display = "none";
+    $("empty-state").style.display = "block";
+    $("log-box").innerHTML = "";
+    loadHistory();
+});
+
+// 初始化
+loadHistory();
+// 页面加载后自动恢复未完成任务（失败/运行中），显示状态面板 + retry 按钮
+(async function autoResume() {
+    try {
+        const r = await fetch("/api/replica-motion/history?limit=5");
+        const d = await r.json();
+        if (!d.success || !d.items) return;
+        // 找最近一个 failed/running 的任务
+        const pending = d.items.find(it => it.status === "failed" || it.status === "running");
+        if (!pending) return;
+        state.taskId = pending.task_id;
+        state.logCount = 0;
+        $("empty-state").style.display = "none";
+        $("status-panel").style.display = "block";
+        $("log-box").innerHTML = "";
+        startPolling();
+    } catch (e) { /* 忽略 */ }
+})();
+</script>
+</body>
+</html>

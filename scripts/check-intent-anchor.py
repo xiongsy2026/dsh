@@ -11,7 +11,7 @@ import os
 import shutil
 import sys
 
-SCRATCH = r"C:\dsh\_scratch_b"
+SCRATCH = os.path.join(WS, r"_scratch_b")
 RUNS = os.path.join(SCRATCH, "anchor_runs")
 INTENT = os.path.join(SCRATCH, "anchor_intent.json")
 os.makedirs(SCRATCH, exist_ok=True)
@@ -26,8 +26,11 @@ os.environ["HYPIT_INTENT_MARK"] = INTENT              # hypit_bridge 的意图�
 os.environ["DSH_WORKSPACE"] = os.path.join(SCRATCH, "anchor_ws")
 os.environ["DELIVERY_LEDGER"] = os.path.join(SCRATCH, "anchor_ws", ".dsh", "delivery.json")
 os.environ["HYPIT_NO_AUTOSTART"] = "1"                # 别顺手拉起 studio 进程
-sys.path.insert(0, r"C:\dsh\scratch\video-ui\video-ui")   # 常驻 8765 跑的就是这一份
-sys.path.insert(0, r"D:\video-skill\backend")
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, os.path.join(WS, r"scratch\video-ui\video-ui"))   # 常驻 8765 跑的就是这一份
+sys.path.insert(0, WS)
+sys.path.insert(0, BACKEND)
 
 import hypit_bridge as hb                             # noqa: E402
 import store                                          # noqa: E402
@@ -36,10 +39,22 @@ hb._probe_omni = lambda: True                         # 不撞真 8765
 fails, total = [], [0]
 
 
+def _safe(s):
+    """GBK 控制台上「⇒/🔴」会把 print 打崩=闸跑到一半没结果（最坏的假安静）。
+    只按【输出流编码】做 errors=replace；绝不 sys.stdout.reconfigure（造"零输出+exit 0"的静默假绿），
+    也别裸 s.encode()（默认 utf-8 永不失败=没兜住）。"""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        s.encode(enc)
+        return s
+    except (UnicodeEncodeError, LookupError):
+        return s.encode(enc, "replace").decode(enc, "replace")
+
+
 def check(name, got, want):
     total[0] += 1
     ok = got == want
-    print(("PASS " if ok else "FAIL ") + name, "=>", json.dumps(got, ensure_ascii=False)[:120])
+    print(_safe(("PASS " if ok else "FAIL ") + name + " => " + json.dumps(got, ensure_ascii=False)[:120]))
     if not ok:
         fails.append((name, got, want))
 

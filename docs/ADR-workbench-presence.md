@@ -2,7 +2,7 @@
 
 状态：P0 已落地（#31 服务端 / #32 插件 / #33 回归），P1/P2 未做
 日期：2026-10-02
-影响面：`plugins/ops-gateway/lib/client.js`、`D:\video-skill\backend\hypit_bridge.py`、`D:\video-skill\backend\model_admin.py`、`.dsh/skills/*/references/monitor-contract.md`
+影响面：`plugins/ops-gateway/lib/client.js`、`backend/hypit_bridge.py`、`backend/model_admin.py`、`.dsh/skills/*/references/monitor-contract.md`
 不动：video-ui(:8765)、hypit 引擎本身、DSH 内核
 
 ## 背景 / 问题
@@ -14,7 +14,7 @@
 
 | 证据 | 内容 |
 |---|---|
-| 登记文件 `D:\video-skill\.gateway_studio.json` | `{"sessions":["session-e82b8456…","session-0d0607eb…"],"session":"…0d0607eb","run":"hypit-e2e","port":5179,"ts":1790908335}` |
+| 登记文件 `backend/.gateway_studio.json` | `{"sessions":["session-e82b8456…","session-0d0607eb…"],"session":"…0d0607eb","run":"hypit-e2e","port":5179,"ts":1790908335}` |
 | `GET 127.0.0.1:8100/api/hypit/studio`（不带 session=运维视角）的 `seen[]` | `session-e82b8456…` **3 秒前还在轮询**，而它同时就在 `owners` 里 |
 | `hypit_bridge.studio_claim()` | **累积语义**（`sessions` 只增不减），`studio_release()` 只在停 studio 时调 |
 | `client.js:142-161` | 只有上升沿 `openTab`，**代码里不存在任何 close 路径** |
@@ -197,7 +197,7 @@ python ... intent-show                # 运维：现在谁挂着哪条流水线
 
 - **登记了但还没产出也照样挂台**（早期视图可见，不必等已建 run）。
 - `studio-claim` 会顺手把该会话钉成 `hypit`（兜底），但契约要求显式登记。
-- 状态文件 `D:/video-skill/.gateway_intent.json`（已进 .gitignore）；`ops` 视图回 `intents` 清单。
+- 状态文件 `backend/.gateway_intent.json`（已进 .gitignore）；`ops` 视图回 `intents` 清单。
 - 回归：`scripts/check-intent-rule.py`（13 条）。**线上实测**：nose 那条会话登记 `hypit` 后
   `omni=intent-is-hypit`、`hypit=intent:True, up:False, reason:not-claimed`；未登记会话两台全 `no-intent`。
 - 提交 D `5d5e2f2` / C `56e1056`（`AGENTS.md` 新增「右栏 UI 铁律」节 + omni/hypit 两个 skill 契约同步）。
@@ -269,7 +269,7 @@ run 文件不会自己过期 ⇒ 这条会话以后每次切回来都弹，跟�
 正是四修要的效果）。泛化由 `check-intent-rule.py` 的 ⑦ 矩阵锁住：`omni/hypit` 只弹各自那一个，
 `super-clone / product-video / film / 纯提示词类`（还没台或本来不该有台）⇒ **零台**，连续切换不漏旧台。回归 27 条。
 
-⚠️ 审计中发现（未定责）：`D:/video-skill/.gateway_studio.json` 整份不见了，里面原本挂着 2 个 assemble 的陈旧 claim。
+⚠️ 审计中发现（未定责）：`backend/.gateway_studio.json` 整份不见了，里面原本挂着 2 个 assemble 的陈旧 claim。
 可疑入口是 `studio_release(session, run)` 在两个参数都为空时**整条作废**（`hypit_bridge.py:196-201`），
 裸跑 `hypit_bridge.py studio-release`（漏了会话 id）就会走到那一路。现下无实际影响（陈旧 claim 本来就不该弹台），
 但这是个脚枪 ⇒ **已修（同日）**：`studio_release()` 无参不再"整条作废"，必须显式 `all_sessions=True`（CLI 写 `--all`），否则回 `error` + 当前归属清单，一份登记都不动。线上实测：裸跑被拒、自测 claim 原样保留、按会话释放后复原为空。
@@ -387,7 +387,7 @@ studio 只是它的一个查看窗口（`/__studio/library?section=tasks` 与 `/
 `sandbox escalation to "workspace-write"/"danger-full-access" is not strictly wider`。
 
 **根因（三层，各自独立）**
-1. **L1 登记动作在工作区外**：`intent` 要写 `D:\video-skill\.gateway_intent.json`，DSH 的文件沙箱只让写工作区内 ⇒ 命令压根跑不动。
+1. **L1 登记动作在工作区外**：`intent` 要写 `backend/.gateway_intent.json`，DSH 的文件沙箱只让写工作区内 ⇒ 命令压根跑不动。
    我们把“选了就要看到界面”绑在了一条**沙箱里必然失败**的命令上——这等于没有触发器。
 2. **L2 会话 id**：内核其实是通的（`dsh-tool-pwsh:373` 调 `shellEnv.collect(exec)`，`dsh-pwsh-local:300` 把 `...spec.dshEnv` 并进子进程，
    `dsh-shell-env:85` 在 `execution.agent` 存在时写 `DSH_SESSION_ID`）。失败是 agent 用了 bash 写法 `$DSH_SESSION_ID` ⇒ 拿到空。
@@ -413,6 +413,27 @@ studio 只是它的一个查看窗口（`/__studio/library?section=tasks` 与 `/
 回归新增 6 条（10/10b…10f：过期不算意图、判定口回 no-intent、TTL 可缩短、写盘清扫、**过期绝不自动起查看器**），intent 套件 47→53。
 ⚠️ 顺手抓到一处自己的残留：`studio_up` 的 claim 会**自钉意图**，我清扫之后它才写回主登记 ⇒ 自测会话 id 又活了；已再清一次并复验 `no-intent`。
 
+
+## 第九修（2026-10-05）：第 6 档「提示词反推」台（8090），并把"表和闸必须同步加档"变成断言
+
+新增一条客户可见技能 `prompt-reverse`（安装流程见 `docs/skill-fast-install.md`），它带引擎（8090 =
+`backend/app.py` 的 uvicorn），所以按铁律要挂台。形态上它**既像 film 又不像 film**：
+
+- 像：`intent` 决定弹不弹（intent-only，排他不变）。
+- 不像：台指的是**引擎自己的页面**（`http://127.0.0.1:8090/prompt-reverse`），不是 8100 同域托管的看板页
+  ⇒ `up` 必须真探（`_probe_reverse()`，缓存 5 秒，同 `_probe_omni`），**不许像 film 那样恒 True**——
+  8090 没起还挂个空 iframe，就是"台弹了但引擎没起"那张卡该出现的场合。
+- 范围被砍过：这条 skill **只到提示词不出片**（它的模型腿直连 MiMo/Grok/GPT，在网关账本外）。
+  生成腿（`/api/h3-studio/generate`、`publish-rpa`）禁调，理由写在 `AGENTS.md` 与 `SKILL.md` §0。
+
+落点（加一档要动这几处，少一处就是"界面和判定口各说一套"）：
+`hypit_bridge.py` 的 `KNOWN_SKILLS` + `prompt_reverse_status()` + `workbench_presence()` 出口；
+`scripts/intent.py` 的 USAGE；`ops-gateway/lib/client.js` 的 `WORKBENCHES` 第 6 行 + `TITLE_PREFIX`（`[反推] `）
++ `WorkbenchBody` 里 prompt-reverse 自己的"8090 没起"卡；`super-clone-ui/lib/client.js` 的 `SKILL_DOCK_META`（order 6，🔴 故意不写 `cover`，走首字母兜底，封面逐张人眼确认前不许挂图）。
+
+🔴 复发防线：`check-workbench-client.mjs` 加了 **0 号断言**——`WORKBENCHES` 里 `scope:"session", auto:true` 的行数
+必须等于闸内 `AUTO_KEYS` 名单数。以前 1d/12c 拿一份写死的三档名单当期望值，加第 6 档时它红得让人摸不着头脑；
+现在先红的是这条会讲人话的。三套回归同步后：intent-rule 55 · workbench-presence 58 · workbench-client 59。
 
 ## 相关
 

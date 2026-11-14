@@ -11,15 +11,20 @@ import os
 import re
 import sys
 import urllib.request
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-CLIENT = r"C:\dsh\plugins\super-clone-ui\lib\client.js"
-COVER_DIR = r"C:\dsh\productions\_skill-covers"
-APPROVED = ["super-clone", "hypit-pipeline", "omni", "short-drama", "video-dewatermark"]   # 2026-10-04 用户点名这 4 条 + 去水印
+CLIENT = os.path.join(WS, r"plugins\super-clone-ui\lib\client.js")
+COVER_DIR = os.path.join(WS, r"productions\_skill-covers")
+APPROVED = ["super-clone", "hypit-pipeline", "omni", "short-drama", "video-dewatermark", "prompt-reverse", "video-enhance", "one-shot-video", "voice-clone", "motion-transfer", "tvc-director"]   # 2026-10-04 点名 4 条 + 去水印；2026-10-05 加提示词反推 + 视频高清修复；2026-10-06 加一句话生视频；2026-10-07 加声音克隆；2026-10-06 加动作迁移（8091 五步工作室）；2026-10-14 加 TVC 广告导演（上游 tvc-director，纯提示词档）
 # 待封面：故意【不给 cover】（出图要花钱·等逐个确认），卡片走"首字母 + 橙渐变"兜底。
 # 分开列是为了区分"还没出图"和"塞了个会 404 的地址"——后者才是事故。
-# 2026-10-04：video-dewatermark 的 v3-clean 已出图并挂上 ⇒ 这张表清空；机制留着，下次加新技能不图就先登记在这。
-COVER_PENDING = []
+# 2026-10-05：prompt-reverse、video-enhance 登记在此 —— 进 dock 但先走首字母兜底，封面候选签核后才挂图。
+# 2026-10-06：video-enhance 移出（封面早已签核挂载 = client.js 有 cover URL，留在待封面名单会让本闸红）。
+# 2026-10-06：one-shot-video 移出（封面 = cover-one-shot-video.png，image2 出 3 版候选后按小云雀军规挑定挂载）。
+COVER_PENDING = ["voice-clone", "motion-transfer", "tvc-director"]   # 2026-10-07：voice-clone 登记待封面，卡片走首字母 + 橙渐变兜底；
+# 2026-10-06：motion-transfer（动作迁移）同样先兜底 —— 出封面要花钱(4 分/张)且必须逐张人眼签字，没签字不上客户面。
+# 2026-10-14：tvc-director（TVC广告导演）先兜底 —— 这条从没真跑出过片，封面按"视觉素材必须由功能反推"要等真产物。
 out = []
 
 
@@ -37,7 +42,7 @@ allow = re.search(r"SKILL_DOCK_ALLOW = Object\.keys\(SKILL_DOCK_META\)", src)
 
 check("1 找得到 SKILL_DOCK_META 这张表", bool(meta), True)
 check("2 白名单 = 元数据表的键（只有一处清单，不留两个入口）", bool(allow), True)
-check("3 露出的就是批准的那 4 条，顺序也对", keys, APPROVED)
+check("3 露出的就是 APPROVED 名单，顺序也对（加一条要同时改这张表和本闸）", keys, APPROVED)
 check("4 没有内部技能混进来（seedance/cs/film/product-video 一律不许）",
       [k for k in keys if re.match(r"^(seedance|cs-|film-|product-video|session-bind|weeksir|skills$)", k)], [])
 

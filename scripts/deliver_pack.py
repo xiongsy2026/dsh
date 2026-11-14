@@ -6,10 +6,16 @@
 少一样客户就等于没拿到（历史上被点名过"视频你给我看啊"）。能自动做的就别留给自觉。
 
 退出码：任何一项校验没过就非 0 ⇒ agent 不能拿一个坏包当交付收工。
-用法：python scripts/deliver_pack.py <视频文件> [--task 名] [--frames 3] [--json] [--no-net]
+用法：python scripts/deliver_pack.py <视频或图片文件> [--task 名] [--frames 3] [--json] [--no-net]
+
+传图片时走【图片那一形】（2026-10-10 用户定"强制要求：图片在回复里不点就能看见"）：
+不抽帧、不要求 present（那是视频那张卡的事，AGENTS.md 明令不许给帧图加收工闸），
+但硬钉一条【直链回的内容必须是 image/*】—— 因为 `MarkdownImage` 的 onError 会把加载失败的图
+回落成 alt 文字，状态 200 而类型不对时客户看到的就是一行链接，不是画面。
 """
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
@@ -17,9 +23,15 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
 
 GW = os.environ.get("WEEKSIR_ADMIN_BASE", "http://127.0.0.1:8100")
 ASCII_RE = re.compile(r"^[\x20-\x7e]+$")
+# 🔴 分流用的两张名单必须 ⊆ 服务端 model_admin.FILM_INLINE_TYPES 的对应子集，
+#    由 check-deliver-pack.py 现读那份表对账（这里抄一份是没办法：交付脚本不该 import 整个后端配置）。
+IMAGE_EXT = {"png", "jpg", "jpeg", "webp"}
+VIDEO_EXT = {"mp4", "mov", "webm"}
 
 
 def probe(url, timeout=6.0):
@@ -45,7 +57,9 @@ def duration_of(path):
 
 def presented_copy(video):
     """查这个文件有没有被 DSH `present` 过 —— 只有 present 过，对话里才有那张卡
-    （打开 / 下载视频 / 默认播放器）。客户体验的关键一步，所以它是**硬校验**，不是提示。
+    （【打开】+ 菜单【用默认应用打开 / 在文件资源管理器中显示 / 下载图片·下载视频】，
+     文案逐条对过装机那份字典：presented.action / defaultApp / explorer / download.*）。
+    客户体验的关键一步，所以它是**硬校验**，不是提示。
 
     机制（读内核代码得到，不是猜）：`@deepseek-ai/dsh-attachment-local` 把 present/附件的文件
     原样复制到 `%APPDATA%\\dsh-desktop\\harness\\attachments\\v1\\files\\<原名>`。
@@ -67,7 +81,54 @@ def presented_copy(video):
         if _sha256(twin) == want:
             return "presented", twin
         return "name-collided", "%s 同名但内容不是这个文件（多半是聊天附件）" % twin
-    return "missing", "attachments/v1/files 里没有 %s ⇒ 这条没 present，对话里不会有预览卡" % name
+    # 装的这版内核（2026-10-31 对过 dsh-tool-present/lib/index.js）：present 不再往
+    # attachments/v1/files 复制，而是 session.append("deliverables/presented", {files:[{path,…}]})
+    # 落到会话日志（session.v3.jsonl.zstd）。旧附件比对保留当首选，这里补第二判据：
+    # 本会话日志里有指向【这个绝对路径】的 presented 事件 ⇒ present 过。
+    hit = _presented_in_session_log(video)
+    if hit:
+        return "presented", "deliverables/presented 事件 @ %s (seq-time %s)" % (hit[1], hit[0])
+    return "missing", "attachments/v1/files 里没有 %s 且会话日志无 deliverables/presented 事件 ⇒ 这条没 present，对话里不会有预览卡" % name
+
+
+def _presented_in_session_log(video):
+    """扫 %APPDATA%\\dsh-desktop\\harness\\sessions\\*\\session-*\\session.v3.jsonl.zstd，
+    找 type=deliverables/presented 且 files[].path 指向这个文件的事件。返回 (time, 日志路径) 或 None。
+    判据强度边界：事件只记路径不记哈希 ⇒ 和内核那张卡一样强（卡就是按路径渲染的），不比装的这版更松。"""
+    try:
+        import glob
+        import json
+        import zstandard as zstd
+    except ImportError:
+        return None
+    appdata = os.environ.get("APPDATA") or ""
+    sess_root = os.path.join(appdata, "dsh-desktop", "harness", "sessions")
+    if not os.path.isdir(sess_root):
+        return None
+    want = os.path.normcase(os.path.abspath(video))
+    best = None
+    for log in glob.glob(os.path.join(sess_root, "*", "session-*", "session.v3.jsonl.zstd")):
+        try:
+            with open(log, "rb") as f:
+                raw = zstd.ZstdDecompressor().stream_reader(f).read()
+        except Exception:
+            continue
+        for line in raw.decode("utf-8", "ignore").splitlines():
+            if '"deliverables/presented"' not in line:
+                continue
+            try:
+                ev = json.loads(line)
+            except Exception:
+                continue
+            if ev.get("type") != "deliverables/presented":
+                continue
+            for fl in (ev.get("data") or {}).get("files", []) or []:
+                p = fl.get("path") or ""
+                if p and os.path.normcase(os.path.abspath(p)) == want:
+                    ts = ev.get("time") or 0
+                    if best is None or ts > best[0]:
+                        best = (ts, log)
+    return best
 
 
 def _sha256(path):
@@ -116,6 +177,15 @@ def build(video, task=None, frames=3, net=True):
     rep["checks"]["非空(>10KB)"] = size > 10240
     name = os.path.basename(video)
     rep["checks"]["文件名是 ASCII"] = bool(ASCII_RE.match(name))
+    ext = os.path.splitext(name)[1].lower().lstrip(".")
+    is_image = ext in IMAGE_EXT
+    rep["kind"] = "image" if is_image else "video"
+    if not is_image and ext not in VIDEO_EXT:
+        rep["checks"]["扩展名是图片或视频"] = False
+        rep["error"] = "不认的交付物类型 .%s（图片 %s / 视频 %s）" % (
+            ext, "/".join(sorted(IMAGE_EXT)), "/".join(sorted(VIDEO_EXT)))
+        return rep
+    rep["checks"]["扩展名是图片或视频"] = True
 
     # 🔴 按路径里的 "productions" 那一段切，不要"往上两层"猜：段目录
     #    productions/<task>/prime-3seg/outputs/x.mp4 用猜法会把 task 落到 prime-3seg、rel 丢掉中间层 ⇒ 直链 404。
@@ -133,8 +203,15 @@ def build(video, task=None, frames=3, net=True):
         rel_dir = "outputs"
     rep["task"] = base
     rep["rel_dir"] = rel_dir
-    rep["checks"]["在 productions/<task>/…/outputs 下"] = os.path.basename(root).lower() != "outputs" \
-        and os.path.basename(os.path.dirname(video)).lower() == "outputs" and rel_dir.endswith("outputs")
+    # 交付位分两形（🔴 判据名要顶着它真正检查的东西，不许一条名"outputs 下"盖两种）：
+    #   视频 = 必须在 productions/<task>/…/outputs/（历史上"往上两层猜"拼出过 404 链，那条闸钉的就是这个）；
+    #   图片 = 落在任务根内任意一格就行（帧图在 frames/、生图在 outputs/，服务端两种都发得出）。
+    _not_outputs_as_root = os.path.basename(root).lower() != "outputs"
+    if is_image:
+        rep["checks"]["图片在 productions/<task>/ 内（不要求 outputs/）"] = _not_outputs_as_root and under_prod
+    else:
+        rep["checks"]["在 productions/<task>/…/outputs 下"] = _not_outputs_as_root \
+            and os.path.basename(os.path.dirname(video)).lower() == "outputs" and rel_dir.endswith("outputs")
 
     rel = urllib.parse.quote("%s/%s" % (rel_dir, name), safe="/")
     qtask = urllib.parse.quote(base)
@@ -144,44 +221,110 @@ def build(video, task=None, frames=3, net=True):
         st, hdrs = probe(link)
         rep["checks"]["直链可达(200/206)"] = st in (200, 206)
         rep["http_status"] = st
-        rep["accept_ranges"] = hdrs.get("Accept-Ranges") or hdrs.get("accept-ranges")
-        rep["checks"]["静态口支持 Range(能拖进度条)"] = (st == 206) or (rep["accept_ranges"] == "bytes")
+        ctype = (hdrs.get("Content-Type") or hdrs.get("content-type") or "").split(";")[0].strip().lower()
+        rep["content_type"] = ctype
+        if is_image:
+            # 🔴 图片这一格必须钉内容类型，不能只看 200：`MarkdownImage`（primitives/lib/index.js:7371）
+            #    的 onError 会把加载失败的图【回落成 alt 文字】⇒ 类型发错时 200 也照样"只看见一行链接"。
+            rep["checks"]["直链回的是图片(image/*)"] = ctype.startswith("image/")
+        else:
+            rep["accept_ranges"] = hdrs.get("Accept-Ranges") or hdrs.get("accept-ranges")
+            rep["checks"]["静态口支持 Range(能拖进度条)"] = (st == 206) or (rep["accept_ranges"] == "bytes")
     else:
-        rep["checks"]["直链可达(200/206)"] = True   # --no-net：跳过，不算失败
+        # 🔴 --no-net 是【跳过】不是【验过】：跳过哪几条要看得见，否则 json 里一片 True，
+        #    读的人（和闸）分不清"直链真的回了 image/*"和"根本没问"。
+        rep["net_skipped"] = (["直链可达(200/206)", "直链回的是图片(image/*)"] if is_image
+                              else ["直链可达(200/206)", "静态口支持 Range(能拖进度条)"])
+        rep["checks"]["直链可达(200/206)"] = True
+        if is_image:
+            rep["checks"]["直链回的是图片(image/*)"] = True
+        else:
+            rep["checks"]["静态口支持 Range(能拖进度条)"] = True
 
-    shots = extract_frames(video, rel_dir, frames)
-    rep["frames"] = [{"path": p, "bytes": b} for p, _r, b in shots]
-    rep["checks"]["抽到帧(≥1 张 >2KB)"] = len(shots) >= 1
-    for _p, r, _b in shots:
-        rep["links"].append("%s/api/film/file?task=%s&rel=%s" % (GW, qtask, urllib.parse.quote(r, safe="/")))
-
-    # 🔴 present 是硬校验（2026-10-09 用户指令"必须强制预览，客户体验感好"）：
-    #    没 present ⇒ 对话里只有裸链接，没有那张「打开 / 下载视频 / 默认播放器」的卡 ⇒ 这条不算交付完。
-    #    顺序因此是固定的：出片 → present → 跑本脚本 → 原样贴 markdown。
-    pstat, pmsg = presented_copy(video)
+    if is_image:
+        # 图片本身就是画面，不抽帧（抽帧是给"视频不能内联"补的那条腿）。
+        rep["frames"] = [{"path": video, "bytes": size}]
+        rep["links"] = [link]
+        rep["checks"]["图本身 >2KB"] = size > 2048
+        pstat, pmsg = "not-required", "图片走内联图，present 不是收工条件"
+    else:
+        shots = extract_frames(video, rel_dir, frames)
+        rep["frames"] = [{"path": p, "bytes": b} for p, _r, b in shots]
+        rep["checks"]["抽到帧(≥1 张 >2KB)"] = len(shots) >= 1
+        for _p, r, _b in shots:
+            rep["links"].append("%s/api/film/file?task=%s&rel=%s" % (GW, qtask, urllib.parse.quote(r, safe="/")))
+        # 🔴 视频这一支的 present 是硬校验（2026-10-09 用户指令"必须强制预览，客户体验感好"）：
+        #    没 present ⇒ 对话里只有裸链接，没有那张「打开」带菜单（用默认应用打开 / 在文件资源管理器中显示 / 下载视频）的卡
+        #    ⇒ 这条不算交付完。顺序因此是死的：出片 → present → 跑本脚本 → 原样贴 markdown。
+        pstat, pmsg = presented_copy(video)
     rep["presented"] = {"status": pstat, "detail": pmsg}
-    rep["checks"]["已 present(预览卡可用)"] = pstat in ("presented", "unchecked")
+    rep["checks"]["已 present(预览卡可用)"] = pstat in ("presented", "unchecked", "not-required")
     # ⚠️ 抽帧图【不加】present 硬校验（2026-10-10 我加了又撤）：读装上的这版内核确认 markdown 图是能渲染的 —
     #    `dsh-client-ui-primitives/lib/index.js:7359 renderImage` → `:7104 imageSource` → `:7078 remoteImageUrl`
     #    放过 http/https 绝对 URL ⇒ `![x](http://127.0.0.1:8100/…)` 出 `<img>`。
     #    "客户只看见一个链接"的病因在【写法】（裸 URL / 反引号代码串不是图）或【加载失败】
     #    （`MarkdownImage` onError 会回落成 alt 文字），不在渲染器不支持 ⇒ 拿"必须 present 每张帧图"
     #    去治它 = 凭空多加一道收工闸门。直链照旧给（它同时是加载失败时的备份）。
+    # 🔴 画面文字复验（2026-10-23 用户定「全画面干净」）：合同 `negative-lock` 只查 prompt 文本里
+    #    有没有「不得出现字幕」这句话，**不查像素** —— 10-14 现网就是那句在位、钩照打、成片 8/8 帧带原片字幕。
+    #    所以交付包必须把"抽帧 + 本机 OCR"的结果原样印出来：没做/有命中都不许悄悄过。
+    #    白名单是产品图自己的 OCR（包装文字按合同必须保留），不是词表；读不到引擎 ⇒ 如实写"没做"。
+    if not is_image:
+        ft = None
+        for _up in range(0, 4):
+            _d = os.path.dirname(os.path.abspath(video))
+            for _ in range(_up):
+                _d = os.path.dirname(_d)
+            _c = os.path.join(_d, "frame_text_verify.json")
+            if os.path.isfile(_c):
+                try:
+                    ft = json.load(io.open(_c, encoding="utf-8"))
+                except Exception as e:                            # noqa: BLE001
+                    ft = {"clean": None, "note": "物证读不出来：%s" % type(e).__name__, "file": _c}
+                break
+        rep["frame_text"] = ft
+        if ft is None:
+            rep["checks"]["画面文字复验(成片抽帧OCR)"] = False
+            md0 = ("🔴 **画面文字没复验**（找不到 `frame_text_verify.json`）⇒ 这一项【没做】，不许拿"
+                   "「提示词里写了不得出现字幕」当干净。补做：`run.py --stage wait` 或重跑交付前那一步，"
+                   "它会在任务目录 `outputs/frame_text_verify.json` 落物证。")
+        elif ft.get("clean") is True:
+            rep["checks"]["画面文字复验(成片抽帧OCR)"] = True
+            md0 = ("✅ **画面文字复验**：%s 帧（引擎 %s，间隔 %ss）0 处非包装文字 ⇒ 全画面干净"
+                   % (ft.get("frames_checked"), ft.get("engine"), ft.get("interval_seconds")))
+        elif ft.get("clean") is False:
+            rep["checks"]["画面文字复验(成片抽帧OCR)"] = False
+            _ex = "；".join("t=%ss「%s」" % (s.get("t"), str(s.get("text"))[:20])
+                            for s in (ft.get("suspects") or [])[:3])
+            md0 = ("🔴 **画面里有 %d 处白名单外文字**（%s）⇒ %s。正解只有两条：换无字幕源，"
+                   "或走 `video.edit/dewatermark`（20 分/次、默认要批、须先登记成合同步）"
+                   % (len(ft.get("suspects") or []), _ex, ft.get("note") or ""))
+        else:
+            rep["checks"]["画面文字复验(成片抽帧OCR)"] = False
+            md0 = "🔴 **画面文字复验没做成**：%s" % (ft.get("note") or "物证里没有结论")
+        rep["frame_text_line"] = md0
     rep["ok"] = all(bool(v) for v in rep["checks"].values())
-    md = ["**成片**：`%s`（%d KB）" % (video, size // 1024),
-          "**直链**（浏览器可播、能拖）：%s" % link]
+    md = ["**%s**：`%s`（%d KB）" % ("图片" if is_image else "成片", video, size // 1024),
+          "**直链**（%s）：%s" % ("单独要图走这条" if is_image else "浏览器可播、能拖", link)]
     if rep["links"]:
-        md.append("**画面**（抽帧，证明里面是这个东西）：")
-        md += ["![预览%d](%s)" % (i + 1, u) for i, u in enumerate(rep["links"])]
-    if pstat not in ("presented", "unchecked"):
+        md.append("**画面**（%s）：" % ("内联在这条消息里" if is_image else "抽帧，证明里面是这个东西"))
+        if is_image:
+            # alt 用文件名：加载失败时 MarkdownImage 会回落成 alt，那行字要能认出是哪张。
+            md.append("![%s](%s)" % (os.path.splitext(name)[0], rep["links"][0]))
+        else:
+            md += ["![预览%d](%s)" % (i + 1, u) for i, u in enumerate(rep["links"])]
+    if pstat not in ("presented", "unchecked", "not-required"):
         md.append("🔴 **没 present ⇒ 这条不算交付完**（%s）。先对这个 mp4 调一次 present，再重跑本脚本："
-                  "客户要的是那张【打开 / 下载视频 / 默认播放器】的卡，不是一条裸链接。" % pmsg)
+                  "客户要的是那张【打开】带菜单（用默认应用打开 / 在文件资源管理器中显示 / 下载视频）的卡，不是一条裸链接。" % pmsg)
+    if rep.get("frame_text_line"):
+        md.append(rep["frame_text_line"])
     # 🔴 skill 执行合同回执：交付消息里必须现形（缺步/跳过原因一起印出来）。
     #    这里只"照"不"拦" —— 拦是在花钱那一刀（skill_contract.verify_or_raise）。
     #    没有回执的产物（非 skill 出的文件）留空，不判失败。
     _rc, _rec = "", {}                     # 🔴 先给空壳：上面 try 里任何一步炸了，下面也不能 NameError
     try:
-        sys.path.insert(0, r"D:\video-skill")
+        sys.path.insert(0, WS)
+        sys.path.insert(0, BACKEND)
         from backend import skill_contract as _skc
 
         # 🔴 只有真在 productions/<任务>/ 下才核对：否则 root 会算成盘根（C:\），

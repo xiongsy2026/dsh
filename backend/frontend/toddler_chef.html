@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>涨粉 · 小孩做菜 Agent</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+        .topbar { background: linear-gradient(90deg, #06b6d4 0%, #3b82f6 100%); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar h1 { font-size: 1.5em; color: #fff; letter-spacing: 2px; }
+        .topbar .tag { background: rgba(255,255,255,.2); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: .8em; }
+        .back-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .9em; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .back-btn:hover { background: rgba(255,255,255,.28); }
+        .main { display: flex; min-height: calc(100vh - 60px); }
+        .input-panel { width: 380px; min-width: 320px; background: #16162a; border-right: 1px solid #2a2a44; padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+        .section-title { font-size: 1.05em; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+        .count-btns { display: flex; gap: 12px; }
+        .count-btn { flex: 1; padding: 16px 12px; border: 2px solid #2a2a5c; border-radius: 12px; background: #1e1e36; color: #e0e0e0; font-size: 1em; font-weight: 600; cursor: pointer; transition: all .2s; text-align: center; }
+        .count-btn:hover { border-color: #06b6d4; background: #22223e; transform: translateY(-2px); }
+        .count-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .count-btn .btn-num { font-size: 1.8em; display: block; margin-bottom: 4px; color: #22d3ee; }
+        .count-btn .btn-label { font-size: .78em; color: #888; }
+        .ref-image { text-align: center; }
+        .ref-image h3 { font-size: .9em; color: #888; margin-bottom: 10px; }
+        .ref-image img { max-width: 100%; max-height: 200px; border-radius: 12px; border: 1px solid #2a2a5c; }
+        .ref-image .no-img { padding: 40px; background: #1e1e36; border-radius: 12px; border: 2px dashed #2a2a5c; color: #555; }
+        .upload-btn { margin-top: 10px; padding: 8px 20px; background: #1e1e36; border: 1px solid #2a2a5c; border-radius: 8px; color: #22d3ee; cursor: pointer; font-size: .85em; transition: all .2s; }
+        .upload-btn:hover { background: #22223e; border-color: #06b6d4; }
+        .history-section { margin-top: 24px; }
+        .history-list { max-height: 300px; overflow-y: auto; }
+        .history-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #1e1e36; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all .2s; border: 1px solid transparent; }
+        .history-item:hover { border-color: #06b6d4; }
+        .history-item .h-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; background: #0f0f1a; }
+        .history-item .h-info { flex: 1; min-width: 0; }
+        .history-item .h-title { font-size: .82em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .history-item .h-meta { font-size: .7em; color: #666; margin-top: 2px; }
+        .history-item .h-status { font-size: .7em; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+        .output-panel { flex: 1; padding: 28px; overflow-y: auto; background: #0f0f1a; }
+        .placeholder { text-align: center; padding: 80px 20px; color: #555; font-size: 1.1em; }
+
+        /* 进度条 */
+        .progress-area { margin-bottom: 20px; }
+        .progress-bar-bg { width: 100%; height: 8px; background: #1e1e36; border-radius: 4px; overflow: hidden; margin-top: 8px; }
+        .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #06b6d4, #3b82f6); border-radius: 4px; transition: width .5s ease; }
+        .progress-step { font-size: .9em; color: #22d3ee; margin-top: 6px; }
+
+        /* 结果卡片 */
+        .result-card { background: #16162a; border-radius: 14px; padding: 24px; margin-bottom: 20px; border: 1px solid #2a2a5c; }
+        .result-card .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+        .result-card .card-header h3 { font-size: 1.1em; }
+        .result-card .card-index { background: #06b6d4; color: #fff; padding: 3px 12px; border-radius: 20px; font-size: .78em; font-weight: 600; }
+
+        /* 分镜图 */
+        .storyboard-section { margin-bottom: 18px; }
+        .storyboard-section .label { font-size: .85em; color: #22d3ee; font-weight: 600; margin-bottom: 10px; }
+        .storyboard-section img { width: 100%; max-width: 600px; border-radius: 12px; border: 1px solid #2a2a5c; }
+
+        /* 视频 */
+        .video-section { margin-bottom: 18px; }
+        .video-section .label { font-size: .85em; color: #22d3ee; font-weight: 600; margin-bottom: 10px; }
+        .video-section video { width: 100%; max-width: 360px; border-radius: 12px; border: 1px solid #2a2a5c; }
+        .video-section .video-link { display: inline-block; margin-top: 8px; color: #22d3ee; text-decoration: underline; font-size: .88em; }
+
+        .status-badge { padding: 3px 10px; border-radius: 12px; font-size: .75em; font-weight: 600; }
+        .status-badge.ok { background: #065f46; color: #6ee7b7; }
+        .status-badge.pending { background: #713f12; color: #fcd34d; }
+        .status-badge.fail { background: #7f1d1d; color: #fca5a5; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div style="display:flex;align-items:center;gap:14px;">
+        <a class="back-btn" href="/">← 首页</a>
+        <h1>TODDLER CHEF AGENT</h1>
+        <span class="tag">涨粉 · 小孩做菜</span>
+    </div>
+</div>
+<div class="main">
+    <div class="input-panel">
+        <div>
+            <div class="section-title">🚀 一键生成视频</div>
+            <div class="count-btns">
+                <button class="count-btn" onclick="startPipeline(1)"><span class="btn-num">1</span><span class="btn-label">条视频</span></button>
+                <button class="count-btn" onclick="startPipeline(3)"><span class="btn-num">3</span><span class="btn-label">条视频</span></button>
+                <button class="count-btn" onclick="startPipeline(5)"><span class="btn-num">5</span><span class="btn-label">条视频</span></button>
+            </div>
+        </div>
+        <div class="ref-image">
+            <h3>👶 固定孩子形象参考</h3>
+            <img id="refImg" src="/api/toddler-chef/reference-image" alt="孩子形象参考" onerror="this.style.display='none';document.getElementById('noRefImg').style.display='block';">
+            <div id="noRefImg" class="no-img" style="display:none;">参考图未配置</div>
+            <input type="file" id="refUpload" accept="image/*" style="display:none;" onchange="uploadRefImage(this)">
+            <button class="upload-btn" onclick="document.getElementById('refUpload').click()">上传参考图</button>
+        </div>
+        <div class="history-section">
+            <div class="section-title">历史记录</div>
+            <div class="history-list" id="historyList">
+                <div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>
+            </div>
+        </div>
+    </div>
+    <div class="output-panel" id="outputPanel">
+        <div class="placeholder">点击左侧按钮，一键生成小孩做菜视频</div>
+    </div>
+</div>
+
+<script>
+let pollTimer = null;
+
+// ── 参考图上传 ──
+async function uploadRefImage(input) {
+    if (!input.files || !input.files[0]) return;
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    try {
+        const resp = await fetch('/api/toddler-chef/upload-reference', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.success) {
+            const img = document.getElementById('refImg');
+            img.src = data.url;
+            img.style.display = 'block';
+            document.getElementById('noRefImg').style.display = 'none';
+            alert('参考图已保存');
+        } else {
+            alert('上传失败: ' + (data.detail || ''));
+        }
+    } catch (err) {
+        alert('上传错误: ' + err.message);
+    }
+    input.value = '';
+}
+
+// ── 历史记录 ──
+async function loadHistory() {
+    try {
+        const resp = await fetch('/api/toddler-chef/history');
+        const data = await resp.json();
+        const listEl = document.getElementById('historyList');
+        if (!data.history || data.history.length === 0) {
+            listEl.innerHTML = '<div style="color:#555;font-size:.85em;text-align:center;padding:20px;">暂无记录</div>';
+            return;
+        }
+        listEl.innerHTML = data.history.map(item => {
+            const statusClass = item.status === 'completed' ? 'ok' : (item.status === 'failed' ? 'fail' : 'pending');
+            const statusText = item.status === 'completed' ? '完成' : (item.status === 'failed' ? '失败' : '进行中');
+            const thumb = item.storyboard_image ? `<img class="h-thumb" src="${item.storyboard_image}" alt="">` : `<div class="h-thumb"></div>`;
+            const title = item.title || '小孩做菜视频';
+            const date = item.created_at ? item.created_at.split(' ')[1] || item.created_at : '';
+            return `<div class="history-item" onclick="showHistoryItem('${item.task_id}', ${item.script_index})">
+                ${thumb}
+                <div class="h-info">
+                    <div class="h-title">${escapeHtml(title)}</div>
+                    <div class="h-meta">${date} · #${item.script_index}</div>
+                </div>
+                <span class="h-status status-badge ${statusClass}">${statusText}</span>
+            </div>`;
+        }).join('');
+    } catch (err) {}
+}
+
+function showHistoryItem(taskId, scriptIndex) {
+    // 点击历史记录项，跳转到对应结果
+    // 滚动到 output panel 并提示
+    const panel = document.getElementById('outputPanel');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// 页面加载时获取历史记录
+loadHistory();
+
+async function startPipeline(count) {
+    const btns = document.querySelectorAll('.count-btn');
+    btns.forEach(b => b.disabled = true);
+
+    const panel = document.getElementById('outputPanel');
+    panel.innerHTML = `
+        <div class="progress-area">
+            <div class="section-title">⏳ 正在生成 ${count} 条视频...</div>
+            <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+            <div class="progress-step" id="progressStep">初始化中...</div>
+        </div>
+    `;
+
+    try {
+        const resp = await fetch('/api/toddler-chef/pipeline', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count })
+        });
+        const data = await resp.json();
+        if (!data.task_id) {
+            panel.innerHTML = `<div class="placeholder" style="color:#f87171;">启动失败: ${data.detail || '未知错误'}</div>`;
+            btns.forEach(b => b.disabled = false);
+            return;
+        }
+        // 开始轮询
+        pollTask(data.task_id, count, btns);
+    } catch (err) {
+        panel.innerHTML = `<div class="placeholder" style="color:#f87171;">请求失败: ${err.message}</div>`;
+        btns.forEach(b => b.disabled = false);
+    }
+}
+
+function pollTask(taskId, count, btns) {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/toddler-chef/status/${taskId}`);
+            const task = await resp.json();
+
+            // 更新进度
+            const fill = document.getElementById('progressFill');
+            const step = document.getElementById('progressStep');
+            if (fill) fill.style.width = task.progress + '%';
+            if (step) step.textContent = task.step || '';
+
+            if (task.status === 'completed') {
+                clearInterval(pollTimer);
+                renderResults(task.results);
+                btns.forEach(b => b.disabled = false);
+                loadHistory();
+            } else if (task.status === 'failed') {
+                clearInterval(pollTimer);
+                const panel = document.getElementById('outputPanel');
+                panel.innerHTML = `<div class="placeholder" style="color:#f87171;">生成失败: ${task.error || task.step}</div>`;
+                btns.forEach(b => b.disabled = false);
+                loadHistory();
+            }
+        } catch (err) {
+            // 轮询错误不中断
+        }
+    }, 2000);
+}
+
+function renderResults(results) {
+    const panel = document.getElementById('outputPanel');
+    panel.innerHTML = '';
+
+    if (!results || results.length === 0) {
+        panel.innerHTML = '<div class="placeholder">无结果</div>';
+        return;
+    }
+
+    results.forEach((item, idx) => {
+        const card = document.createElement('div');
+        card.className = 'result-card';
+
+        const statusClass = item.video_status === 'ok' ? 'ok' : (item.video_status === 'failed' ? 'fail' : 'pending');
+        const statusText = item.video_status === 'ok' ? '已完成' : (item.video_status === 'failed' ? '失败' : item.video_status);
+
+        let html = `<div class="card-header"><h3>${escapeHtml(item.title || '小孩做菜视频')}</h3><span class="status-badge ${statusClass}">${statusText}</span></div>`;
+
+        // 分镜图
+        if (item.storyboard_image) {
+            html += `<div class="storyboard-section"><div class="label">九宫格分镜图</div><img src="${item.storyboard_image}" alt="分镜图" loading="lazy"></div>`;
+        }
+
+        // 视频
+        if (item.video_url) {
+            html += `<div class="video-section"><div class="label">生成视频</div><video controls src="${item.video_url}" preload="metadata"></video><a class="video-link" href="${item.video_url}" target="_blank">下载视频</a></div>`;
+        }
+
+        card.innerHTML = html;
+        panel.appendChild(card);
+    });
+}
+
+function escapeHtml(t) {
+    return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

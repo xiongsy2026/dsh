@@ -17,14 +17,17 @@ import subprocess as sp
 import sys
 import tempfile
 
-GW_DIR = r"D:\video-skill"
+GW_DIR = BACKEND
 APP_PY = os.path.join(GW_DIR, "app.py")
-GATEWAY_PY = os.path.join(GW_DIR, "backend", "gateway.py")
+GATEWAY_PY = os.path.join(GW_DIR, "gateway.py")
 
 SCRATCH = tempfile.mkdtemp(prefix="spend-approval-gate-")
 os.environ["GATEWAY_SPEND_APPROVALS"] = os.path.join(SCRATCH, "approvals.json")
 os.environ["GATEWAY_LEDGER"] = os.path.join(SCRATCH, "ledger.sqlite")
 os.environ["PYTHONPATH"] = GW_DIR
+WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+sys.path.insert(0, WS)
 sys.path.insert(0, GW_DIR)
 
 TOTAL = 0
@@ -62,6 +65,13 @@ gw.ALLOW_GRANT_WITHOUT_ATTEST = True
 
 # ── G1 清单：2026-10-09 用户最终口径"除了生图片和推理，其他都要审批" ⇒ 判据【默认要批 + 免批白名单】
 #    反向的理由：正向清单会在新增能力时静默漏掉（video.edit 就是这么被"免批"跑掉真分的）。
+
+# 🔴 文本腿的 purpose 不硬写：2026-10-22 另一会话把 text.complete/agnes 在管理台下架、
+#   defaults 改指 mimo ⇒ 硬写 agnes 会让 S1-S3/S5 因为"路由被屏蔽"而红，
+#   而那红和这条闸要守的规则（成功必须按 usage 销账）毫无关系。
+#   跑时现读默认腿 = 钉规则不钉现场（换脑不把闸弄红，也不把闸变成空跑）。
+_S_TEXT = gw.default_purpose("text.complete")
+
 check("G1 免批白名单 = 生图片 + 两条推理类",
       sorted(gw.SPEND_APPROVAL_EXEMPT), ["image.generate", "text.complete", "video.analyze"])
 check("G1a 底线：生视频绝不能免批", gw.needs_spend_approval("video.generate"), True)
@@ -155,7 +165,7 @@ check("G16c 拒绝时报价结构齐（capability/purpose/unit_price/credits/bal
              k in ("capability", "purpose", "unit_price", "credits", "count", "balance_after")),
       sorted(["capability", "purpose", "unit_price", "credits", "count", "balance_after"]))
 check("G16d 免批类不花钱就能过闸（文本腿不该被拦）",
-      gw.check_spend_approval("text.complete", "agnes", "local", 1, 1)["ok"], True)
+      gw.check_spend_approval("text.complete", _S_TEXT, "local", 1, 1)["ok"], True)
 g_ok = gw.grant_spend_approval("video.generate", "omni-t2v", "local", 1, 9999, "本闸自测条子")
 r_ok = gw.check_spend_approval("video.generate", "omni-t2v", "local", 1, 40)
 check("G16e 有条子 ⇒ 放行并记账（正向对照，缺它就等于全程假绿）",
@@ -244,7 +254,7 @@ check("G27f 指名退一笔 ⇒ 退款正确、余额回来",
       [rb1.get("ok"), rb1.get("refunded")], [True, 40])
 rb2 = json.loads(cli27("holds-rollback", _h["hold_id"]).stdout or "{}")
 check("G27g 同一 id 再退 ⇒ 拒（幂等，不重复退钱）", rb2.get("ok"), False)
-_ws = open(r"C:\dsh\AGENTS.md", encoding="utf-8").read()   # WS_DOC 在下面才定义，这里自己读一次
+_ws = open(os.path.join(WS, r"AGENTS.md"), encoding="utf-8").read()   # WS_DOC 在下面才定义，这里自己读一次
 check("G27h 文档里写的回收命令必须【与 CLI 实际动词逐字一致】（文档不许再跑到代码前面）",
       ["holds-rollback" in _ws, 'cmd == "holds"' in src, 'cmd == "holds-rollback"' in src,
        "holds-pending" in _ws], [True, True, True, False])
@@ -343,7 +353,7 @@ def _read(p):
     return open(p, encoding="utf-8", errors="replace").read() if os.path.isfile(p) else ""
 
 
-WS_DOC = _read(r"C:\dsh\AGENTS.md")
+WS_DOC = _read(os.path.join(WS, r"AGENTS.md"))
 GLB_DOC = _read(os.path.expandvars(r"%APPDATA%\dsh-desktop\harness\AGENTS.md"))
 
 
@@ -351,7 +361,7 @@ def doc_gate_pairing(required_caps):
     """纯函数：给定【要批的清单】，算出文档该长什么样。抽出来才能拿变异对照跑。
        🔴 判据要落到【具体那一行】：早先只判"文档里出现过『空转』两个字"，结果 AGENTS.md 里
           RunningHub 那条变异对照的说明也含"空转" ⇒ 为错的理由通过（假绿）。现在按端点标签逐行判。"""
-    src = _read(r"D:\video-skill\app.py")
+    src = _read(os.path.join(BACKEND, r"app.py"))
     calls = re.findall(r'_spend_or_423\(\s*"([\w.]+)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"', src)
     caps = sorted({c for c, _p, _l in calls})
     noops = sorted({c for c in caps if c not in required_caps})
@@ -408,7 +418,7 @@ check("G26g 变异：清单被清空（闸整体失效）⇒ 所有端点都成�
 
 # ── G28 会话归属只许一处读法（2026-10-10 现网：三处各写一遍，唯独批准闸那处漏了 env 回落
 #    ⇒ 按会话绑的条子永远匹配不上，拒因又被上层吞成 generation_failed，账本零痕迹）────
-GW_SRC = open(os.path.join(GW_DIR, "backend", "gateway.py"), encoding="utf-8",
+GW_SRC = open(os.path.join(GW_DIR, "gateway.py"), encoding="utf-8",
               errors="replace").read()
 
 check("G28 判据 _session_of 值表：params 有 / params 空+env 有 / 都没有 / params 不是字典",
@@ -462,7 +472,7 @@ def session_offenders(sites, allowed):
     return sorted(k for k in sites if k not in allowed)
 
 
-_sites = session_env_sites(os.path.join(GW_DIR, "backend"))
+_sites = session_env_sites(GW_DIR)
 check("G28e 🔴 读 DSH_SESSION_ID 的站点必须等于白名单（新开一处=第二条路径，先想清楚再登记）",
       [sorted(_sites), sum(_sites.values()), session_offenders(_sites, SESSION_ENV_SITES_OK)],
       [sorted(SESSION_ENV_SITES_OK), 2, []])
@@ -472,7 +482,7 @@ check("G28f 对照：白名单外多一处（模拟有人在执行器里自己�
 
 # ── P 只读探额度（2026-10-10 现网：另一会话拿【消费函数】当"批没批到"的探针，吃光用户批过的段
 #    ⇒ 钱没扣但批准没了 ⇒ 只能重开待批、逼人第二次点。根因是缺一条只读路，不是它想绕。）────
-_gws = open(os.path.join(GW_DIR, "backend", "gateway.py"), encoding="utf-8", errors="replace").read()
+_gws = open(os.path.join(GW_DIR, "gateway.py"), encoding="utf-8", errors="replace").read()
 
 
 def _used_of(gid):
@@ -525,10 +535,131 @@ check("P8 🔴 同道判定只有一份：peek 与 approval_allows 都读 grant_
       ["grant_lane_matches(" in _pk, "grant_lane_matches(" in _aa,
        'g.get("capability") ==' in _pk, 'g.get("capability") ==' in _aa],
       [True, True, False, False])
+# 🔴 变异锚点用正则整块换调用，不用字面量参数表：P8b 原来 replace 的是
+#    `grant_lane_matches(g, capability, purpose, account, now, session)` 这一整串，
+#    2026-10-30 给同道判定加"渠道身份"那一格时参数多了一个 `ignore_stamp=True` ⇒ replace 空转、
+#    变异根本没发生，于是 P8 看起来有牙其实从没咬过（和 D35c 那一类一模一样：锚点被自己的合法改动吃掉）。
 check("P8b 反向对照：把 peek 改回自己比 capability ⇒ 同一条判据必须抓到（证明 P8 有牙）",
-      'g.get("capability") ==' in _pk.replace("grant_lane_matches(g, capability, purpose, account, now, session)",
-                                              'g.get("capability") == capability'), True)
+      'g.get("capability") ==' in re.sub(r"grant_lane_matches\([^)]*\)",
+                                         'g.get("capability") == capability', _pk), True)
+check("P8c 变异锚点自己要有牙：正则【真的替换到了】(替换后与原串不同)，否则 P8b 是空跑",
+      re.sub(r"grant_lane_matches\([^)]*\)", "X", _pk) != _pk, True)
 
+
+# ── S 组（2026-10-13）：成功调用必须【销账】────────────────────────────────
+# 🔴 为什么现在有这一组：`Ledger.commit()` 写好很久，但 invoke() 的成功分支从来没调它
+#    （全仓 `ledger().commit(` 零调用点）⇒ 账本永远只按【预估】扣，usage 算出的真实分数不落账，
+#    而且 hold 一直停在 pending —— 和"进程被杀留下的泄漏预扣"完全同形，谁都分不清
+#    （现网证据：holds 表最后一笔 done 停在 10-11 00:02，之后每一次成功都是 pending）。
+#    判据必须能区分【成功已销账 / 成功没销账 / 失败已回滚】这三态，不然 holds 表就是一块盲表。
+import sqlite3 as _s3
+
+
+def _s_hold(hid):
+    con = _s3.connect(os.environ["GATEWAY_LEDGER"])
+    con.row_factory = _s3.Row
+    r = con.execute("SELECT status,amount,tokens FROM holds WHERE hold_id=?", (hid,)).fetchone()
+    con.close()
+    return dict(r) if r else {}
+
+
+def _s_invoke(cap, purp, acct, params):
+    """同 G25 的道理：闸不许被被测代码炸掉，炸了要吃成【值】让断言红。"""
+    try:
+        return gw.invoke(cap, purp, acct, params)
+    except Exception as ex:                                   # noqa: BLE001
+        return {"ok": "raised:%s" % type(ex).__name__, "error": repr(ex)}
+
+
+_s_real = gw.call
+try:
+    # 按 token 结算的一条：2500 tok × 10 分/1k = 实扣 25，而预估只有 1 ⇒ 差额 24 必须补扣
+    gw.call = lambda capability, purpose, **params: {
+        "success": True, "text": "stub", "usage": {"total_tokens": 2500}}
+    _b0 = gw.ledger().balance("local")
+    _e1 = _s_invoke("text.complete", _S_TEXT, "local", {"prompt": "闸自测：不联网"})
+    _c1 = _e1.get("credits") or {}
+    _b1 = gw.ledger().balance("local")
+    check("S1 成功调用 ⇒ 实扣按 usage 落账（charged=25、余额净减 25，不是停在预估 1 分）",
+          [_e1.get("ok"), _c1.get("charged"), _b1 - _b0, _c1.get("basis")], [True, 25, -25, "usage"])
+    check("S2 hold 必须翻成 done 并记下实扣与 tokens（不翻就和泄漏预扣同形）",
+          _s_hold(_c1.get("hold_id")), {"status": "done", "amount": 25, "tokens": 2500})
+    check("S3 信封把销账结果摊开（credits.settled）—— 不许再出现【业务成功、账本静默】",
+          _c1.get("settled"), True)
+
+    # flat（上游没回 usage）：charged=est ⇒ 差额 0，不写多余流水，但状态照样要翻
+    gw.call = lambda capability, purpose, **params: {"success": True, "path": "stub.mp4"}
+    _b2 = gw.ledger().balance("s-flat")
+    _e2 = _s_invoke("image.generate", "default", "s-flat", {})
+    _c2 = _e2.get("credits") or {}
+    check("S4 不按 token 的腿也要销账：charged=预估、余额只减这一份、hold 落 done",
+          [_e2.get("ok"), _c2.get("basis"), _c2.get("charged"),
+           gw.ledger().balance("s-flat") - _b2, _s_hold(_c2.get("hold_id")).get("status")],
+          [True, "flat", _c2.get("estimated"), -int(_c2.get("estimated") or 0), "done"])
+
+    # 🔴 反向对照：把销账整个摘掉 ⇒ 同样一条必须被抓到（证明 S1-S3 钉的是"销账"，不是恒真）
+    _s_commit = gw.Ledger.commit
+    gw.Ledger.commit = lambda self, hold_id, actual, tokens=None: {"ok": False, "reason": "自测：摘掉销账"}
+    gw.call = lambda capability, purpose, **params: {
+        "success": True, "text": "stub", "usage": {"total_tokens": 2500}}
+    _b3 = gw.ledger().balance("s-mut")
+    _e3 = _s_invoke("text.complete", _S_TEXT, "s-mut", {"prompt": "闸自测：变异对照"})
+    _c3 = _e3.get("credits") or {}
+    check("S5 变异对照：摘掉 commit ⇒ settled=False、hold 还 pending、余额停在预估（S1-S3 有牙）",
+          [_e3.get("ok"), _c3.get("settled"), _s_hold(_c3.get("hold_id")).get("status"),
+           gw.ledger().balance("s-mut") - _b3], [True, False, "pending", -1])
+    gw.Ledger.commit = _s_commit
+
+    # 静态锚点：成功要 commit、失败要 rollback，两条都在 invoke 体内（重构不许把其一弄丢）
+    _iv = _gws.split("def invoke(")[1].split("def _cli")[0]
+    check("S6 顺序锚点：invoke 体内 commit 与 rollback 成对存在（只留 rollback=成功不销账，就是这次那个洞）",
+          ["ledger().commit(" in _iv, _iv.count("ledger().rollback(") >= 2], [True, True])
+finally:
+    gw.call = _s_real
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# T 组：条子必须签【渠道身份】—— 2026-10-30 换芯（wan3-prime: tianyue 按次 → yz30 按秒）暴露的洞
+#   purpose 字符串没变、上游变了 ⇒ 老判据（能力/purpose/账户/段数/分数/会话/计划指纹）全过，
+#   于是"人批的是 A 家的价、机器花的是 B 家的钱"。AGENTS.md 早写了"换路由 ⇒ 条子失效"，
+#   但物理上没有这一格，那句话就只是散文。判据落在 `spend_lane_stamp / lane_stamp_problem`。
+# ═══════════════════════════════════════════════════════════════════════════
+_nowT = gw._time.time()
+_cur = gw.spend_lane_stamp("video.generate", "wan3-prime")
+check("T0 现读得到现役这条 lane 的渠道身份（provider/model/口径/单价四格齐）",
+      [bool(_cur), _cur.get("provider"), _cur.get("model"), _cur.get("per_second"), _cur.get("unit_price")],
+      [True, "yz30", "wan3.0-video-prime", True, 4])
+_g_ok = {"capability": "video.generate", "purpose": "wan3-prime", "account": "local",
+         "count": 1, "used": 0, "credits": 60, "used_credits": 0,
+         "expires": _nowT + 600, "session": "", "lane_stamp": dict(_cur)}
+_g_old = dict(_g_ok, lane_stamp={"provider": "tianyue", "model": "ME-WAN3-prime-1080p-1055",
+                                 "per_second": False, "unit_price": 60})
+_g_nostamp = {k: v for k, v in _g_ok.items() if k != "lane_stamp"}
+check("T1 同一份渠道身份 ⇒ 照常能用（这条闸不许把正常情况也拦掉）",
+      A(_g_ok, "video.generate", "wan3-prime", "local", _nowT, 1, 60), True)
+check("T2 🔴 渠道身份是别家（换芯前批的）⇒ 这张条子消费不出去，且拒因点名两家是谁",
+      [A(_g_old, "video.generate", "wan3-prime", "local", _nowT, 1, 60),
+       bool(gw.lane_stamp_problem(_g_old, "video.generate", "wan3-prime")),
+       "tianyue" in gw.lane_stamp_problem(_g_old, "video.generate", "wan3-prime"),
+       "yz30" in gw.lane_stamp_problem(_g_old, "video.generate", "wan3-prime")],
+      [False, True, True, True])
+# 🔴 强度边界要如实：10-30 之前建的条子【没有这一格】⇒ 一律放行。
+#    不这么做就会凭空 strand 掉现网正在等的批准；"管不住旧的"必须写在断言里，不能装作管住了。
+check("T3 强度边界（钉死的散文）：没签渠道身份的【老条子】放行 —— 这条闸只管 10-30 之后建的，不假装管得住历史",
+      A(_g_nostamp, "video.generate", "wan3-prime", "local", _nowT, 1, 60), True)
+# 建条子那一侧：必须真的把身份签进去（只判消费=半条链，签名漏了就一直没人管）
+_pT = gw.create_spend_pending("video.generate", "wan3-prime", "local", 1, 60,
+                              "T4 自测：签名要落地", session="gate-t4")
+check("T4 create_spend_pending 真的签上渠道身份（四格齐，不是建完再去现读）",
+      [(_pT.get("lane_stamp") or {}).get("provider"),
+       (_pT.get("lane_stamp") or {}).get("per_second"),
+       (_pT.get("lane_stamp") or {}).get("unit_price")], ["yz30", True, 4])
+_pT2 = dict(_pT, lane_stamp={"provider": "别家", "model": "m", "per_second": True, "unit_price": 4})
+check("T5 反向对照：把同一份条子的签名改成别家 ⇒ 消费必须翻脸（证明 T1 的绿不是因为判据空跑）",
+      A(_pT2, "video.generate", "wan3-prime", "local", _nowT, 1, 60), False)
+gw.revoke_spend_approval(_pT.get("id"), reason="gate 自测收尾")
+check("T6 自测收尾：这张条子已撤（生产批准簿里不留自测样本）",
+      bool(gw.approval_allows(_pT, "video.generate", "wan3-prime", "local", _nowT, 1, 60, "gate-t4")), False)
 
 print(_safe("\n=== 花钱批准闸：%d 条断言，失败 %d ===" % (TOTAL, len(fails))))
 if fails:
